@@ -1,10 +1,12 @@
 /**
- * SWE ENGLISH EXTRA — Role-Based Admin Auth (IT Manager & Teacher) with Salted SHA-256
+ * SWE ENGLISH EXTRA — Role & Multi-User Authentication (IT Manager, Teacher & Students)
+ * Uses pure-JS salted SHA-256 so it works uniformly in file://, browser, and Node.js.
  */
 (function (root) {
   'use strict';
 
-  const SESSION_KEY = 'swe_english_extra_session_v1';
+  const SESSION_KEY = 'swe_english_extra_session_v2';
+  const LEGACY_SESSION_KEY = 'swe_english_extra_session_v1';
   const SALT_PREFIX = 'SWE_ENG_EXTRA_V2_SALT:';
 
   // Only salted SHA-256 hashes are stored here (never plaintext passwords)
@@ -13,11 +15,41 @@
     teacher: '79511e5ff7a60b187f9440f6313fd960be4b6e76e424f014cc66ab633bfbfd15'
   };
 
+  const DEFAULT_STUDENTS = [
+    {
+      id: 'stu-student1',
+      username: 'student1',
+      fullName: 'O‘quvchi 1 (Namuna)',
+      group: 'Group A',
+      active: true,
+      passwordHash: 'a9fc1f569bbc378e84eb1dffc0d329f01f9ecf6cd1b406885ffe7100b1475f50',
+      createdAt: null
+    },
+    {
+      id: 'stu-ali',
+      username: 'ali',
+      fullName: 'Ali Valiyev',
+      group: 'IELTS B2',
+      active: true,
+      passwordHash: 'bd8171c800b8548e855f39741af92c95df6a1bb662cac5f505fd6f745395dc49',
+      createdAt: null
+    },
+    {
+      id: 'stu-madina',
+      username: 'madina',
+      fullName: 'Madina Karimova',
+      group: 'IELTS C1',
+      active: true,
+      passwordHash: 'ffe4c14f158cf9ff314f219fcb26ed32e41a2846731b3636aa2ad51727385084',
+      createdAt: null
+    }
+  ];
+
   const ROLE_META = {
     student: {
       key: 'student',
       label: 'O‘quvchi',
-      badgeClass: 'bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+      badgeClass: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/25'
     },
     teacher: {
       key: 'teacher',
@@ -126,8 +158,19 @@
     }).join('');
   }
 
+  function normalizeUsername(username) {
+    return String(username || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, '');
+  }
+
   function hashRolePassword(role, password) {
     return sha256Hex(SALT_PREFIX + String(role) + ':' + String(password));
+  }
+
+  function hashStudentPassword(username, password) {
+    return sha256Hex(SALT_PREFIX + 'student:' + normalizeUsername(username) + ':' + String(password));
   }
 
   function createDefaultAuthState() {
@@ -137,12 +180,90 @@
     };
   }
 
+  function createDefaultStudents(now) {
+    const ts = typeof now === 'number' ? now : Date.now();
+    return DEFAULT_STUDENTS.map(function (s) {
+      return Object.assign({}, s, { createdAt: s.createdAt || ts });
+    });
+  }
+
+  function sanitizeStudentForClient(student) {
+    return {
+      id: student.id,
+      username: student.username,
+      fullName: student.fullName,
+      group: student.group || 'General',
+      active: student.active !== false,
+      createdAt: student.createdAt || null
+    };
+  }
+
   function verifyRolePassword(authState, role, password) {
     if (role !== 'it_manager' && role !== 'teacher') return false;
     if (!password || typeof password !== 'string') return false;
     const hashes = (authState && authState.hashes) ? authState.hashes : DEFAULT_AUTH_HASHES;
     const expected = hashes[role] || DEFAULT_AUTH_HASHES[role];
     return hashRolePassword(role, password) === expected;
+  }
+
+  function authenticate(params) {
+    const opts = params || {};
+    const role = opts.role || 'student';
+    const password = String(opts.password || '');
+
+    if (role === 'it_manager' || role === 'teacher') {
+      if (!verifyRolePassword(opts.authState, role, password)) {
+        return { ok: false, error: 'Admin paroli noto‘g‘ri!' };
+      }
+      return {
+        ok: true,
+        session: {
+          role: role,
+          userId: role,
+          username: role,
+          fullName: ROLE_META[role].label,
+          group: 'Staff',
+          loginAt: Date.now()
+        }
+      };
+    }
+
+    if (role === 'student') {
+      const cleanUser = normalizeUsername(opts.username);
+      if (!cleanUser) {
+        return { ok: false, error: 'O‘quvchi loginini kiriting (masalan: student1, ali, madina).' };
+      }
+      if (!password) {
+        return { ok: false, error: 'Parolni kiriting.' };
+      }
+      const list = Array.isArray(opts.students) ? opts.students : [];
+      const found = list.find(function (s) {
+        return normalizeUsername(s.username) === cleanUser;
+      });
+      if (!found) {
+        return { ok: false, error: 'Bunday loginli o‘quvchi topilmadi.' };
+      }
+      if (found.active === false) {
+        return { ok: false, error: 'Ushbu o‘quvchi akkaunti vaqtincha bloklangan.' };
+      }
+      if (hashStudentPassword(found.username, password) !== found.passwordHash) {
+        return { ok: false, error: 'O‘quvchi login yoki paroli noto‘g‘ri!' };
+      }
+
+      return {
+        ok: true,
+        session: {
+          role: 'student',
+          userId: found.id,
+          username: found.username,
+          fullName: found.fullName,
+          group: found.group || 'General',
+          loginAt: Date.now()
+        }
+      };
+    }
+
+    return { ok: false, error: 'Noto‘g‘ri rol tanlandi.' };
   }
 
   function changeRolePassword(authState, actorRole, targetRole, newPassword) {
@@ -165,6 +286,76 @@
     };
   }
 
+  function createStudentAccount(students, actorRole, payload, now) {
+    if (!canManageStudents(actorRole)) {
+      throw new Error('O‘quvchi yaratish uchun Teacher yoki IT Manager huquqi kerak.');
+    }
+    const cleanUser = normalizeUsername(payload && payload.username);
+    const fullName = String((payload && payload.fullName) || '').trim();
+    const group = String((payload && payload.group) || 'General').trim() || 'General';
+    const password = String((payload && payload.password) || '');
+
+    if (cleanUser.length < 3) {
+      throw new Error('Login kamida 3 ta lotin harf/raqamdan iborat bo‘lishi kerak.');
+    }
+    if (fullName.length < 2) {
+      throw new Error('O‘quvchining ism-familiyasini kiriting.');
+    }
+    if (password.trim().length < 6) {
+      throw new Error('O‘quvchi paroli kamida 6 ta belgidan iborat bo‘lishi kerak.');
+    }
+
+    const list = Array.isArray(students) ? students.slice() : [];
+    if (list.some(function (s) { return normalizeUsername(s.username) === cleanUser; })) {
+      throw new Error('"' + cleanUser + '" logini allaqachon band!');
+    }
+
+    const ts = typeof now === 'number' ? now : Date.now();
+    const created = {
+      id: 'stu-' + cleanUser + '-' + Math.random().toString(36).slice(2, 5),
+      username: cleanUser,
+      fullName: fullName,
+      group: group,
+      active: true,
+      passwordHash: hashStudentPassword(cleanUser, password),
+      createdAt: ts
+    };
+    list.push(created);
+    return { students: list, created: created };
+  }
+
+  function resetStudentPassword(students, actorRole, studentId, newPassword) {
+    if (!canManageStudents(actorRole)) {
+      throw new Error('Parolni yangilash uchun Teacher yoki IT Manager huquqi kerak.');
+    }
+    if (!newPassword || String(newPassword).trim().length < 6) {
+      throw new Error('Parol kamida 6 ta belgidan iborat bo‘lishi kerak.');
+    }
+    const list = Array.isArray(students) ? students.slice() : [];
+    let found = false;
+    const updated = list.map(function (s) {
+      if (s.id !== studentId && normalizeUsername(s.username) !== normalizeUsername(studentId)) return s;
+      found = true;
+      return Object.assign({}, s, {
+        passwordHash: hashStudentPassword(s.username, newPassword)
+      });
+    });
+    if (!found) {
+      throw new Error('O‘quvchi topilmadi.');
+    }
+    return updated;
+  }
+
+  function toggleStudentActive(students, actorRole, studentId) {
+    if (!canManageStudents(actorRole)) {
+      throw new Error('O‘quvchi holatini o‘zgartirish uchun admin huquqi kerak.');
+    }
+    return (students || []).map(function (s) {
+      if (s.id !== studentId) return s;
+      return Object.assign({}, s, { active: s.active === false });
+    });
+  }
+
   function isAdminRole(role) {
     return role === 'teacher' || role === 'it_manager';
   }
@@ -181,31 +372,77 @@
     return role === 'teacher' || role === 'it_manager';
   }
 
-  function getSessionRole(sessionBackend) {
+  function canMonitorStudents(role) {
+    return role === 'teacher' || role === 'it_manager';
+  }
+
+  function canManageStudents(role) {
+    return role === 'teacher' || role === 'it_manager';
+  }
+
+  function getSession(sessionBackend) {
     const store = sessionBackend || (typeof sessionStorage !== 'undefined' ? sessionStorage : null);
-    if (!store) return 'student';
+    if (!store) return null;
     try {
-      const val = store.getItem(SESSION_KEY);
-      return isAdminRole(val) ? val : 'student';
+      const raw = store.getItem(SESSION_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.role && (isAdminRole(parsed.role) || (parsed.role === 'student' && parsed.userId))) {
+          return parsed;
+        }
+      }
+      const legacyRole = store.getItem(LEGACY_SESSION_KEY);
+      if (isAdminRole(legacyRole)) {
+        return {
+          role: legacyRole,
+          userId: legacyRole,
+          username: legacyRole,
+          fullName: ROLE_META[legacyRole].label,
+          group: 'Staff',
+          loginAt: Date.now()
+        };
+      }
+      return null;
     } catch (e) {
-      return 'student';
+      return null;
     }
   }
 
-  function setSessionRole(role, sessionBackend) {
+  function setSession(sessionObj, sessionBackend) {
     const store = sessionBackend || (typeof sessionStorage !== 'undefined' ? sessionStorage : null);
-    const normalized = isAdminRole(role) ? role : 'student';
-    if (!store) return normalized;
+    if (!store) return sessionObj || null;
     try {
-      if (normalized === 'student') {
+      store.removeItem(LEGACY_SESSION_KEY);
+      if (!sessionObj) {
         store.removeItem(SESSION_KEY);
-      } else {
-        store.setItem(SESSION_KEY, normalized);
+        return null;
       }
+      store.setItem(SESSION_KEY, JSON.stringify(sessionObj));
     } catch (e) {
       // Ignore storage restriction
     }
-    return normalized;
+    return sessionObj;
+  }
+
+  function getSessionRole(sessionBackend) {
+    const sess = getSession(sessionBackend);
+    return sess ? sess.role : 'guest';
+  }
+
+  function setSessionRole(role, sessionBackend) {
+    if (!isAdminRole(role)) {
+      setSession(null, sessionBackend);
+      return 'guest';
+    }
+    setSession({
+      role: role,
+      userId: role,
+      username: role,
+      fullName: ROLE_META[role].label,
+      group: 'Staff',
+      loginAt: Date.now()
+    }, sessionBackend);
+    return role;
   }
 
   function appendAuditLog(auditLog, actorRole, action, detail, now) {
@@ -217,22 +454,35 @@
       action: String(action || ''),
       detail: String(detail || '')
     });
-    return list.slice(0, 100);
+    return list.slice(0, 150);
   }
 
   const api = {
     SESSION_KEY: SESSION_KEY,
     DEFAULT_AUTH_HASHES: DEFAULT_AUTH_HASHES,
+    DEFAULT_STUDENTS: DEFAULT_STUDENTS,
     ROLE_META: ROLE_META,
     sha256Hex: sha256Hex,
+    normalizeUsername: normalizeUsername,
     hashRolePassword: hashRolePassword,
+    hashStudentPassword: hashStudentPassword,
     createDefaultAuthState: createDefaultAuthState,
+    createDefaultStudents: createDefaultStudents,
+    sanitizeStudentForClient: sanitizeStudentForClient,
     verifyRolePassword: verifyRolePassword,
+    authenticate: authenticate,
     changeRolePassword: changeRolePassword,
+    createStudentAccount: createStudentAccount,
+    resetStudentPassword: resetStudentPassword,
+    toggleStudentActive: toggleStudentActive,
     isAdminRole: isAdminRole,
     canManageSecurity: canManageSecurity,
     canManageLessons: canManageLessons,
     canBulkTxtAi: canBulkTxtAi,
+    canMonitorStudents: canMonitorStudents,
+    canManageStudents: canManageStudents,
+    getSession: getSession,
+    setSession: setSession,
     getSessionRole: getSessionRole,
     setSessionRole: setSessionRole,
     appendAuditLog: appendAuditLog

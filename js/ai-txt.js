@@ -5,6 +5,29 @@
 (function (root) {
   'use strict';
 
+  const PROVIDER_DEFAULTS = {
+    deepseek: {
+      label: 'DeepSeek AI',
+      defaultModel: 'deepseek-chat',
+      endpoint: 'https://api.deepseek.com/chat/completions'
+    },
+    gemini: {
+      label: 'Google Gemini',
+      defaultModel: 'gemini-2.5-flash',
+      endpoint: ''
+    },
+    openai: {
+      label: 'OpenAI (GPT)',
+      defaultModel: 'gpt-4o-mini',
+      endpoint: 'https://api.openai.com/v1/chat/completions'
+    },
+    custom: {
+      label: 'Custom OpenAI-Compatible',
+      defaultModel: 'gpt-4o-mini',
+      endpoint: ''
+    }
+  };
+
   const SAMPLE_TXT = [
     '# 4-dars: Technology & Innovation',
     '1. ubiquitous - hamma joyda uchraydigan',
@@ -208,6 +231,7 @@
 
   function extractJsonFromAiResponse(rawText) {
     let text = String(rawText || '').trim();
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
 
     try {
@@ -215,6 +239,8 @@
       if (Array.isArray(parsed)) return parsed;
       if (parsed && Array.isArray(parsed.words)) return parsed.words;
       if (parsed && Array.isArray(parsed.items)) return parsed.items;
+      if (parsed && Array.isArray(parsed.vocabulary)) return parsed.vocabulary;
+      if (parsed && Array.isArray(parsed.data)) return parsed.data;
     } catch (e) {
       // Fallback: slice outer JSON array
     }
@@ -342,7 +368,7 @@
       throw new Error('AI API Key kiritilmagan. Admin Panel -> AI & API Key bo‘limida kalitni saqlang.');
     }
 
-    const provider = cfg.provider || 'gemini';
+    const provider = cfg.provider || 'deepseek';
 
     if (provider === 'gemini') {
       const model = String(cfg.model || 'gemini-2.5-flash').trim();
@@ -380,36 +406,54 @@
       return text;
     }
 
-    // OpenAI or Custom OpenAI-compatible
-    const endpoint = provider === 'custom'
-      ? String(cfg.customUrl || '').trim()
-      : 'https://api.openai.com/v1/chat/completions';
+    // DeepSeek, OpenAI or Custom OpenAI-compatible
+    let endpoint = 'https://api.deepseek.com/chat/completions';
+    if (provider === 'openai') {
+      endpoint = 'https://api.openai.com/v1/chat/completions';
+    } else if (provider === 'custom') {
+      endpoint = String(cfg.customUrl || '').trim();
+    } else if (provider === 'deepseek') {
+      endpoint = String(cfg.customUrl || '').trim() || 'https://api.deepseek.com/chat/completions';
+    }
 
     if (!endpoint) {
       throw new Error('Custom AI Endpoint URL kiritilmagan.');
     }
 
-    const model = String(cfg.model || (provider === 'openai' ? 'gpt-4o-mini' : 'gpt-4o-mini')).trim();
-    const res = await fetcher(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + apiKey
-      },
-      body: JSON.stringify({
-        model: model,
-        temperature: 0.2,
-        messages: [
-          { role: 'system', content: 'You output strict JSON arrays only.' },
-          { role: 'user', content: promptText }
-        ]
-      })
-    });
+    const defaultModel = (PROVIDER_DEFAULTS[provider] && PROVIDER_DEFAULTS[provider].defaultModel) || 'deepseek-chat';
+    const model = String(cfg.model || defaultModel).trim();
+    const requestPayload = {
+      model: model,
+      temperature: 0.2,
+      stream: false,
+      messages: [
+        { role: 'system', content: 'You are a helpful English-Uzbek lexicographer. Output strict JSON arrays only.' },
+        { role: 'user', content: promptText }
+      ]
+    };
+
+    let res;
+    try {
+      res = await fetcher(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + apiKey
+        },
+        body: JSON.stringify(requestPayload)
+      });
+    } catch (networkErr) {
+      // Optional local Node server CORS fallback if user is connected to server.js
+      if (!fetchImpl && root && root.SWESync && typeof root.SWESync.proxyAiRequest === 'function' && root.SWESync.isServerMode()) {
+        return root.SWESync.proxyAiRequest(endpoint, apiKey, requestPayload);
+      }
+      throw new Error('AI serveriga ulanib bo‘lmadi: ' + (networkErr && networkErr.message ? networkErr.message : 'Network error'));
+    }
 
     const data = await res.json().catch(function () { return {}; });
     if (!res.ok) {
       const msg = (data && data.error && data.error.message) || ('HTTP ' + res.status);
-      throw new Error('AI API xatosi: ' + msg);
+      throw new Error((provider === 'deepseek' ? 'DeepSeek API xatosi: ' : 'AI API xatosi: ') + msg);
     }
 
     const content = data &&
@@ -469,6 +513,7 @@
   }
 
   const api = {
+    PROVIDER_DEFAULTS: PROVIDER_DEFAULTS,
     SAMPLE_TXT: SAMPLE_TXT,
     parseRawTxtVocabulary: parseRawTxtVocabulary,
     exportToTXT: exportToTXT,

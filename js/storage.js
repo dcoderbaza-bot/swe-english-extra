@@ -111,20 +111,71 @@
 
   function createDefaultAiConfig() {
     return {
-      provider: 'gemini',
-      model: 'gemini-2.5-flash',
+      provider: 'deepseek',
+      model: 'deepseek-chat',
       apiKey: '',
       customUrl: ''
+    };
+  }
+
+  function createEmptyStats(now) {
+    const ts = typeof now === 'number' ? now : Date.now();
+    return {
+      streakCount: 0,
+      longestStreak: 0,
+      lastStudyDate: null,
+      todayDate: getLocalDateKey(new Date(ts)),
+      todayReviewed: 0,
+      totalReviews: 0,
+      dailyGoal: 10
+    };
+  }
+
+  function createEmptyStudentProgress(now) {
+    const ts = typeof now === 'number' ? now : Date.now();
+    return {
+      srsByWordId: {},
+      stats: createEmptyStats(ts),
+      modeStats: {
+        flashcardsReviewed: 0,
+        quizCompleted: 0,
+        quizCorrect: 0,
+        quizTotal: 0,
+        writingCompleted: 0,
+        writingCorrect: 0,
+        writingTotal: 0,
+        listeningCompleted: 0,
+        listeningCorrect: 0,
+        listeningTotal: 0
+      },
+      liveStatus: {
+        online: false,
+        lastSeenAt: null,
+        currentView: 'dashboard',
+        currentMode: 'flashcards',
+        currentLesson: 'ALL',
+        currentDeck: 'ALL',
+        currentWord: '',
+        currentAction: 'Tizimga kirmagan',
+        sessionStartedAt: null
+      }
     };
   }
 
   function createDefaultState(now) {
     const deps = getDeps();
     const ts = typeof now === 'number' ? now : Date.now();
-    const todayKey = getLocalDateKey(new Date(ts));
+    const students = deps.authMod && typeof deps.authMod.createDefaultStudents === 'function'
+      ? deps.authMod.createDefaultStudents(ts)
+      : [];
+
+    const studentProgress = {};
+    students.forEach(function (stu) {
+      studentProgress[stu.id] = createEmptyStudentProgress(ts);
+    });
 
     return {
-      version: 2,
+      version: 3,
       words: deps.dataMod.DEFAULT_WORDS.map(function (w) {
         return normalizeWordRecord(w, ts);
       }),
@@ -134,15 +185,10 @@
       lessons: (deps.dataMod.DEFAULT_LESSONS || []).map(function (l) {
         return Object.assign({}, l);
       }),
-      stats: {
-        streakCount: 0,
-        longestStreak: 0,
-        lastStudyDate: null,
-        todayDate: todayKey,
-        todayReviewed: 0,
-        totalReviews: 0,
-        dailyGoal: 10
-      },
+      students: students,
+      studentProgress: studentProgress,
+      studentActivityLog: [],
+      stats: createEmptyStats(ts),
       settings: {
         theme: 'light',
         accent: 'en-US'
@@ -169,11 +215,11 @@
     return stats.todayDate === todayKey ? (Number(stats.todayReviewed) || 0) : 0;
   }
 
-  function recordStudyActivity(state, now) {
+  function applyStatsStudyActivity(rawStats, now) {
     const ts = typeof now === 'number' ? now : Date.now();
     const todayKey = getLocalDateKey(new Date(ts));
     const yesterdayKey = getPreviousDateKey(todayKey);
-    const stats = Object.assign({}, state.stats);
+    const stats = Object.assign(createEmptyStats(ts), rawStats || {});
 
     const prevTodayCount = stats.todayDate === todayKey ? (Number(stats.todayReviewed) || 0) : 0;
 
@@ -191,7 +237,345 @@
     stats.totalReviews = (Number(stats.totalReviews) || 0) + 1;
     stats.longestStreak = Math.max(Number(stats.longestStreak) || 0, stats.streakCount);
 
-    return Object.assign({}, state, { stats: stats });
+    return stats;
+  }
+
+  function recordStudyActivity(state, now) {
+    return Object.assign({}, state, {
+      stats: applyStatsStudyActivity(state.stats, now)
+    });
+  }
+
+  function ensureStudentProgress(state, studentId, now) {
+    const ts = typeof now === 'number' ? now : Date.now();
+    const map = Object.assign({}, (state && state.studentProgress) || {});
+    if (!studentId) return map;
+    const base = createEmptyStudentProgress(ts);
+    const current = map[studentId] || {};
+    map[studentId] = {
+      srsByWordId: Object.assign({}, current.srsByWordId || {}),
+      stats: Object.assign(base.stats, current.stats || {}),
+      modeStats: Object.assign(base.modeStats, current.modeStats || {}),
+      liveStatus: Object.assign(base.liveStatus, current.liveStatus || {})
+    };
+    return map;
+  }
+
+  function getWordsForSession(state, userSession, now) {
+    const ts = typeof now === 'number' ? now : Date.now();
+    const baseWords = Array.isArray(state && state.words) ? state.words : [];
+    if (!userSession || userSession.role !== 'student' || !userSession.userId) {
+      return baseWords;
+    }
+
+    const deps = getDeps();
+    const progress = (state.studentProgress && state.studentProgress[userSession.userId]) || null;
+    const srsMap = (progress && progress.srsByWordId) || {};
+
+    return baseWords.map(function (w) {
+      const srsState = srsMap[w.id];
+      if (!srsState) {
+        const fresh = deps.srsMod.createInitialSrsState(ts);
+        return Object.assign({}, w, {
+          status: fresh.status,
+          mastered: false,
+          intervalDays: 0,
+          repetitions: 0,
+          lapses: 0,
+          lastRating: null,
+          lastReviewedAt: null,
+          nextReviewAt: w.createdAt || ts
+        });
+      }
+      return Object.assign({}, w, srsState);
+    });
+  }
+
+  function getStatsForSession(state, userSession) {
+    if (userSession && userSession.role === 'student' && userSession.userId) {
+      const progress = state && state.studentProgress && state.studentProgress[userSession.userId];
+      if (progress && progress.stats) return progress.stats;
+      return createEmptyStats(Date.now());
+    }
+    return (state && state.stats) || createEmptyStats(Date.now());
+  }
+
+  function appendStudentActivityLog(logList, studentSession, eventPayload, now) {
+    const list = Array.isArray(logList) ? logList.slice() : [];
+    const ts = typeof now === 'number' ? now : Date.now();
+    const ev = eventPayload || {};
+
+    list.unshift({
+      id: 'act-' + ts + '-' + Math.random().toString(36).slice(2, 6),
+      timestamp: ts,
+      studentId: (studentSession && studentSession.userId) || '',
+      username: (studentSession && studentSession.username) || '',
+      fullName: (studentSession && studentSession.fullName) || 'O‘quvchi',
+      group: (studentSession && studentSession.group) || 'General',
+      type: String(ev.type || 'ACTIVITY'),
+      mode: String(ev.mode || ''),
+      lesson: String(ev.lesson || ''),
+      word: String(ev.word || ''),
+      detail: String(ev.detail || ''),
+      isCorrect: ev.isCorrect !== undefined ? Boolean(ev.isCorrect) : null
+    });
+
+    return list.slice(0, 300);
+  }
+
+  function recordStudentEvent(state, studentSession, eventPayload, now) {
+    if (!studentSession || studentSession.role !== 'student' || !studentSession.userId) {
+      return state;
+    }
+
+    const ts = typeof now === 'number' ? now : Date.now();
+    const ev = eventPayload || {};
+    const studentId = studentSession.userId;
+    const nextProgress = ensureStudentProgress(state, studentId, ts);
+    const cur = nextProgress[studentId];
+
+    const nextLive = Object.assign({}, cur.liveStatus, {
+      online: ev.type !== 'LOGOUT',
+      lastSeenAt: ts,
+      currentView: ev.view !== undefined ? ev.view : cur.liveStatus.currentView,
+      currentMode: ev.mode !== undefined ? ev.mode : cur.liveStatus.currentMode,
+      currentLesson: ev.lesson !== undefined ? ev.lesson : cur.liveStatus.currentLesson,
+      currentDeck: ev.deck !== undefined ? ev.deck : cur.liveStatus.currentDeck,
+      currentWord: ev.word !== undefined ? ev.word : cur.liveStatus.currentWord,
+      currentAction: ev.detail ? String(ev.detail) : cur.liveStatus.currentAction,
+      sessionStartedAt: cur.liveStatus.sessionStartedAt || (ev.type === 'LOGIN' ? ts : ts)
+    });
+
+    const nextModeStats = Object.assign({}, cur.modeStats);
+    if (ev.quizCorrectDelta || ev.quizTotalDelta) {
+      nextModeStats.quizCorrect += Number(ev.quizCorrectDelta) || 0;
+      nextModeStats.quizTotal += Number(ev.quizTotalDelta) || 0;
+    }
+    if (ev.quizFinished) nextModeStats.quizCompleted += 1;
+
+    if (ev.writingCorrectDelta || ev.writingTotalDelta) {
+      nextModeStats.writingCorrect += Number(ev.writingCorrectDelta) || 0;
+      nextModeStats.writingTotal += Number(ev.writingTotalDelta) || 0;
+    }
+    if (ev.writingFinished) nextModeStats.writingCompleted += 1;
+
+    if (ev.listeningCorrectDelta || ev.listeningTotalDelta) {
+      nextModeStats.listeningCorrect += Number(ev.listeningCorrectDelta) || 0;
+      nextModeStats.listeningTotal += Number(ev.listeningTotalDelta) || 0;
+    }
+    if (ev.listeningFinished) nextModeStats.listeningCompleted += 1;
+
+    let nextStats = cur.stats;
+    if (ev.countAsStudyActivity) {
+      nextStats = applyStatsStudyActivity(cur.stats, ts);
+    }
+
+    nextProgress[studentId] = Object.assign({}, cur, {
+      stats: nextStats,
+      modeStats: nextModeStats,
+      liveStatus: nextLive
+    });
+
+    const nextLog = ev.type === 'HEARTBEAT'
+      ? (state.studentActivityLog || [])
+      : appendStudentActivityLog(state.studentActivityLog, studentSession, ev, ts);
+
+    return Object.assign({}, state, {
+      studentProgress: nextProgress,
+      studentActivityLog: nextLog
+    });
+  }
+
+  function applyWordReviewForSession(state, userSession, wordId, ratingKey, srsMod, now) {
+    const ts = typeof now === 'number' ? now : Date.now();
+    const deps = getDeps();
+    const srs = srsMod || deps.srsMod;
+    const baseWord = (state.words || []).find(function (w) { return w.id === wordId; });
+    if (!baseWord) return { state: state, updatedCard: null };
+
+    if (!userSession || userSession.role !== 'student' || !userSession.userId) {
+      const updated = srs.applyReviewRating(baseWord, ratingKey, ts);
+      const nextWords = state.words.map(function (w) { return w.id === wordId ? updated : w; });
+      const nextState = recordStudyActivity(Object.assign({}, state, { words: nextWords }), ts);
+      return { state: nextState, updatedCard: updated };
+    }
+
+    const studentId = userSession.userId;
+    const nextProgress = ensureStudentProgress(state, studentId, ts);
+    const cur = nextProgress[studentId];
+    const existingSrs = cur.srsByWordId[wordId] || Object.assign({ id: baseWord.id, word: baseWord.word }, srs.createInitialSrsState(ts));
+    const rated = srs.applyReviewRating(existingSrs, ratingKey, ts);
+
+    const srsEntry = {
+      status: rated.status,
+      mastered: rated.mastered,
+      intervalDays: rated.intervalDays,
+      repetitions: rated.repetitions,
+      lapses: rated.lapses,
+      lastRating: rated.lastRating,
+      lastReviewedAt: rated.lastReviewedAt,
+      nextReviewAt: rated.nextReviewAt,
+      updatedAt: rated.updatedAt
+    };
+
+    const nextSrsMap = Object.assign({}, cur.srsByWordId);
+    nextSrsMap[wordId] = srsEntry;
+
+    const rule = srs.RATINGS[ratingKey] || { labelUz: ratingKey };
+    const nextStats = applyStatsStudyActivity(cur.stats, ts);
+    const nextModeStats = Object.assign({}, cur.modeStats, {
+      flashcardsReviewed: (Number(cur.modeStats.flashcardsReviewed) || 0) + 1
+    });
+
+    const detail = '"' + baseWord.word + '" so‘zini "' + rule.labelUz + '" deb baholadi (' + rated.status + ')';
+    const nextLive = Object.assign({}, cur.liveStatus, {
+      online: true,
+      lastSeenAt: ts,
+      currentView: 'study',
+      currentMode: 'flashcards',
+      currentLesson: baseWord.lesson || cur.liveStatus.currentLesson,
+      currentWord: baseWord.word,
+      currentAction: detail
+    });
+
+    nextProgress[studentId] = Object.assign({}, cur, {
+      srsByWordId: nextSrsMap,
+      stats: nextStats,
+      modeStats: nextModeStats,
+      liveStatus: nextLive
+    });
+
+    const nextLog = appendStudentActivityLog(state.studentActivityLog, userSession, {
+      type: 'FLASHCARD_RATE',
+      mode: 'flashcards',
+      lesson: baseWord.lesson || '',
+      word: baseWord.word,
+      detail: detail,
+      isCorrect: ratingKey !== 'again'
+    }, ts);
+
+    return {
+      state: Object.assign({}, state, {
+        studentProgress: nextProgress,
+        studentActivityLog: nextLog
+      }),
+      updatedCard: Object.assign({}, baseWord, srsEntry)
+    };
+  }
+
+  function getStudentSummary(state, student, now) {
+    const ts = typeof now === 'number' ? now : Date.now();
+    const deps = getDeps();
+    const words = getWordsForSession(state, { role: 'student', userId: student.id }, ts);
+    const totalWords = words.length;
+    const masteredCount = words.filter(function (w) { return w.mastered || w.status === 'mastered'; }).length;
+    const learningCount = words.filter(function (w) { return w.status === 'learning' || w.status === 'review'; }).length;
+    const dueCount = deps.srsMod.getDueCards(words, ts).length;
+    const masteryPct = totalWords > 0 ? Math.round((masteredCount / totalWords) * 100) : 0;
+
+    const progress = (state.studentProgress && state.studentProgress[student.id]) || createEmptyStudentProgress(ts);
+    const live = progress.liveStatus || {};
+    const stats = progress.stats || {};
+    const mStats = progress.modeStats || {};
+
+    const lastSeenAt = live.lastSeenAt ? Number(live.lastSeenAt) : 0;
+    const ageMs = lastSeenAt ? (ts - lastSeenAt) : Infinity;
+    let presence = 'offline';
+    if (live.online && ageMs <= 120 * 1000) {
+      presence = 'online';
+    } else if (lastSeenAt && ageMs <= 15 * 60 * 1000) {
+      presence = 'recent';
+    }
+
+    const totalAnswered = (Number(mStats.quizTotal) || 0) + (Number(mStats.writingTotal) || 0) + (Number(mStats.listeningTotal) || 0);
+    const totalCorrect = (Number(mStats.quizCorrect) || 0) + (Number(mStats.writingCorrect) || 0) + (Number(mStats.listeningCorrect) || 0);
+    const accuracyPct = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : null;
+
+    return {
+      student: student,
+      totalWords: totalWords,
+      masteredCount: masteredCount,
+      learningCount: learningCount,
+      dueCount: dueCount,
+      masteryPct: masteryPct,
+      streakCount: getActiveStreak(stats, ts),
+      todayReviewed: getTodayReviewedCount(stats, ts),
+      totalReviews: Number(stats.totalReviews) || 0,
+      modeStats: mStats,
+      accuracyPct: accuracyPct,
+      liveStatus: live,
+      presence: presence
+    };
+  }
+
+  function normalizeState(parsed, now) {
+    const ts = typeof now === 'number' ? now : Date.now();
+    const defaults = createDefaultState(ts);
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.words)) {
+      return defaults;
+    }
+
+    const mergedCategories = Array.isArray(parsed.categories) && parsed.categories.length > 0
+      ? parsed.categories
+      : defaults.categories;
+
+    const normalizedWords = parsed.words.map(function (w) { return normalizeWordRecord(w, ts); });
+    const lessonsList = Array.isArray(parsed.lessons) && parsed.lessons.length > 0
+      ? parsed.lessons.slice()
+      : defaults.lessons.slice();
+
+    const lessonNames = new Set(lessonsList.map(function (l) { return l.name.toLowerCase(); }));
+    normalizedWords.forEach(function (w) {
+      if (w.lesson && !lessonNames.has(w.lesson.toLowerCase())) {
+        lessonsList.push({
+          id: 'lesson-' + (lessonsList.length + 1) + '-' + Math.random().toString(36).slice(2, 5),
+          name: w.lesson,
+          description: '',
+          order: lessonsList.length + 1
+        });
+        lessonNames.add(w.lesson.toLowerCase());
+      }
+    });
+
+    const studentsList = Array.isArray(parsed.students) && parsed.students.length > 0
+      ? parsed.students.map(function (s) { return Object.assign({ active: true, group: 'General' }, s); })
+      : defaults.students;
+
+    const mergedProgress = Object.assign({}, defaults.studentProgress, parsed.studentProgress || {});
+    studentsList.forEach(function (s) {
+      if (!mergedProgress[s.id]) {
+        mergedProgress[s.id] = createEmptyStudentProgress(ts);
+      } else {
+        const base = createEmptyStudentProgress(ts);
+        mergedProgress[s.id] = {
+          srsByWordId: Object.assign({}, mergedProgress[s.id].srsByWordId || {}),
+          stats: Object.assign(base.stats, mergedProgress[s.id].stats || {}),
+          modeStats: Object.assign(base.modeStats, mergedProgress[s.id].modeStats || {}),
+          liveStatus: Object.assign(base.liveStatus, mergedProgress[s.id].liveStatus || {})
+        };
+      }
+    });
+
+    const mergedAuth = Object.assign({}, defaults.auth, parsed.auth || {}, {
+      hashes: Object.assign({}, defaults.auth.hashes, (parsed.auth && parsed.auth.hashes) || {})
+    });
+
+    const mergedAi = Object.assign({}, defaults.aiConfig, parsed.aiConfig || {});
+
+    return {
+      version: 3,
+      words: normalizedWords,
+      categories: mergedCategories,
+      lessons: lessonsList,
+      students: studentsList,
+      studentProgress: mergedProgress,
+      studentActivityLog: Array.isArray(parsed.studentActivityLog) ? parsed.studentActivityLog.slice(0, 300) : [],
+      stats: Object.assign({}, defaults.stats, parsed.stats || {}),
+      settings: Object.assign({}, defaults.settings, parsed.settings || {}),
+      aiConfig: mergedAi,
+      auth: mergedAuth,
+      auditLog: Array.isArray(parsed.auditLog) ? parsed.auditLog.slice(0, 150) : []
+    };
   }
 
   function loadState(storageBackend, now) {
@@ -208,47 +592,7 @@
         return defaults;
       }
       const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.words)) {
-        return defaults;
-      }
-
-      const mergedCategories = Array.isArray(parsed.categories) && parsed.categories.length > 0
-        ? parsed.categories
-        : defaults.categories;
-
-      const normalizedWords = parsed.words.map(function (w) { return normalizeWordRecord(w, ts); });
-      const lessonsList = Array.isArray(parsed.lessons) && parsed.lessons.length > 0
-        ? parsed.lessons.slice()
-        : defaults.lessons.slice();
-
-      const lessonNames = new Set(lessonsList.map(function (l) { return l.name.toLowerCase(); }));
-      normalizedWords.forEach(function (w) {
-        if (w.lesson && !lessonNames.has(w.lesson.toLowerCase())) {
-          lessonsList.push({
-            id: 'lesson-' + (lessonsList.length + 1) + '-' + Math.random().toString(36).slice(2, 5),
-            name: w.lesson,
-            description: '',
-            order: lessonsList.length + 1
-          });
-          lessonNames.add(w.lesson.toLowerCase());
-        }
-      });
-
-      const mergedAuth = Object.assign({}, defaults.auth, parsed.auth || {}, {
-        hashes: Object.assign({}, defaults.auth.hashes, (parsed.auth && parsed.auth.hashes) || {})
-      });
-
-      return {
-        version: 2,
-        words: normalizedWords,
-        categories: mergedCategories,
-        lessons: lessonsList,
-        stats: Object.assign({}, defaults.stats, parsed.stats || {}),
-        settings: Object.assign({}, defaults.settings, parsed.settings || {}),
-        aiConfig: Object.assign({}, defaults.aiConfig, parsed.aiConfig || {}),
-        auth: mergedAuth,
-        auditLog: Array.isArray(parsed.auditLog) ? parsed.auditLog : []
-      };
+      return normalizeState(parsed, ts);
     } catch (err) {
       return defaults;
     }
@@ -268,7 +612,7 @@
   function exportToJSON(state) {
     return JSON.stringify({
       app: 'SWE ENGLISH EXTRA',
-      version: 2,
+      version: 3,
       exportedAt: new Date().toISOString(),
       categories: state.categories,
       lessons: state.lessons,
@@ -548,10 +892,20 @@
     getPreviousDateKey: getPreviousDateKey,
     normalizeWordRecord: normalizeWordRecord,
     createDefaultAiConfig: createDefaultAiConfig,
+    createEmptyStats: createEmptyStats,
+    createEmptyStudentProgress: createEmptyStudentProgress,
     createDefaultState: createDefaultState,
+    ensureStudentProgress: ensureStudentProgress,
     getActiveStreak: getActiveStreak,
     getTodayReviewedCount: getTodayReviewedCount,
+    applyStatsStudyActivity: applyStatsStudyActivity,
     recordStudyActivity: recordStudyActivity,
+    getWordsForSession: getWordsForSession,
+    getStatsForSession: getStatsForSession,
+    applyWordReviewForSession: applyWordReviewForSession,
+    recordStudentEvent: recordStudentEvent,
+    getStudentSummary: getStudentSummary,
+    normalizeState: normalizeState,
     loadState: loadState,
     saveState: saveState,
     exportToJSON: exportToJSON,

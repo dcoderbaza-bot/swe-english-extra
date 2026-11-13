@@ -1,21 +1,23 @@
 # Texnik Arxitektura — SWE ENGLISH EXTRA
 
 ## 1. Umumiy arxitektura tamoyillari
-Ilova build bosqichisiz (zero-bundler) ishlashi uchun klassik modul patterni (`IIFE` + `window.*` va Node `module.exports` ikki tomonlama eksporti) asosida qurilgan. Bu ikki muhim afzallikni beradi:
-1. Foydalanuvchi `index.html` faylini to‘g‘ridan-to‘g‘ri `file:///` protokoli orqali ochganda ham CORS xatoliklarisiz ishlaydi.
-2. Xuddi shu JavaScript modullari (`default-data.js`, `srs.js`, `storage.js`) `Node.js` muhitida avtomatlashtirilgan unit testlar orqali tekshiriladi.
+Ilova build bosqichisiz (zero-bundler) ham **Local Multi-Tab (`file:///`)**, ham **Live Node.js Server (`server.js`)** rejimlarida bir xil kod bazasi bilan ishlaydi:
+1. Barcha biznes modullari (`IIFE` + `window.*` va Node `module.exports` ikki tomonlama eksporti) ham brauzerda, ham `server.js` va `tests/verify.js` da qayta ishlatiladi.
+2. `SWESync` (`js/sync.js`) ishga tushganda `/api/health` ni tekshiradi: agar Node serveri faol bo‘lsa **REST + Server-Sent Events (`/api/stream`)** rejimi yoqiladi (`data/db.json` persistensiyasi bilan); aks holda **LocalStorage + `BroadcastChannel`** rejimiga avtomatik tushadi.
 
 ## 2. Modullar taqsimoti
 
 | Fayl | Mas'uliyati |
 | --- | --- |
+| `server.js` | Zero-dependency Node HTTP + SSE serveri, HMAC-SHA256 sessiyalar, per-student/curriculum endpointlar va `/api/ai-proxy` |
 | `js/default-data.js` | 5 ta standart kategoriya, 3 ta boshlang‘ich darslik va 15 ta B2/C1 darajadagi akademik/IELTS so‘zlar bazasi |
 | `js/srs.js` | Intervalli takrorlash (SRS) holatlari, navbat saralash, due tekshiruvi |
-| `js/auth.js` | Sof JS tuzlangan `SHA-256` (`SWE_ENG_EXTRA_V2_SALT:`) autentifikatsiyasi, `sessionStorage` sessiyasi, RBAC (`teacher`, `it_manager`) va `auditLog` |
-| `js/storage.js` | `LocalStorage` v2 CRUD (v1->v2 avtomatik migratsiya bilan), Streak hisob-kitobi, RFC-4180 CSV (`lesson` ustuni bilan) va JSON Import-Export |
-| `js/ai-txt.js` | Ko‘p formatli `.TXT` parser, batafsil/oddiy `.TXT` exporter hamda Google Gemini / OpenAI / Custom AI paketli boyitish (`batchSize: 15`) |
+| `js/auth.js` | Sof JS tuzlangan `SHA-256` (`SWE_ENG_EXTRA_V2_SALT:`) autentifikatsiyasi (`student`, `teacher`, `it_manager`), o‘quvchi CRUD, `sessionStorage` v2 va `auditLog` |
+| `js/storage.js` | v3 ma’lumot modeli (v1/v2->v3 migratsiya), ajratilgan per-student SRS & telemetriya (`applyWordReviewForSession`, `recordStudentEvent`, `getStudentSummary`), RFC-4180 CSV va JSON Import-Export |
+| `js/ai-txt.js` | Ko‘p formatli `.TXT` parser, batafsil/oddiy `.TXT` exporter hamda **DeepSeek AI**, Google Gemini, OpenAI va Custom AI boyitish (`<think>` tozalash va `/api/ai-proxy` fallback bilan) |
+| `js/sync.js` | Gibrid sinxronizatsiya (`Live Server Sync` SSE / `Local Multi-Tab` BroadcastChannel) |
 | `js/speech.js` | `window.speechSynthesis` orqali `en-US` va `en-GB` ovozlarini tanlash va ijro etish |
-| `js/app.js` | SPA navigatsiya, Dashboard (Darsliklar + Kategoriyalar), 4 ta Study Mode, Admin Studio (`TXT+AI`, `Lessons`, `AI Config`, `Security`), modallar va shortcutlar |
+| `js/app.js` | Yagona Login Gate, Live Teacher Monitoring, O‘quvchi CRUD, Dashboard, 4 ta Study Mode, Admin Studio va klaviatura shortcutlari |
 
 ## 3. Spaced Repetition (SRS) algoritmi
 Har bir so‘z kartochkasi quyidagi SRS maydonlariga ega:
@@ -32,10 +34,10 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
 - **good (`Yaxshi`):** `nextReviewAt = now + 3 * 86_400_000` (3 kun), `status = 'review'`, `mastered = false`.
 - **easy (`Oson`):** `nextReviewAt = now + 7 * 86_400_000` (7 kun), `status = 'mastered'`, `mastered = true`.
 
-## 4. `LocalStorage` ma'lumotlar sxemasi (`swe_english_extra_v1` kalitida v2 payload + v1 migratsiya)
+## 4. Ma'lumotlar sxemasi (`v3`: `data/db.json` va `LocalStorage` `swe_english_extra_v1`)
 ```json
 {
-  "version": 2,
+  "version": 3,
   "words": [
     {
       "id": "w-endeavor",
@@ -50,15 +52,7 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
       "mnemonic": "...",
       "category": "IELTS",
       "lesson": "1-dars: Academic Foundations",
-      "level": "C1",
-      "status": "new",
-      "mastered": false,
-      "intervalDays": 0,
-      "repetitions": 0,
-      "lapses": 0,
-      "lastRating": null,
-      "lastReviewedAt": null,
-      "nextReviewAt": 1700000000000
+      "level": "C1"
     }
   ],
   "categories": [
@@ -67,22 +61,28 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
   "lessons": [
     { "id": "lesson-1", "name": "1-dars: Academic Foundations", "description": "...", "order": 1 }
   ],
-  "stats": {
-    "streakCount": 0,
-    "longestStreak": 0,
-    "lastStudyDate": null,
-    "todayDate": "2026-11-13",
-    "todayReviewed": 0,
-    "totalReviews": 0,
-    "dailyGoal": 10
+  "students": [
+    {
+      "id": "stu-student1",
+      "username": "student1",
+      "fullName": "O‘quvchi 1 (Namuna)",
+      "group": "Group A",
+      "active": true,
+      "passwordHash": "<salted-sha256-hex>"
+    }
+  ],
+  "studentProgress": {
+    "stu-student1": {
+      "srsByWordId": {},
+      "stats": { "streakCount": 0, "todayReviewed": 0, "totalReviews": 0, "dailyGoal": 10 },
+      "modeStats": { "flashcardsReviewed": 0, "quizCorrect": 0, "quizTotal": 0, "writingCorrect": 0, "writingTotal": 0, "listeningCorrect": 0, "listeningTotal": 0 },
+      "liveStatus": { "online": false, "lastSeenAt": null, "currentView": "dashboard", "currentMode": "flashcards", "currentWord": "", "currentAction": "" }
+    }
   },
-  "settings": {
-    "theme": "light",
-    "accent": "en-US"
-  },
+  "studentActivityLog": [],
   "aiConfig": {
-    "provider": "gemini",
-    "model": "gemini-2.5-flash",
+    "provider": "deepseek",
+    "model": "deepseek-chat",
     "customUrl": "",
     "apiKey": ""
   },
@@ -98,7 +98,8 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
 ```
 
 ## 5. Xavfsizlik va Barqarorlik
-- Foydalanuvchi kiritgan va AI qaytargan barcha matnlar (so‘z, tarjima, darslik nomi, misol gaplar) DOM ga chiqarilishidan oldin `escapeHtml()` orqali tozalanadi; `**word**` ajratmasi esa escapingdan so‘ng xavfsiz `<strong>` tegiga o‘giriladi.
+- Foydalanuvchi kiritgan, o‘quvchi telemetriyasidan kelgan va AI qaytargan barcha matnlar DOM ga chiqarilishidan oldin `escapeHtml()` orqali tozalanadi; `**word**` ajratmasi esa escapingdan so‘ng xavfsiz `<strong>` tegiga o‘giriladi.
 - Matn kiritish maydonlarida (`input`, `textarea`, `select`) yozilayotganda global klaviatura shortcutlari (`Space`, `1–4`, `S`, `←`, `→`) avtomatik bloklanadi.
-- Admin parollari hech qachon ochiq matnda saqlanmaydi (`SHA-256` + `SWE_ENG_EXTRA_V2_SALT:`). AI API Key faqat foydalanuvchining o‘z brauzeri `LocalStorage` ida saqlanadi va to‘g‘ridan-to‘g‘ri tanlangan AI endpointiga yuboriladi.
+- Admin va o‘quvchi parollari hech qachon ochiq matnda saqlanmaydi (`SHA-256` + `SWE_ENG_EXTRA_V2_SALT:`). Server rejimida `/api/state` o‘quvchi sessiyasiga boshqa o‘quvchilar va admin ma’lumotlarini qirqib yuboradi, static server esa `server.js`, `.gitignore`, `.git` va `data/` fayllariga to‘g‘ridan-to‘g‘ri kirishni `403` bilan bloklaydi.
+- O‘quv dasturi o‘zgarishi (`POST /api/curriculum`) faqat `words`, `categories`, `lessons` va `auditLog` ni yangilab, parallel ishlayotgan o‘quvchilarning `studentProgress` va `studentActivityLog` ma’lumotlarini ustidan yozib yubormaydi.
 - CSV eksportida Windows Excel o‘zbek harflarini to‘g‘ri ochishi uchun UTF-8 BOM (`\uFEFF`) qo‘shiladi.

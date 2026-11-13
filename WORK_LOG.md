@@ -50,3 +50,26 @@
   - Dashboard darsliklar kartalari, Study darslik filtri va `#fcLessonBadge` 3D aylantirish bilan birga tekshirildi.
   - `Teacher` login noto‘g‘ri parolni rad etishi, to‘g‘ri parol bilan `TXT + AI` namuna importi va darslik yaratish, hamda `IT Manager` parollar bo‘limi Teacher uchun bloklanganligi tasdiqlandi.
   - `IT Manager` login orqali `AI & API Key` provayder almashinuvi, Parol boshqaruvi va xronologik `Audit Log` (`LOGIN`, `TXT_IMPORT`, `LESSON_ADD`, `LOGOUT`) yozuvlari tasdiqlandi.
+
+---
+
+## 4. 3-bosqich yangilanishlari (DeepSeek AI, O‘quvchi Loginlari va Jonli Teacher Monitoring)
+
+### Yangi va yangilangan fayllar
+- `server.js` — Zero-dependency Node HTTP + SSE serveri (`/api/health`, `/api/stream`, `/api/login`, `/api/logout`, `/api/state`, `/api/review`, `/api/telemetry`, `/api/curriculum`, `/api/students`, `/api/ai-config`, `/api/ai-proxy`, `/api/security`), `data/db.json` persistensiyasi va HMAC-SHA256 sessiya tokenlari (`data/.session-secret`).
+- `.gitignore` — Runtime `data/` papkasi va maxfiy sessiya kaliti Git dan chiqarib tashlandi.
+- `js/sync.js` — Gibrid real-time sinxronizatsiya moduli (Server SSE + REST va Local `BroadcastChannel` + `storage`).
+- `js/auth.js` — O‘quvchilar (`student1`, `ali`, `madina`) uchun tuzlangan `SHA-256` xeshlari, yagona `authenticate(...)`, `createStudentAccount`, `resetStudentPassword`, `toggleStudentActive` va `canMonitorStudents` / `canManageStudents` RBAC qoidalari.
+- `js/ai-txt.js` — Birinchi darajali **DeepSeek AI** (`https://api.deepseek.com/chat/completions`, `deepseek-chat`) provayderi, `<think>` teglarini tozalash va `/api/ai-proxy` fallback qo‘shildi.
+- `js/storage.js` — `v3` sxema (`students`, `studentProgress`, `studentActivityLog`, `deepseek` standart `aiConfig`), `getWordsForSession`, `applyWordReviewForSession`, `recordStudentEvent`, `getStudentSummary` va v1/v2->v3 migratsiyasi.
+- `index.html` va `js/app.js` — Yagona `#view-login` kirish darvozasi, `#view-monitor` Jonli O‘quvchi Monitoringi, `#studentDetailModal` / `#studentResetPwModal`, `#admin-tab-students` o‘quvchi boshqaruvi va `.staff-only-ui` rol cheklovlari qo‘shildi; planshet o‘lchamida header qisilishini bartaraf etish uchun `flex-wrap` va kompakt badge moslashuvi bajarildi.
+- `tests/verify.js` — 10 ta test to‘plamigacha kengaytirildi (v1->v3 migratsiya, DeepSeek mock + `<think>` tozalash, per-student izolyatsiya va real HTTP server `/api/review` + `/api/telemetry` integratsiyasi).
+
+### 3-bosqich tekshiruv natijalari
+- `node --check`: barcha JS fayllar (`server.js`, `js/*.js`, `tests/verify.js`) xatosiz o‘tdi.
+- `node tests/verify.js`: **10/10** test to‘plami 100% muvaffaqiyatli o‘tdi.
+- Real-time Server + Brauzer E2E QA (`http://127.0.0.1:4178`, 0 ta konsol xatosi / 0 ta sahifa xatosi):
+  - Yagona login ekrani (`Live Server Sync`), noto‘g‘ri o‘quvchi parolini rad etish.
+  - O‘quvchi (`ali`) kirishi: admin tugmalari yashirilgan, 3D Flashcard flip + `Oson (7 kun)` baholash, Quiz javobi va `Chiqish` tekshirildi.
+  - Teacher kirishi: to‘g‘ridan-to‘g‘ri `#view-monitor` (`Real-Time SSE ulangan`) da `Ali Valiyev` (`7%`, `2 ta` bugun, jonli harakatlar oqimi va `#studentDetailModal`) ko‘rindi; `Admin -> O‘quvchilar` da `@zarina` yaratildi va `DeepSeek AI (deepseek-chat)` konfiguratsiyasi tasdiqlandi.
+  - IT Manager kirishi: `Parollar & Jurnal` da xronologik `Audit Log` hamda 4 ta o‘quvchi monitori tasdiqlandi.

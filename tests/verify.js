@@ -1,11 +1,15 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const Data = require('../js/default-data.js');
 const SRS = require('../js/srs.js');
 const Auth = require('../js/auth.js');
 const Storage = require('../js/storage.js');
 const AiTxt = require('../js/ai-txt.js');
+const { createAppServer } = require('../server.js');
 
 function createMockLocalStorage() {
   const store = new Map();
@@ -163,12 +167,12 @@ test('CSV export/parse and JSON/CSV merge import handle quotes, commas, and dedu
 
   const jsonBackup = JSON.parse(Storage.exportToJSON(merged.state));
   assert.equal(jsonBackup.app, 'SWE ENGLISH EXTRA');
-  assert.equal(jsonBackup.version, 2);
+  assert.equal(jsonBackup.version, 3);
   assert.equal(jsonBackup.words.length, 16);
   assert.ok(Array.isArray(jsonBackup.lessons));
 });
 
-test('LocalStorage v1 state migrates cleanly to v2 schema with lessons, auth, and aiConfig', () => {
+test('LocalStorage v1 state migrates cleanly to v3 schema with students, lessons, auth, and DeepSeek default aiConfig', () => {
   const mockStore = createMockLocalStorage();
   const now = Date.now();
   const v1State = {
@@ -183,16 +187,19 @@ test('LocalStorage v1 state migrates cleanly to v2 schema with lessons, auth, an
   mockStore.setItem(Storage.STORAGE_KEY, JSON.stringify(v1State));
 
   const loaded = Storage.loadState(mockStore, now);
-  assert.equal(loaded.version, 2);
+  assert.equal(loaded.version, 3);
   assert.equal(loaded.lessons.length, 3);
   assert.equal(loaded.words[0].lesson, '1-dars: Academic Foundations');
   assert.equal(loaded.settings.theme, 'dark');
   assert.equal(loaded.settings.accent, 'en-GB');
   assert.ok(loaded.auth && loaded.auth.hashes && loaded.auth.hashes.it_manager);
-  assert.ok(loaded.aiConfig && loaded.aiConfig.provider === 'gemini');
+  assert.ok(Array.isArray(loaded.students) && loaded.students.length >= 3);
+  assert.ok(loaded.studentProgress && loaded.studentProgress[loaded.students[0].id]);
+  assert.ok(loaded.aiConfig && loaded.aiConfig.provider === 'deepseek');
+  assert.equal(loaded.aiConfig.model, 'deepseek-chat');
 });
 
-test('SWEAuth validates salted SHA-256 hashing, IT Manager & Teacher permissions, and audit log', () => {
+test('SWEAuth validates salted SHA-256 hashing, student CRUD, unified authenticate, and audit log', () => {
   const mockSession = createMockLocalStorage();
   assert.equal(
     Auth.sha256Hex('abc'),
@@ -208,6 +215,9 @@ test('SWEAuth validates salted SHA-256 hashing, IT Manager & Teacher permissions
   assert.equal(Auth.canManageSecurity('it_manager'), true);
   assert.equal(Auth.canManageSecurity('teacher'), false);
   assert.equal(Auth.canManageLessons('teacher'), true);
+  assert.equal(Auth.canMonitorStudents('teacher'), true);
+  assert.equal(Auth.canManageStudents('teacher'), true);
+  assert.equal(Auth.canMonitorStudents('student'), false);
 
   assert.throws(() => Auth.changeRolePassword(authState, 'teacher', 'it_manager', 'NewPass123'));
   assert.throws(() => Auth.changeRolePassword(authState, 'it_manager', 'teacher', '123'));
@@ -218,15 +228,115 @@ test('SWEAuth validates salted SHA-256 hashing, IT Manager & Teacher permissions
   assert.equal(Auth.verifyRolePassword(authState, 'it_manager', 'ManagerSample#2026'), true);
   assert.equal(Auth.verifyRolePassword(authState, 'it_manager', 'TeacherSample#2026'), false);
 
-  assert.equal(Auth.getSessionRole(mockSession), 'student');
-  Auth.setSessionRole('teacher', mockSession);
-  assert.equal(Auth.getSessionRole(mockSession), 'teacher');
-  Auth.setSessionRole('student', mockSession);
-  assert.equal(Auth.getSessionRole(mockSession), 'student');
+  // Student CRUD & Login
+  let students = Auth.createDefaultStudents();
+  assert.throws(() => Auth.createStudentAccount(students, 'student', {
+    username: 'badstu',
+    fullName: 'Bad',
+    password: 'Pass#123'
+  }));
+  const createdRes = Auth.createStudentAccount(students, 'teacher', {
+    username: 'nodira',
+    fullName: 'Nodira Tursunova',
+    group: 'IELTS B2',
+    password: 'NodiraSample#2026'
+  }, 1_700_000_000_000);
+  students = createdRes.students;
+  assert.equal(createdRes.created.username, 'nodira');
+
+  const okLogin = Auth.authenticate({
+    authState,
+    students,
+    role: 'student',
+    username: 'Nodira',
+    password: 'NodiraSample#2026'
+  });
+  assert.equal(okLogin.ok, true);
+  assert.equal(okLogin.session.role, 'student');
+  assert.equal(okLogin.session.username, 'nodira');
+
+  const badLogin = Auth.authenticate({
+    authState,
+    students,
+    role: 'student',
+    username: 'nodira',
+    password: 'wrong'
+  });
+  assert.equal(badLogin.ok, false);
+
+  students = Auth.resetStudentPassword(students, 'teacher', createdRes.created.id, 'ResetSample#2026');
+  const resetLogin = Auth.authenticate({
+    authState,
+    students,
+    role: 'student',
+    username: 'nodira',
+    password: 'ResetSample#2026'
+  });
+  assert.equal(resetLogin.ok, true);
+
+  students = Auth.toggleStudentActive(students, 'teacher', createdRes.created.id);
+  const blockedLogin = Auth.authenticate({
+    authState,
+    students,
+    role: 'student',
+    username: 'nodira',
+    password: 'ResetSample#2026'
+  });
+  assert.equal(blockedLogin.ok, false);
+
+  assert.equal(Auth.getSession(mockSession), null);
+  Auth.setSession(okLogin.session, mockSession);
+  assert.equal(Auth.getSession(mockSession).username, 'nodira');
+  Auth.setSession(null, mockSession);
+  assert.equal(Auth.getSession(mockSession), null);
 
   const logs = Auth.appendAuditLog([], 'it_manager', 'PASSWORD_CHANGE', 'Teacher updated', 123456);
   assert.equal(logs.length, 1);
   assert.equal(logs[0].actorRole, 'it_manager');
+});
+
+test('Multi-student SRS progress, quiz/writing telemetry, and getStudentSummary isolate students cleanly', () => {
+  const now = 1_700_000_000_000;
+  let state = Storage.createDefaultState(now);
+  const stuA = state.students[0];
+  const stuB = state.students[1];
+  const sessA = { role: 'student', userId: stuA.id, username: stuA.username, fullName: stuA.fullName, group: stuA.group };
+  const sessB = { role: 'student', userId: stuB.id, username: stuB.username, fullName: stuB.fullName, group: stuB.group };
+
+  const targetWord = state.words[0];
+  const reviewRes = Storage.applyWordReviewForSession(state, sessA, targetWord.id, 'easy', SRS, now);
+  state = reviewRes.state;
+  assert.equal(reviewRes.updatedCard.mastered, true);
+
+  // Student B still sees targetWord as 'new' / not mastered
+  const wordsA = Storage.getWordsForSession(state, sessA, now);
+  const wordsB = Storage.getWordsForSession(state, sessB, now);
+  assert.equal(wordsA[0].mastered, true);
+  assert.equal(wordsB[0].mastered, false);
+
+  // Telemetry events update Student A summary & live feed
+  state = Storage.recordStudentEvent(state, sessA, {
+    type: 'QUIZ_ANSWER',
+    view: 'study',
+    mode: 'quiz',
+    lesson: targetWord.lesson,
+    word: targetWord.word,
+    isCorrect: true,
+    quizCorrectDelta: 1,
+    quizTotalDelta: 1,
+    countAsStudyActivity: true,
+    detail: 'Test: "' + targetWord.word + '" — to‘g‘ri javob'
+  }, now + 5000);
+
+  const summaryA = Storage.getStudentSummary(state, stuA, now + 10_000);
+  const summaryB = Storage.getStudentSummary(state, stuB, now + 10_000);
+  assert.equal(summaryA.presence, 'online');
+  assert.equal(summaryA.masteredCount, 1);
+  assert.equal(summaryA.accuracyPct, 100);
+  assert.equal(summaryA.todayReviewed, 2);
+  assert.equal(summaryB.presence, 'offline');
+  assert.equal(summaryB.masteredCount, 0);
+  assert.ok(state.studentActivityLog.some((e) => e.studentId === stuA.id && e.type === 'FLASHCARD_RATE'));
 });
 
 test('AiTxt parses messy mixed .txt formats across lessons and exports both TXT modes', () => {
@@ -331,6 +441,142 @@ async function runAsyncTests() {
       { fetchImpl: openaiFetch }
     );
     assert.equal(openaiResult[0].translation, 'soddalashtirmoq');
+
+    const deepseekFetch = async (url, init) => {
+      assert.equal(url, 'https://api.deepseek.com/chat/completions');
+      assert.equal(init.headers.Authorization, 'Bearer sk-deepseek-test');
+      const parsedBody = JSON.parse(init.body);
+      assert.equal(parsedBody.model, 'deepseek-chat');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: '<think>reasoning hidden</think>\n[{"word":"streamline","phonetic":"/ˈstriːm.laɪn/","partOfSpeech":"verb","translation":"tizimlashtirmoq","definition":"Make simpler","examples":["They will streamline billing.","CI helps **streamline** QA."],"synonyms":["optimize"],"antonyms":["hinder"],"mnemonic":"Stream line","category":"Business","lesson":"4-dars: Tech","level":"C1"}]'
+            }
+          }]
+        })
+      };
+    };
+
+    const deepseekResult = await AiTxt.enrichEntriesWithAI(
+      entries,
+      { provider: 'deepseek', model: 'deepseek-chat', apiKey: 'sk-deepseek-test' },
+      { fetchImpl: deepseekFetch }
+    );
+    assert.equal(deepseekResult.length, 1);
+    assert.equal(deepseekResult[0].translation, 'tizimlashtirmoq');
+    assert.equal(deepseekResult[0].level, 'C1');
+  });
+
+  await testAsync('Real-time Node server syncs student flashcard review + quiz telemetry to teacher monitor', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-extra-qa-'));
+    const dataFilePath = path.join(tmpDir, 'db.json');
+    const secretFilePath = path.join(tmpDir, '.secret');
+
+    const now = Date.now();
+    let seedState = Storage.createDefaultState(now);
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'teacher', 'QaTeach#2026');
+    const stuCreated = Auth.createStudentAccount(seedState.students, 'it_manager', {
+      username: 'qastudent',
+      fullName: 'QA Student',
+      group: 'QA Group',
+      password: 'QaStudent#2026'
+    }, now);
+    seedState.students = stuCreated.students;
+    seedState.studentProgress = Storage.ensureStudentProgress(seedState, stuCreated.created.id, now);
+    fs.writeFileSync(dataFilePath, JSON.stringify(seedState, null, 2), 'utf8');
+
+    const server = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath,
+      secretFilePath
+    });
+
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const addr = server.address();
+    const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+    try {
+      const healthRes = await fetch(`${baseUrl}/api/health`);
+      const health = await healthRes.json();
+      assert.equal(health.ok, true);
+      assert.equal(health.mode, 'server');
+
+      // Block access to server.js / data files
+      const secStatic = await fetch(`${baseUrl}/server.js`);
+      assert.equal(secStatic.status, 403);
+
+      // Student logs in
+      const stuLoginRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'student', username: 'qastudent', password: 'QaStudent#2026' })
+      });
+      const stuLogin = await stuLoginRes.json();
+      assert.equal(stuLogin.ok, true);
+      assert.equal(stuLogin.session.username, 'qastudent');
+      const stuToken = stuLogin.token;
+
+      // Student rates a word Easy and completes a quiz question
+      const firstWord = stuLogin.state.words[0];
+      const reviewRes = await fetch(`${baseUrl}/api/review`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${stuToken}`
+        },
+        body: JSON.stringify({ wordId: firstWord.id, ratingKey: 'easy' })
+      });
+      const reviewData = await reviewRes.json();
+      assert.equal(reviewData.ok, true);
+
+      const telemRes = await fetch(`${baseUrl}/api/telemetry`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${stuToken}`
+        },
+        body: JSON.stringify({
+          type: 'QUIZ_ANSWER',
+          view: 'study',
+          mode: 'quiz',
+          word: firstWord.word,
+          isCorrect: true,
+          quizCorrectDelta: 1,
+          quizTotalDelta: 1,
+          countAsStudyActivity: true,
+          detail: 'QA quiz correct'
+        })
+      });
+      assert.equal((await telemRes.json()).ok, true);
+
+      // Teacher logs in and sees QA Student live telemetry & progress
+      const teachLoginRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'QaTeach#2026' })
+      });
+      const teachLogin = await teachLoginRes.json();
+      assert.equal(teachLogin.ok, true);
+
+      const stateRes = await fetch(`${baseUrl}/api/state`, {
+        headers: { 'Authorization': `Bearer ${teachLogin.token}` }
+      });
+      const teachState = await stateRes.json();
+      const qaStu = teachState.state.students.find((s) => s.username === 'qastudent');
+      assert.ok(qaStu);
+      const summary = Storage.getStudentSummary(teachState.state, qaStu, Date.now());
+      assert.equal(summary.presence, 'online');
+      assert.equal(summary.masteredCount, 1);
+      assert.equal(summary.accuracyPct, 100);
+      assert.ok(teachState.state.studentActivityLog.some((e) => e.studentId === qaStu.id && e.type === 'QUIZ_ANSWER'));
+    } finally {
+      server.closeAllSse();
+      await new Promise((resolve) => server.close(resolve));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   console.log(`\nAll ${passed} test suites passed!`);

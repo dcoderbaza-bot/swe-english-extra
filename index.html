@@ -54,74 +54,162 @@
 </head>
 <body class="text-slate-900 dark:text-slate-100 antialiased selection:bg-indigo-500/25 selection:text-indigo-700 dark:selection:text-indigo-200">
 
+  <!-- ==================== VIEW 0: UNIFIED LOGIN PORTAL (STUDENT / TEACHER / IT MANAGER) ==================== -->
+  <section id="view-login" class="min-h-screen flex items-center justify-center p-4 sm:p-6">
+    <div class="glass-panel-strong rounded-3xl w-full max-w-md p-6 sm:p-8 space-y-6 relative overflow-hidden">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-emerald-500 p-[2px] shadow-lg shadow-indigo-500/25 shrink-0">
+            <div class="w-full h-full rounded-[14px] bg-slate-950/90 flex items-center justify-center text-white">
+              <i data-lucide="layers" class="w-5 h-5 text-indigo-300"></i>
+            </div>
+          </div>
+          <div>
+            <h1 class="font-extrabold tracking-tight text-lg bg-gradient-to-r from-indigo-600 to-emerald-600 dark:from-indigo-300 dark:to-emerald-300 bg-clip-text text-transparent">
+              SWE ENGLISH EXTRA
+            </h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400">O‘quvchi, Teacher &amp; IT Manager Portali</p>
+          </div>
+        </div>
+
+        <button type="button" id="loginThemeToggleBtn" class="w-9 h-9 rounded-xl glass-panel flex items-center justify-center text-slate-700 dark:text-amber-300 btn-tactile shrink-0" title="Tungi / Kunduzgi rejim">
+          <i data-lucide="moon" id="loginThemeIconLight" class="w-4 h-4"></i>
+          <i data-lucide="sun" id="loginThemeIconDark" class="w-4 h-4 hidden"></i>
+        </button>
+      </div>
+
+      <div class="flex items-center justify-between px-3.5 py-2 rounded-2xl bg-slate-200/60 dark:bg-slate-900/70 text-xs font-semibold">
+        <span class="text-slate-600 dark:text-slate-300">Sinxronizatsiya:</span>
+        <span id="loginSyncBadge" class="inline-flex items-center gap-1.5 font-extrabold text-amber-600 dark:text-amber-300">
+          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+          Tekshirilmoqda...
+        </span>
+      </div>
+
+      <form id="loginForm" class="space-y-4">
+        <div class="grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-slate-200/70 dark:bg-slate-900">
+          <button type="button" data-auth-role="student" class="auth-role-btn py-2.5 px-2 rounded-xl text-xs font-bold transition-all">
+            🎓 O‘quvchi
+          </button>
+          <button type="button" data-auth-role="teacher" class="auth-role-btn py-2.5 px-2 rounded-xl text-xs font-bold transition-all">
+            👩‍🏫 Teacher
+          </button>
+          <button type="button" data-auth-role="it_manager" class="auth-role-btn py-2.5 px-2 rounded-xl text-xs font-bold transition-all">
+            🛡️ IT Manager
+          </button>
+        </div>
+
+        <div id="loginUsernameWrap">
+          <label for="loginUsernameInput" class="block text-xs font-bold mb-1">O‘quvchi logini *</label>
+          <input id="loginUsernameInput" type="text" autocomplete="username" placeholder="masalan: student1, ali, madina" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
+        </div>
+
+        <div>
+          <label for="loginPasswordInput" class="block text-xs font-bold mb-1">Parol *</label>
+          <div class="flex items-center gap-2">
+            <input id="loginPasswordInput" required type="password" autocomplete="current-password" placeholder="Parolni kiriting..." class="flex-1 px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+            <button type="button" id="toggleLoginPwBtn" class="px-3 py-2.5 rounded-xl glass-panel text-xs font-bold">
+              <i data-lucide="eye" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <p id="loginErrorBox" class="hidden text-xs font-bold text-rose-600 dark:text-rose-400 mt-2"></p>
+        </div>
+
+        <button type="submit" id="loginSubmitBtn" class="btn-tactile w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-emerald-600 hover:opacity-95 text-white text-sm font-extrabold shadow-lg shadow-indigo-500/25">
+          Tizimga kirish
+        </button>
+      </form>
+
+      <p class="text-[11px] text-center text-slate-500 dark:text-slate-400 leading-relaxed">
+        O‘quvchi login va parolingizni o‘qituvchi yoki IT Managerdan oling. O‘qituvchi jonli rejimda o‘quvchilar faoliyatini kuzatib boradi.
+      </p>
+    </div>
+  </section>
+
   <!-- Sticky Glass Header -->
-  <header class="sticky top-0 z-40 border-b border-white/40 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+  <header id="appHeader" class="hidden sticky top-0 z-40 border-b border-white/40 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-[4rem] py-1.5 flex flex-wrap items-center justify-between gap-2">
       <!-- Brand -->
-      <button type="button" data-nav-view="dashboard" class="flex items-center gap-3 text-left group shrink-0">
-        <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-emerald-500 p-[2px] shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform shrink-0">
+      <button type="button" data-nav-view="dashboard" class="flex items-center gap-2.5 text-left group shrink-0">
+        <div class="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-emerald-500 p-[2px] shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform shrink-0">
           <div class="w-full h-full rounded-[14px] bg-slate-950/90 flex items-center justify-center text-white">
-            <i data-lucide="layers" class="w-5 h-5 text-indigo-300"></i>
+            <i data-lucide="layers" class="w-4 h-4 text-indigo-300"></i>
           </div>
         </div>
         <div class="min-w-0">
           <div class="flex items-center gap-2">
-            <span class="whitespace-nowrap font-extrabold tracking-tight text-sm sm:text-base bg-gradient-to-r from-indigo-600 to-emerald-600 dark:from-indigo-300 dark:to-emerald-300 bg-clip-text text-transparent">
+            <span class="whitespace-nowrap font-extrabold tracking-tight text-sm bg-gradient-to-r from-indigo-600 to-emerald-600 dark:from-indigo-300 dark:to-emerald-300 bg-clip-text text-transparent">
               SWE ENGLISH EXTRA
             </span>
           </div>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400 hidden xl:block whitespace-nowrap">Smart Flashcards &amp; SRS Studio</p>
+          <p class="text-[10px] text-slate-500 dark:text-slate-400 hidden xl:block whitespace-nowrap">Live Learning &amp; SRS Studio</p>
         </div>
       </button>
 
       <!-- Desktop Navigation -->
       <nav class="hidden lg:flex items-center gap-1 p-1 rounded-2xl bg-slate-200/60 dark:bg-slate-900/80 border border-white/50 dark:border-slate-800 shrink-0">
-        <button type="button" data-nav-view="dashboard" class="nav-pill whitespace-nowrap px-3.5 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2">
+        <button type="button" data-nav-view="monitor" class="nav-pill staff-only-ui hidden whitespace-nowrap px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
+          <i data-lucide="activity" class="w-4 h-4"></i>
+          O‘quvchilar (Live)
+        </button>
+        <button type="button" data-nav-view="dashboard" class="nav-pill whitespace-nowrap px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
           <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
           Boshqaruv
         </button>
-        <button type="button" data-nav-view="study" class="nav-pill whitespace-nowrap px-3.5 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2">
+        <button type="button" data-nav-view="study" class="nav-pill whitespace-nowrap px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
           <i data-lucide="brain-circuit" class="w-4 h-4"></i>
           Mashqlar
         </button>
-        <button type="button" data-nav-view="vocabulary" class="nav-pill whitespace-nowrap px-3.5 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2">
+        <button type="button" data-nav-view="vocabulary" class="nav-pill whitespace-nowrap px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
           <i data-lucide="book-marked" class="w-4 h-4"></i>
           Lug‘at bazasi
         </button>
-        <button type="button" data-nav-view="admin" class="nav-pill whitespace-nowrap px-3.5 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2">
+        <button type="button" data-nav-view="admin" class="nav-pill staff-only-ui hidden whitespace-nowrap px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
           <i data-lucide="shield-check" class="w-4 h-4"></i>
           Admin / TXT+AI
         </button>
       </nav>
 
       <!-- Utility Controls -->
-      <div class="flex items-center gap-2 shrink-0">
-        <!-- Role / Admin Status Button -->
-        <button type="button" id="roleStatusBtn" class="btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl glass-panel text-xs font-bold" title="IT Manager / Teacher kirishi">
-          <i data-lucide="lock" class="w-3.5 h-3.5"></i>
-          <span id="roleStatusLabel">Admin kirish</span>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <!-- Sync Dot -->
+        <span id="syncModeBadge" class="hidden sm:inline-flex whitespace-nowrap shrink-0 items-center gap-1 px-2.5 py-1 rounded-xl glass-panel text-[11px] font-bold" title="Sinxronizatsiya holati">
+          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+          Local
+        </span>
+
+        <!-- Signed-in User Badge -->
+        <button type="button" id="userBadgeBtn" class="btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl glass-panel text-xs font-bold" title="Joriy foydalanuvchi">
+          <i data-lucide="user-check" class="w-3.5 h-3.5 shrink-0"></i>
+          <span id="userBadgeLabel" class="max-w-[135px] sm:max-w-[170px] truncate">Foydalanuvchi</span>
+        </button>
+
+        <!-- Logout -->
+        <button type="button" id="headerLogoutBtn" class="btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-300 border border-rose-500/25 text-xs font-bold" title="Tizimdan chiqish">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+          <span class="hidden xl:inline">Chiqish</span>
         </button>
 
         <!-- US / UK Accent Switcher -->
         <div class="flex items-center p-1 rounded-xl bg-slate-200/70 dark:bg-slate-800/80 border border-white/40 dark:border-slate-700/60 shrink-0" title="Talaffuz aksenti (US / UK)">
-          <button type="button" id="accentUsBtn" class="accent-btn px-2.5 py-1 rounded-lg text-xs font-bold transition-all">US</button>
-          <button type="button" id="accentUkBtn" class="accent-btn px-2.5 py-1 rounded-lg text-xs font-bold transition-all">UK</button>
+          <button type="button" id="accentUsBtn" class="accent-btn px-2 py-1 rounded-lg text-xs font-bold transition-all">US</button>
+          <button type="button" id="accentUkBtn" class="accent-btn px-2 py-1 rounded-lg text-xs font-bold transition-all">UK</button>
         </div>
 
         <!-- Keyboard Shortcuts -->
-        <button type="button" id="shortcutsBtn" class="hidden sm:inline-flex w-9 h-9 rounded-xl glass-panel items-center justify-center text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 btn-tactile shrink-0" title="Klaviatura tugmalari">
+        <button type="button" id="shortcutsBtn" class="hidden sm:inline-flex w-8 h-8 rounded-xl glass-panel items-center justify-center text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 btn-tactile shrink-0" title="Klaviatura tugmalari">
           <i data-lucide="keyboard" class="w-4 h-4"></i>
         </button>
 
         <!-- Theme Toggle -->
-        <button type="button" id="themeToggleBtn" class="w-9 h-9 rounded-xl glass-panel flex items-center justify-center text-slate-700 dark:text-amber-300 btn-tactile shrink-0" title="Tungi / Kunduzgi rejim">
+        <button type="button" id="themeToggleBtn" class="w-8 h-8 rounded-xl glass-panel flex items-center justify-center text-slate-700 dark:text-amber-300 btn-tactile shrink-0" title="Tungi / Kunduzgi rejim">
           <i data-lucide="moon" id="themeIconLight" class="w-4 h-4"></i>
           <i data-lucide="sun" id="themeIconDark" class="w-4 h-4 hidden"></i>
         </button>
 
-        <!-- Add Word CTA -->
-        <button type="button" id="openAddWordHeaderBtn" class="btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-indigo-500/25">
-          <i data-lucide="plus" class="w-4 h-4"></i>
+        <!-- Add Word CTA (Staff Only) -->
+        <button type="button" id="openAddWordHeaderBtn" class="staff-only-ui hidden btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold shadow-lg shadow-indigo-500/25">
+          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
           <span class="hidden sm:inline">So‘z qo‘shish</span>
         </button>
       </div>
@@ -129,19 +217,23 @@
 
     <!-- Mobile & Tablet Sub-navigation -->
     <div class="lg:hidden border-t border-slate-200/60 dark:border-slate-800/80 px-3 py-2 flex items-center justify-around gap-1">
-      <button type="button" data-nav-view="dashboard" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5">
+      <button type="button" data-nav-view="monitor" class="nav-pill staff-only-ui hidden flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1">
+        <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+        Live
+      </button>
+      <button type="button" data-nav-view="dashboard" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1">
         <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i>
         Boshqaruv
       </button>
-      <button type="button" data-nav-view="study" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5">
+      <button type="button" data-nav-view="study" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1">
         <i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i>
         Mashqlar
       </button>
-      <button type="button" data-nav-view="vocabulary" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5">
+      <button type="button" data-nav-view="vocabulary" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1">
         <i data-lucide="book-marked" class="w-3.5 h-3.5"></i>
         Lug‘at
       </button>
-      <button type="button" data-nav-view="admin" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5">
+      <button type="button" data-nav-view="admin" class="nav-pill staff-only-ui hidden flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1">
         <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
         Admin
       </button>
@@ -149,7 +241,7 @@
   </header>
 
   <!-- Main Content -->
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-16">
+  <main id="appMain" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-16">
 
     <!-- ==================== VIEW 1: DASHBOARD ==================== -->
     <section id="view-dashboard" class="view-animate space-y-6">
@@ -286,7 +378,7 @@
             <h2 class="text-lg sm:text-xl font-extrabold">Darsliklar (Lessons)</h2>
             <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Har bir darslik bo‘yicha alohida lug‘atlarni yodlang</p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 staff-only-ui hidden">
             <button type="button" id="dashTxtAiBtn" class="btn-tactile inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl glass-panel text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-300 hover:border-emerald-400/50">
               <i data-lucide="file-text" class="w-4 h-4"></i>
               TXT + AI Yuklash
@@ -308,7 +400,7 @@
             <h2 class="text-lg sm:text-xl font-extrabold">Kategoriyalar (Decks)</h2>
             <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Istalgan kategoriyani tanlab darhol mashqni boshlang</p>
           </div>
-          <button type="button" id="openAddCategoryBtn" class="btn-tactile inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl glass-panel text-sm font-bold text-indigo-700 dark:text-indigo-300 hover:border-indigo-400/50">
+          <button type="button" id="openAddCategoryBtn" class="staff-only-ui hidden btn-tactile inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl glass-panel text-sm font-bold text-indigo-700 dark:text-indigo-300 hover:border-indigo-400/50">
             <i data-lucide="folder-plus" class="w-4 h-4"></i>
             Yangi kategoriya
           </button>
@@ -396,7 +488,7 @@
                     <span id="fcLevelBadge" class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-slate-900 text-white dark:bg-white dark:text-slate-900">C1</span>
                     <span id="fcStatusBadge" class="px-2.5 py-1 rounded-full text-xs font-bold border">Yangi</span>
                   </div>
-                  <button type="button" id="fcEditBtn" class="p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-700/60 text-slate-500 dark:text-slate-400 transition-colors" title="So‘zni tahrirlash">
+                  <button type="button" id="fcEditBtn" class="staff-only-ui hidden p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-700/60 text-slate-500 dark:text-slate-400 transition-colors" title="So‘zni tahrirlash">
                     <i data-lucide="pencil" class="w-4 h-4"></i>
                   </button>
                 </div>
@@ -771,20 +863,20 @@
               <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
               CSV Export
             </button>
-            <button type="button" id="vocabImportBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5">
+            <button type="button" id="vocabImportBtn" class="staff-only-ui hidden btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5">
               <i data-lucide="upload" class="w-3.5 h-3.5"></i>
               Import (JSON/CSV)
             </button>
             <input type="file" id="vocabImportInput" accept=".json,.csv,application/json,text/csv" class="hidden" />
-            <button type="button" id="vocabOpenTxtAiBtn" class="btn-tactile px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5">
+            <button type="button" id="vocabOpenTxtAiBtn" class="staff-only-ui hidden btn-tactile px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5">
               <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
               TXT + AI
             </button>
-            <button type="button" id="vocabRestoreDefaultsBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-300" title="Standart 15 ta B2/C1 so‘zlarni bazaga qo‘shish">
+            <button type="button" id="vocabRestoreDefaultsBtn" class="staff-only-ui hidden btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-300" title="Standart 15 ta B2/C1 so‘zlarni bazaga qo‘shish">
               <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
               Default 15
             </button>
-            <button type="button" id="vocabAddWordBtn" class="btn-tactile px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold flex items-center gap-1.5">
+            <button type="button" id="vocabAddWordBtn" class="staff-only-ui hidden btn-tactile px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold flex items-center gap-1.5">
               <i data-lucide="plus" class="w-4 h-4"></i>
               Yangi so‘z
             </button>
@@ -847,6 +939,126 @@
       </div>
     </section>
 
+    <!-- ==================== VIEW 3B: TEACHER REAL-TIME STUDENT MONITORING ==================== -->
+    <section id="view-monitor" class="hidden view-animate space-y-6">
+      <div class="glass-panel rounded-3xl p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <div class="space-y-1">
+          <div class="flex flex-wrap items-center gap-2.5">
+            <span id="monitorLivePill" class="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 inline-flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Jonli Kuzatuv
+            </span>
+            <h1 class="text-xl sm:text-2xl font-extrabold">O‘quvchilar Monitoringi — Kim Nima Qilyapti</h1>
+          </div>
+          <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+            Har bir o‘quvchining hozir qaysi darslik, rejim va so‘z ustida ishlayotganini hamda test/yozma natijalarini real vaqtda kuzating.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" id="monitorRefreshBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+            Yangilash
+          </button>
+          <button type="button" id="monitorAddStudentBtn" class="btn-tactile px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5">
+            <i data-lucide="user-plus" class="w-3.5 h-3.5"></i>
+            O‘quvchi qo‘shish
+          </button>
+          <button type="button" id="monitorTxtAiBtn" class="btn-tactile px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+            DeepSeek / TXT+AI
+          </button>
+        </div>
+      </div>
+
+      <!-- 4 Monitoring Summary Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Jami o‘quvchilar</p>
+            <p id="monTotalStudents" class="text-3xl font-extrabold mt-2">0</p>
+            <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">Ro‘yxatdan o‘tgan</p>
+          </div>
+          <div class="w-11 h-11 rounded-2xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 flex items-center justify-center">
+            <i data-lucide="users" class="w-5 h-5"></i>
+          </div>
+        </div>
+
+        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Hozir faol (Live)</p>
+            <p id="monOnlineStudents" class="text-3xl font-extrabold mt-2 text-emerald-600 dark:text-emerald-400">0</p>
+            <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">Oxirgi 2 daqiqa ichida</p>
+          </div>
+          <div class="w-11 h-11 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 flex items-center justify-center">
+            <i data-lucide="radio" class="w-5 h-5"></i>
+          </div>
+        </div>
+
+        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Bugungi jami mashqlar</p>
+            <p id="monTodayReviews" class="text-3xl font-extrabold mt-2 text-sky-600 dark:text-sky-400">0</p>
+            <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">Barcha o‘quvchilar</p>
+          </div>
+          <div class="w-11 h-11 rounded-2xl bg-sky-500/15 text-sky-600 dark:text-sky-300 flex items-center justify-center">
+            <i data-lucide="zap" class="w-5 h-5"></i>
+          </div>
+        </div>
+
+        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">O‘rtacha o‘zlashtirish</p>
+            <p id="monAvgMastery" class="text-3xl font-extrabold mt-2 text-violet-600 dark:text-violet-400">0%</p>
+            <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">Mastered ulushi</p>
+          </div>
+          <div class="w-11 h-11 rounded-2xl bg-violet-500/15 text-violet-600 dark:text-violet-300 flex items-center justify-center">
+            <i data-lucide="trending-up" class="w-5 h-5"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Monitoring Filters -->
+      <div class="glass-panel rounded-3xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="relative">
+          <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+          <input id="monitorSearchInput" type="search" placeholder="O‘quvchi ismi yoki logini..." class="w-full pl-10 pr-3 py-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm" />
+        </div>
+        <select id="monitorGroupFilter" class="px-3 py-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-medium">
+          <option value="ALL">Barcha guruhlar</option>
+        </select>
+        <select id="monitorPresenceFilter" class="px-3 py-2 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm font-medium">
+          <option value="ALL">Barcha holatlar</option>
+          <option value="online">Faqat hozir onlayn</option>
+          <option value="active_today">Bugun mashq qilganlar</option>
+        </select>
+      </div>
+
+      <!-- 2-Column Live Students Cards + Activity Feed -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div class="lg:col-span-7 space-y-4">
+          <h2 class="text-base sm:text-lg font-extrabold flex items-center gap-2">
+            <i data-lucide="monitor" class="w-5 h-5 text-indigo-500"></i>
+            O‘quvchilarning Jonli Holati
+          </h2>
+          <div id="monitorStudentsGrid" class="grid grid-cols-1 gap-4"></div>
+        </div>
+
+        <div class="lg:col-span-5 glass-panel rounded-3xl p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 class="text-base font-extrabold flex items-center gap-2">
+              <i data-lucide="list-checks" class="w-4 h-4 text-emerald-500"></i>
+              Jonli Harakatlar Oqimi
+            </h2>
+            <select id="monitorFeedStudentFilter" class="px-2.5 py-1.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold max-w-[160px]">
+              <option value="ALL">Barcha o‘quvchilar</option>
+            </select>
+          </div>
+          <div id="monitorActivityFeed" class="space-y-2.5 max-h-[560px] overflow-y-auto pr-1 text-xs"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- ==================== VIEW 4: ADMIN STUDIO (IT MANAGER & TEACHER) ==================== -->
     <section id="view-admin" class="hidden view-animate space-y-6">
       <!-- Admin Header Banner -->
@@ -873,13 +1085,17 @@
           <i data-lucide="file-text" class="w-4 h-4"></i>
           TXT + AI Lug‘at Yuklash
         </button>
+        <button type="button" data-admin-tab="students" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all">
+          <i data-lucide="users" class="w-4 h-4"></i>
+          O‘quvchilar (Login/Parol)
+        </button>
         <button type="button" data-admin-tab="lessons" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all">
           <i data-lucide="book-open-check" class="w-4 h-4"></i>
           Darsliklar (Lessons)
         </button>
         <button type="button" data-admin-tab="ai-config" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all">
           <i data-lucide="key-round" class="w-4 h-4"></i>
-          AI &amp; API Key
+          AI &amp; DeepSeek API
         </button>
         <button type="button" data-admin-tab="security" id="adminSecurityTabBtn" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all">
           <i data-lucide="shield-alert" class="w-4 h-4"></i>
@@ -1004,6 +1220,42 @@
         </div>
       </div>
 
+      <!-- ===== ADMIN TAB 1B: STUDENTS MANAGEMENT (LOGIN / PASSWORD) ===== -->
+      <div id="admin-tab-students" class="hidden space-y-5">
+        <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
+          <div>
+            <h2 class="text-lg font-extrabold">Yangi o‘quvchi akkaunti yaratish (Login &amp; Parol)</h2>
+            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+              Har bir o‘quvchi o‘z logini va paroli bilan kirganda ularning barcha mashqlari va darslik progressi alohida kuzatiladi.
+            </p>
+          </div>
+
+          <form id="studentCreateForm" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+            <div>
+              <label for="stuFullNameInput" class="block text-xs font-bold mb-1">Ism-familiya *</label>
+              <input id="stuFullNameInput" required type="text" placeholder="Aziza Karimova" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
+            </div>
+            <div>
+              <label for="stuUsernameInput" class="block text-xs font-bold mb-1">Login (Username) *</label>
+              <input id="stuUsernameInput" required type="text" placeholder="aziza01" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
+            </div>
+            <div>
+              <label for="stuGroupInput" class="block text-xs font-bold mb-1">Guruh / Sinf</label>
+              <input id="stuGroupInput" type="text" placeholder="IELTS B2" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+            </div>
+            <div>
+              <label for="stuPasswordInput" class="block text-xs font-bold mb-1">Parol (kamida 6 belgi) *</label>
+              <input id="stuPasswordInput" required minlength="6" type="password" placeholder="••••••" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+            </div>
+            <button type="submit" class="btn-tactile px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
+              + O‘quvchi qo‘shish
+            </button>
+          </form>
+        </div>
+
+        <div id="adminStudentsList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+      </div>
+
       <!-- ===== ADMIN TAB 2: LESSONS MANAGEMENT ===== -->
       <div id="admin-tab-lessons" class="hidden space-y-5">
         <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
@@ -1041,14 +1293,15 @@
               <div>
                 <label for="aiProviderSelect" class="block text-xs font-bold mb-1">AI Provayder</label>
                 <select id="aiProviderSelect" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold">
-                  <option value="gemini">Google Gemini (Tavsiya etiladi)</option>
+                  <option value="deepseek">DeepSeek AI (deepseek-chat — Tavsiya etiladi)</option>
+                  <option value="gemini">Google Gemini</option>
                   <option value="openai">OpenAI (GPT)</option>
                   <option value="custom">Custom OpenAI-Compatible (Groq/OpenRouter/Local)</option>
                 </select>
               </div>
               <div>
                 <label for="aiModelInput" class="block text-xs font-bold mb-1">Model nomi</label>
-                <input id="aiModelInput" type="text" placeholder="gemini-2.5-flash" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
+                <input id="aiModelInput" type="text" placeholder="deepseek-chat" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
               </div>
             </div>
 
@@ -1364,47 +1617,55 @@
     </div>
   </div>
 
-  <!-- ==================== MODAL: ADMIN LOGIN (IT MANAGER & TEACHER) ==================== -->
-  <div id="adminLoginModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
-    <div class="glass-panel-strong rounded-3xl w-full max-w-md p-6 sm:p-7 space-y-5">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-extrabold flex items-center gap-2">
-          <i data-lucide="shield-check" class="w-5 h-5 text-indigo-500"></i>
-          Admin Studio Kirish
-        </h2>
-        <button type="button" id="closeAdminLoginBtn" class="p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-800">
+  <!-- ==================== MODAL: STUDENT DETAIL & PROGRESS INSPECTOR ==================== -->
+  <div id="studentDetailModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+    <div class="glass-panel-strong rounded-3xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6 sm:p-7 space-y-5">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 id="stuModalName" class="text-xl font-extrabold">O‘quvchi profili</h2>
+            <span id="stuModalPresence" class="px-2.5 py-0.5 rounded-full text-xs font-extrabold">Offline</span>
+          </div>
+          <p id="stuModalMeta" class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">@username · Guruh</p>
+        </div>
+        <button type="button" id="closeStudentDetailBtn" class="p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-800">
           <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
-      <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300">
-        Darsliklar yaratish, .TXT lug‘atlarni AI bilan yuklash va tizim sozlamalari uchun rolingizni tanlang.
-      </p>
+      <div id="stuModalStatsRow" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs"></div>
 
-      <form id="adminLoginForm" class="space-y-4">
-        <div class="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-200/70 dark:bg-slate-900">
-          <button type="button" data-login-role="teacher" class="login-role-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all">
-            👩‍🏫 Teacher
-          </button>
-          <button type="button" data-login-role="it_manager" class="login-role-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all">
-            🛡️ IT Manager
-          </button>
-        </div>
+      <div class="space-y-2">
+        <h3 class="font-extrabold text-sm">So‘zlar bo‘yicha SRS holati</h3>
+        <div id="stuModalWordsList" class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto text-xs"></div>
+      </div>
 
+      <div class="space-y-2">
+        <h3 class="font-extrabold text-sm">Oxirgi harakatlari tarixi</h3>
+        <div id="stuModalActivityList" class="space-y-2 max-h-56 overflow-y-auto text-xs"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: RESET STUDENT PASSWORD ==================== -->
+  <div id="studentResetPwModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+    <div class="glass-panel-strong rounded-3xl w-full max-w-sm p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-extrabold">O‘quvchi parolini yangilash</h3>
+        <button type="button" id="closeStuResetPwBtn" class="p-1.5 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-800">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <p id="stuResetTargetLabel" class="text-xs text-slate-500 dark:text-slate-400 font-semibold"></p>
+      <form id="studentResetPwForm" class="space-y-3">
+        <input type="hidden" id="stuResetIdInput" />
         <div>
-          <label for="adminPasswordInput" class="block text-xs font-bold mb-1">Admin parol</label>
-          <div class="flex items-center gap-2">
-            <input id="adminPasswordInput" required type="password" autocomplete="current-password" placeholder="Parolni kiriting..." class="flex-1 px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-            <button type="button" id="toggleLoginPwBtn" class="px-3 py-2.5 rounded-xl glass-panel text-xs font-bold">
-              <i data-lucide="eye" class="w-4 h-4"></i>
-            </button>
-          </div>
-          <p id="adminLoginError" class="hidden text-xs font-bold text-rose-600 dark:text-rose-400 mt-1.5"></p>
+          <label for="stuResetNewPwInput" class="block text-xs font-bold mb-1">Yangi parol (kamida 6 belgi) *</label>
+          <input id="stuResetNewPwInput" required minlength="6" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
         </div>
-
-        <div class="flex justify-end gap-2.5 pt-1">
-          <button type="button" id="cancelAdminLoginBtn" class="btn-tactile px-4 py-2.5 rounded-xl glass-panel text-sm font-bold">Bekor qilish</button>
-          <button type="submit" class="btn-tactile px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold shadow-lg shadow-indigo-500/25">Kirish</button>
+        <div class="flex justify-end gap-2 pt-1">
+          <button type="button" id="cancelStuResetPwBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs font-bold">Bekor qilish</button>
+          <button type="submit" class="btn-tactile px-5 py-2 rounded-xl bg-indigo-600 text-white text-xs font-bold">Saqlash</button>
         </div>
       </form>
     </div>
@@ -1420,6 +1681,7 @@
   <script src="js/storage.js" defer></script>
   <script src="js/ai-txt.js" defer></script>
   <script src="js/speech.js" defer></script>
+  <script src="js/sync.js" defer></script>
   <script src="js/app.js" defer></script>
 </body>
 </html>
