@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="uz" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SWE ENGLISH EXTRA — Smart Flashcards &amp; Vocabulary Mastery</title>
+  <meta name="description" content="Ingliz tili lug‘atini 3D Flashcards, Spaced Repetition, Test, Yozma va Tinglash mashqlari orqali o‘rganish platformasi." />
+
+  <!-- Prevent theme flash before paint -->
+  <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem('swe_english_extra_v1');
+        var theme = 'light';
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          if (parsed && parsed.settings && parsed.settings.theme) {
+            theme = parsed.settings.theme;
+          }
+        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+          theme = 'dark';
+        }
+        if (theme === 'dark') document.documentElement.classList.add('dark');
+      } catch (e) {}
+    })();
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body class="text-slate-900 dark:text-slate-100 antialiased selection:bg-indigo-500/25 selection:text-indigo-700 dark:selection:text-indigo-200">
+
+  <!-- Sticky Glass Header -->
+  <header class="sticky top-0 z-40 border-b border-white/40 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+      <!-- Brand -->
+      <button type="button" data-nav-view="dashboard" class="flex items-center gap-3 text-left group shrink-0">
+        <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-emerald-500 p-[2px] shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform shrink-0">
+          <div class="w-full h-full rounded-[14px] bg-slate-950/90 flex items-center justify-center text-white">
+            <i data-lucide="layers" class="w-5 h-5 text-indigo-300"></i>
+          </div>
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="whitespace-nowrap font-extrabold tracking-tight text-sm sm:text-base bg-gradient-to-r from-indigo-600 to-emerald-600 dark:from-indigo-300 dark:to-emerald-300 bg-clip-text text-transparent">
+              SWE ENGLISH EXTRA
+            </span>
+          </div>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 hidden xl:block whitespace-nowrap">Smart Flashcards &amp; SRS Studio</p>
+        </div>
+      </button>
+
+      <!-- Desktop Navigation -->
+      <nav class="hidden lg:flex items-center gap-1 p-1 rounded-2xl bg-slate-200/60 dark:bg-slate-900/80 border border-white/50 dark:border-slate-800 shrink-0">
+        <button type="button" data-nav-view="dashboard" class="nav-pill whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2">
+          <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+          Boshqaruv
+        </button>
+        <button type="button" data-nav-view="study" class="nav-pill whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2">
+          <i data-lucide="brain-circuit" class="w-4 h-4"></i>
+          Mashqlar
+        </button>
+        <button type="button" data-nav-view="vocabulary" class="nav-pill whitespace-nowrap px-4 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-2">
+          <i data-lucide="book-marked" class="w-4 h-4"></i>
+          Lug‘at bazasi
+        </button>
+      </nav>
+
+      <!-- Utility Controls -->
+      <div class="flex items-center gap-2 shrink-0">
+        <!-- US / UK Accent Switcher -->
+        <div class="flex items-center p-1 rounded-xl bg-slate-200/70 dark:bg-slate-800/80 border border-white/40 dark:border-slate-700/60 shrink-0" title="Talaffuz aksenti (US / UK)">
+          <button type="button" id="accentUsBtn" class="accent-btn px-2.5 py-1 rounded-lg text-xs font-bold transition-all">US</button>
+          <button type="button" id="accentUkBtn" class="accent-btn px-2.5 py-1 rounded-lg text-xs font-bold transition-all">UK</button>
+        </div>
+
+        <!-- Keyboard Shortcuts -->
+        <button type="button" id="shortcutsBtn" class="hidden sm:inline-flex w-9 h-9 rounded-xl glass-panel items-center justify-center text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 btn-tactile shrink-0" title="Klaviatura tugmalari">
+          <i data-lucide="keyboard" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Theme Toggle -->
+        <button type="button" id="themeToggleBtn" class="w-9 h-9 rounded-xl glass-panel flex items-center justify-center text-slate-700 dark:text-amber-300 btn-tactile shrink-0" title="Tungi / Kunduzgi rejim">
+          <i data-lucide="moon" id="themeIconLight" class="w-4 h-4"></i>
+          <i data-lucide="sun" id="themeIconDark" class="w-4 h-4 hidden"></i>
+        </button>
+
+        <!-- Add Word CTA -->
+        <button type="button" id="openAddWordHeaderBtn" class="btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-indigo-500/25">
+          <i data-lucide="plus" class="w-4 h-4"></i>
+          <span class="hidden sm:inline">So‘z qo‘shish</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Mobile & Tablet Sub-navigation -->
+    <div class="lg:hidden border-t border-slate-200/60 dark:border-slate-800/80 px-3 py-2 flex items-center justify-around gap-1">
+      <button type="button" data-nav-view="dashboard" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5">
+        <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i>
+        Boshqaruv
+      </button>
+      <button type="button" data-nav-view="study" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5">
+        <i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i>
+        Mashqlar
+      </button>
+      <button type="button" data-nav-view="vocabulary" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5">
+        <i data-lucide="book-marked" class="w-3.5 h-3.5"></i>
+        Lug‘at
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-16">
+
+    <!-- ==================== VIEW 1: DASHBOARD ==================== -->
+    <section id="view-dashboard" class="view-animate space-y-6">
+      <!-- Hero Banner -->
+      <div class="glass-panel rounded-3xl p-6 sm:p-8 relative overflow-hidden">
+        <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-indigo-500/15 blur-3xl pointer-events-none"></div>
+        <div class="absolute -left-16 -bottom-16 w-56 h-56 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none"></div>
+        <div class="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+          <div class="space-y-2 max-w-2xl">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+              Intervalli takrorlash (SRS) asosida tez yodlang
+            </div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">
+              Kunlik ingliz tili mashg‘ulotingizga xush kelibsiz!
+            </h1>
+            <p id="dashHeroDueText" class="text-sm sm:text-base text-slate-600 dark:text-slate-300">
+              Bugun takrorlash uchun so‘zlar tayyor.
+            </p>
+          </div>
+
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+            <div class="px-4 py-3 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-white/60 dark:border-slate-700/60 min-w-[190px]">
+              <div class="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">
+                <span>Kunlik maqsad</span>
+                <span id="dashDailyGoalText" class="text-indigo-600 dark:text-indigo-300">0 / 10</span>
+              </div>
+              <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                <div id="dashDailyGoalBar" class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <button type="button" id="dashDueCtaBtn" class="btn-tactile px-6 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2">
+              <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+              Mashqni boshlash
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4 Statistics Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Jami so‘zlar</p>
+            <p id="statTotalWords" class="text-3xl font-extrabold mt-2">0</p>
+            <p id="statNewCount" class="text-xs font-semibold text-indigo-600 dark:text-indigo-300 mt-1">0 ta yangi so‘z</p>
+          </div>
+          <div class="w-11 h-11 rounded-2xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 flex items-center justify-center">
+            <i data-lucide="library" class="w-5 h-5"></i>
+          </div>
+        </div>
+
+        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">O‘rganilgan (Mastered)</p>
+            <p id="statMasteredWords" class="text-3xl font-extrabold mt-2 text-emerald-600 dark:text-emerald-400">0</p>
+            <p id="statMasteredPct" class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">0% to‘liq yodlangan</p>
+          </div>
+          <div class="w-11 h-11 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 flex items-center justify-center">
+            <i data-lucide="award" class="w-5 h-5"></i>
+          </div>
+        </div>
+
+        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Bugun takrorlash</p>
+            <p id="statDueWords" class="text-3xl font-extrabold mt-2 text-amber-600 dark:text-amber-400">0</p>
+            <p id="statDueStatus" class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">Takrorlash kutilmoqda</p>
+          </div>
+          <div class="w-11 h-11 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-300 flex items-center justify-center">
+            <i data-lucide="clock" class="w-5 h-5"></i>
+          </div>
+        </div>
+
+        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Kunlik seriya</p>
+            <div class="flex items-baseline gap-1.5 mt-2">
+              <p id="statStreakDays" class="text-3xl font-extrabold text-orange-600 dark:text-orange-400">0</p>
+              <span class="text-sm font-bold text-slate-500 dark:text-slate-400">kun</span>
+              <span class="text-xl streak-flame" aria-hidden="true">🔥</span>
+            </div>
+            <p id="statLongestStreak" class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">Rekord: 0 kun</p>
+          </div>
+          <div class="w-11 h-11 rounded-2xl bg-orange-500/15 text-orange-600 dark:text-orange-300 flex items-center justify-center">
+            <i data-lucide="flame" class="w-5 h-5"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Mastery Progress Bar -->
+      <div class="glass-panel rounded-3xl p-6 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h2 class="text-lg font-bold">Umumiy o‘zlashtirish ko‘rsatkichi</h2>
+            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+              Kartochkalarni "Oson (Easy)" deb baholaganingizda ular avtomatik Mastered bo‘limiga o‘tadi.
+            </p>
+          </div>
+          <span id="overallMasteryPercent" class="text-2xl font-extrabold bg-gradient-to-r from-indigo-600 to-emerald-500 dark:from-indigo-300 dark:to-emerald-300 bg-clip-text text-transparent">
+            0%
+          </span>
+        </div>
+
+        <div class="w-full h-4 rounded-full bg-slate-200/80 dark:bg-slate-800/90 overflow-hidden p-0.5">
+          <div id="overallMasteryBar" class="h-full rounded-full bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-500 transition-all duration-700" style="width: 0%"></div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-xs font-semibold">
+          <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">
+            <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+            Yangi: <span id="breakdownNew" class="font-bold">0</span>
+          </div>
+          <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+            O‘rganilmoqda: <span id="breakdownLearning" class="font-bold">0</span>
+          </div>
+          <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-sky-500/10 text-sky-700 dark:text-sky-300">
+            <span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
+            Takrorlash: <span id="breakdownReview" class="font-bold">0</span>
+          </div>
+          <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            Mastered: <span id="breakdownMastered" class="font-bold">0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Categories / Decks -->
+      <div class="space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg sm:text-xl font-extrabold">Kategoriyalar (Decks)</h2>
+            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Istalgan kategoriyani tanlab darhol mashqni boshlang</p>
+          </div>
+          <button type="button" id="openAddCategoryBtn" class="btn-tactile inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl glass-panel text-sm font-bold text-indigo-700 dark:text-indigo-300 hover:border-indigo-400/50">
+            <i data-lucide="folder-plus" class="w-4 h-4"></i>
+            Yangi kategoriya
+          </button>
+        </div>
+
+        <div id="decksGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW 2: STUDY HUB ==================== -->
+    <section id="view-study" class="hidden view-animate space-y-6">
+      <!-- Study Control Bar -->
+      <div class="glass-panel rounded-3xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+        <!-- Mode Switcher -->
+        <div class="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-slate-200/60 dark:bg-slate-900/70">
+          <button type="button" data-study-mode="flashcards" class="study-mode-tab px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all">
+            <i data-lucide="layers" class="w-4 h-4"></i>
+            Flashcards
+          </button>
+          <button type="button" data-study-mode="quiz" class="study-mode-tab px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all">
+            <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+            Test (Quiz)
+          </button>
+          <button type="button" data-study-mode="writing" class="study-mode-tab px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all">
+            <i data-lucide="pen-line" class="w-4 h-4"></i>
+            Yozma mashq
+          </button>
+          <button type="button" data-study-mode="listening" class="study-mode-tab px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all">
+            <i data-lucide="headphones" class="w-4 h-4"></i>
+            Listening
+          </button>
+        </div>
+
+        <!-- Deck & Scope Filters -->
+        <div class="flex flex-wrap items-center gap-2.5">
+          <div class="flex items-center gap-2">
+            <label for="studyDeckSelect" class="text-xs font-bold text-slate-500 dark:text-slate-400">Kategoriya:</label>
+            <select id="studyDeckSelect" class="px-3 py-2 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold">
+            </select>
+          </div>
+
+          <div id="studyScopeToggle" class="flex items-center p-1 rounded-xl bg-slate-200/70 dark:bg-slate-900/70">
+            <button type="button" data-study-scope="due" class="scope-btn px-3 py-1.5 rounded-lg text-xs font-bold transition-all">Takrorlash (Due)</button>
+            <button type="button" data-study-scope="all" class="scope-btn px-3 py-1.5 rounded-lg text-xs font-bold transition-all">Barchasi</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== MODE A: 3D FLASHCARDS ===== -->
+      <div id="mode-flashcards" class="space-y-5">
+        <div id="fcActiveWrap" class="max-w-3xl mx-auto space-y-5">
+          <!-- Session Progress + Shortcut Strip -->
+          <div class="flex flex-wrap items-center justify-between gap-2 px-1">
+            <div class="flex items-center gap-3">
+              <span id="fcCounter" class="text-sm font-extrabold text-slate-700 dark:text-slate-200">Karta 1 / 15</span>
+              <span id="fcDueBadge" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300"></span>
+            </div>
+            <div class="hidden sm:flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+              <span><kbd class="kbd-badge">Space</kbd> Aylantirish</span>
+              <span><kbd class="kbd-badge">S</kbd> Ovoz</span>
+              <span><kbd class="kbd-badge">1-4</kbd> Baholash</span>
+              <span><kbd class="kbd-badge">←</kbd><kbd class="kbd-badge">→</kbd> O‘tkazish</span>
+            </div>
+          </div>
+
+          <div class="w-full h-2 rounded-full bg-slate-200/70 dark:bg-slate-800/80 overflow-hidden">
+            <div id="fcProgressBar" class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-300" style="width: 0%"></div>
+          </div>
+
+          <!-- 3D Flip Card -->
+          <div class="flashcard-scene">
+            <div id="fcCardInner" class="flashcard-inner" role="button" tabindex="0" aria-label="Kartochkani aylantirish">
+              <!-- FRONT FACE -->
+              <div class="flashcard-face flashcard-face--front p-6 sm:p-8 flex flex-col justify-between">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span id="fcCategoryBadge" class="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20">IELTS</span>
+                    <span id="fcLevelBadge" class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-slate-900 text-white dark:bg-white dark:text-slate-900">C1</span>
+                    <span id="fcStatusBadge" class="px-2.5 py-1 rounded-full text-xs font-bold border">Yangi</span>
+                  </div>
+                  <button type="button" id="fcEditBtn" class="p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-700/60 text-slate-500 dark:text-slate-400 transition-colors" title="So‘zni tahrirlash">
+                    <i data-lucide="pencil" class="w-4 h-4"></i>
+                  </button>
+                </div>
+
+                <div class="my-auto py-6 text-center space-y-4">
+                  <p id="fcPosText" class="text-xs sm:text-sm font-bold uppercase tracking-widest text-indigo-600 dark:text-indigo-300 italic">verb / noun</p>
+                  <h2 id="fcWordText" class="text-4xl sm:text-5xl font-extrabold tracking-tight break-words">endeavor</h2>
+                  <p id="fcPhoneticText" class="font-mono-ipa text-base sm:text-lg text-slate-500 dark:text-slate-400">/ɪnˈdev.ər/</p>
+
+                  <div class="pt-3 flex items-center justify-center gap-2.5">
+                    <button type="button" id="fcSpeakBtn" class="btn-tactile inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-lg shadow-indigo-500/25">
+                      <i data-lucide="volume-2" class="w-4 h-4"></i>
+                      Talaffuz (S)
+                    </button>
+                    <button type="button" id="fcSpeakUsBtn" class="btn-tactile px-3 py-2.5 rounded-2xl bg-slate-200/80 dark:bg-slate-800 hover:bg-indigo-500/20 text-xs font-extrabold">
+                      🔊 US
+                    </button>
+                    <button type="button" id="fcSpeakUkBtn" class="btn-tactile px-3 py-2.5 rounded-2xl bg-slate-200/80 dark:bg-slate-800 hover:bg-indigo-500/20 text-xs font-extrabold">
+                      🔊 UK
+                    </button>
+                  </div>
+                </div>
+
+                <div class="text-center text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center justify-center gap-1.5">
+                  <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+                  Tarjima va misollar uchun kartani bosing yoki <kbd class="kbd-badge">Space</kbd> bosing
+                </div>
+              </div>
+
+              <!-- BACK FACE -->
+              <div class="flashcard-face flashcard-face--back p-6 sm:p-8 flex flex-col justify-between gap-4">
+                <div class="flex items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-slate-700/70">
+                  <div class="flex items-center gap-2.5 min-w-0">
+                    <h3 id="fcBackWord" class="text-lg sm:text-xl font-extrabold truncate">endeavor</h3>
+                    <span id="fcBackPhonetic" class="font-mono-ipa text-xs sm:text-sm text-slate-500 dark:text-slate-400 truncate">/ɪnˈdev.ər/</span>
+                  </div>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <button type="button" id="fcBackSpeakBtn" class="p-2 rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/25" title="Ovozli o‘qish">
+                      <i data-lucide="volume-2" class="w-4 h-4"></i>
+                    </button>
+                    <span class="text-[11px] font-semibold text-slate-400">Old tomoni ↻</span>
+                  </div>
+                </div>
+
+                <div class="space-y-4 text-left">
+                  <!-- Translation -->
+                  <div>
+                    <span class="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">O‘zbekcha tarjimasi</span>
+                    <p id="fcTranslation" class="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5"></p>
+                  </div>
+
+                  <!-- Definition -->
+                  <div class="p-3.5 rounded-2xl bg-slate-100/90 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/60">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Definition</span>
+                    <p id="fcDefinition" class="text-sm text-slate-700 dark:text-slate-200 mt-1 leading-relaxed"></p>
+                  </div>
+
+                  <!-- 2 Examples -->
+                  <div class="space-y-2">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Misol gaplar (Context)</span>
+                    <ul id="fcExamplesList" class="space-y-2 text-sm text-slate-700 dark:text-slate-200"></ul>
+                  </div>
+
+                  <!-- Synonyms & Antonyms -->
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <span class="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">Sinonimlar</span>
+                      <div id="fcSynonymsWrap" class="flex flex-wrap gap-1.5 mt-1.5"></div>
+                    </div>
+                    <div>
+                      <span class="text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-300">Antonimlar</span>
+                      <div id="fcAntonymsWrap" class="flex flex-wrap gap-1.5 mt-1.5"></div>
+                    </div>
+                  </div>
+
+                  <!-- Mnemonic -->
+                  <div id="fcMnemonicBox" class="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-start gap-2.5">
+                    <i data-lucide="lightbulb" class="w-4 h-4 text-amber-500 shrink-0 mt-0.5"></i>
+                    <div>
+                      <span class="text-[11px] font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-300">Assotsiatsiya (Mnemonic)</span>
+                      <p id="fcMnemonicText" class="text-xs sm:text-sm text-slate-700 dark:text-slate-200 mt-0.5"></p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Navigation & SRS Rating Controls -->
+          <div class="space-y-4">
+            <div class="flex items-center justify-between gap-3">
+              <button type="button" id="fcPrevBtn" class="btn-tactile px-4 py-2.5 rounded-2xl glass-panel text-sm font-bold flex items-center gap-1.5">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                Oldingi
+              </button>
+
+              <button type="button" id="fcFlipBtn" class="btn-tactile px-6 py-2.5 rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-sm font-bold flex items-center gap-2 shadow-md">
+                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                Kartani aylantirish
+              </button>
+
+              <button type="button" id="fcNextBtn" class="btn-tactile px-4 py-2.5 rounded-2xl glass-panel text-sm font-bold flex items-center gap-1.5">
+                Keyingi
+                <i data-lucide="arrow-right" class="w-4 h-4"></i>
+              </button>
+            </div>
+
+            <!-- 4 SRS Rating Buttons (revealed after flip) -->
+            <div id="fcSrsBar" class="hidden grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+              <button type="button" data-srs-rate="again" class="srs-btn-again rounded-2xl bg-rose-600 hover:bg-rose-500 text-white p-3 text-left transition-all">
+                <div class="flex items-center justify-between">
+                  <span class="font-extrabold text-sm">Bilmadim</span>
+                  <kbd class="px-1.5 py-0.5 rounded bg-white/20 text-[11px] font-bold">1</kbd>
+                </div>
+                <p class="text-[11px] text-rose-100 mt-0.5 font-medium">Again • 1 daqiqa</p>
+              </button>
+
+              <button type="button" data-srs-rate="hard" class="srs-btn-hard rounded-2xl bg-orange-500 hover:bg-orange-400 text-white p-3 text-left transition-all">
+                <div class="flex items-center justify-between">
+                  <span class="font-extrabold text-sm">Qiyin</span>
+                  <kbd class="px-1.5 py-0.5 rounded bg-white/20 text-[11px] font-bold">2</kbd>
+                </div>
+                <p class="text-[11px] text-orange-100 mt-0.5 font-medium">Hard • 1 kun</p>
+              </button>
+
+              <button type="button" data-srs-rate="good" class="srs-btn-good rounded-2xl bg-blue-600 hover:bg-blue-500 text-white p-3 text-left transition-all">
+                <div class="flex items-center justify-between">
+                  <span class="font-extrabold text-sm">Yaxshi</span>
+                  <kbd class="px-1.5 py-0.5 rounded bg-white/20 text-[11px] font-bold">3</kbd>
+                </div>
+                <p class="text-[11px] text-blue-100 mt-0.5 font-medium">Good • 3 kun</p>
+              </button>
+
+              <button type="button" data-srs-rate="easy" class="srs-btn-easy rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white p-3 text-left transition-all">
+                <div class="flex items-center justify-between">
+                  <span class="font-extrabold text-sm">Oson</span>
+                  <kbd class="px-1.5 py-0.5 rounded bg-white/20 text-[11px] font-bold">4</kbd>
+                </div>
+                <p class="text-[11px] text-emerald-100 mt-0.5 font-medium">Easy • 7 kun (Mastered)</p>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Flashcard Empty / Completed State -->
+        <div id="fcEmptyState" class="hidden max-w-xl mx-auto glass-panel rounded-3xl p-8 text-center space-y-4">
+          <div class="w-16 h-16 rounded-3xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 mx-auto flex items-center justify-center">
+            <i data-lucide="party-popper" class="w-8 h-8"></i>
+          </div>
+          <h3 id="fcEmptyTitle" class="text-2xl font-extrabold">Ajoyib! Bugungi takrorlash yakunlandi</h3>
+          <p id="fcEmptyDesc" class="text-sm text-slate-600 dark:text-slate-300">
+            Ushbu kategoriyada hozircha takrorlanishi kerak bo‘lgan so‘z qolmadi.
+          </p>
+          <div class="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button type="button" id="fcPracticeAllBtn" class="btn-tactile px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
+              Barcha so‘zlarni mashq qilish
+            </button>
+            <button type="button" id="fcBackDashBtn" class="btn-tactile px-5 py-2.5 rounded-2xl glass-panel text-sm font-bold">
+              Boshqaruvga qaytish
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ===== MODE B: MULTIPLE CHOICE (TEST) ===== -->
+      <div id="mode-quiz" class="hidden max-w-2xl mx-auto space-y-5">
+        <div class="flex items-center justify-between px-1">
+          <span id="quizProgressText" class="text-sm font-extrabold">Savol 1 / 10</span>
+          <span id="quizScoreText" class="px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-xs font-extrabold">To‘g‘ri: 0</span>
+        </div>
+        <div class="w-full h-2 rounded-full bg-slate-200/70 dark:bg-slate-800/80 overflow-hidden">
+          <div id="quizProgressBar" class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-sky-500 transition-all duration-300" style="width: 0%"></div>
+        </div>
+
+        <div id="quizCardBox" class="glass-panel rounded-3xl p-6 sm:p-8 space-y-6">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span id="quizCategoryBadge" class="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">IELTS</span>
+              <span id="quizLevelBadge" class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-slate-900 text-white dark:bg-white dark:text-slate-900">C1</span>
+            </div>
+            <button type="button" id="quizSpeakBtn" class="btn-tactile inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold">
+              <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+              Eshitish (S)
+            </button>
+          </div>
+
+          <div class="text-center space-y-1.5 py-2">
+            <p id="quizPos" class="text-xs font-bold uppercase tracking-widest text-indigo-600 dark:text-indigo-300"></p>
+            <h2 id="quizWord" class="text-3xl sm:text-4xl font-extrabold"></h2>
+            <p id="quizPhonetic" class="font-mono-ipa text-sm text-slate-500 dark:text-slate-400"></p>
+          </div>
+
+          <div id="quizOptionsGrid" class="grid grid-cols-1 gap-3"></div>
+
+          <div id="quizFeedbackBox" class="hidden p-4 rounded-2xl border text-sm space-y-2"></div>
+
+          <div class="flex justify-end">
+            <button type="button" id="quizNextBtn" class="hidden btn-tactile px-6 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold items-center gap-2">
+              Keyingi savol
+              <i data-lucide="arrow-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <div id="quizSummaryBox" class="hidden glass-panel rounded-3xl p-8 text-center space-y-4">
+          <div class="w-16 h-16 rounded-3xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 mx-auto flex items-center justify-center">
+            <i data-lucide="trophy" class="w-8 h-8"></i>
+          </div>
+          <h3 class="text-2xl font-extrabold">Test yakunlandi!</h3>
+          <p id="quizSummaryStats" class="text-base font-semibold text-slate-600 dark:text-slate-300"></p>
+          <div id="quizWrongList" class="text-left space-y-2"></div>
+          <button type="button" id="quizRestartBtn" class="btn-tactile px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
+            Qayta test topshirish
+          </button>
+        </div>
+      </div>
+
+      <!-- ===== MODE C: WRITING / SPELLING ===== -->
+      <div id="mode-writing" class="hidden max-w-2xl mx-auto space-y-5">
+        <div class="flex items-center justify-between px-1">
+          <span id="writeProgressText" class="text-sm font-extrabold">Mashq 1 / 10</span>
+          <span id="writeScoreText" class="px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-xs font-extrabold">To‘g‘ri: 0</span>
+        </div>
+        <div class="w-full h-2 rounded-full bg-slate-200/70 dark:bg-slate-800/80 overflow-hidden">
+          <div id="writeProgressBar" class="h-full rounded-full bg-gradient-to-r from-violet-500 to-emerald-500 transition-all duration-300" style="width: 0%"></div>
+        </div>
+
+        <div id="writeCardBox" class="glass-panel rounded-3xl p-6 sm:p-8 space-y-5">
+          <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span id="writeCategoryBadge" class="px-3 py-1 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300"></span>
+              <span id="writeLevelBadge" class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-slate-900 text-white dark:bg-white dark:text-slate-900"></span>
+              <span id="writePos" class="text-xs font-bold italic text-slate-500 dark:text-slate-400"></span>
+            </div>
+            <button type="button" id="writeSpeakBtn" class="btn-tactile inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold">
+              <i data-lucide="volume-2" class="w-3.5 h-3.5"></i>
+              Audio (S)
+            </button>
+          </div>
+
+          <div class="space-y-2 text-center py-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">O‘zbekcha ma’nosi</span>
+            <h2 id="writeTranslation" class="text-2xl sm:text-3xl font-extrabold"></h2>
+            <p id="writeDefinition" class="text-sm text-slate-600 dark:text-slate-300 max-w-lg mx-auto"></p>
+            <p id="writeHintText" class="font-mono-ipa text-sm font-bold tracking-widest text-indigo-600 dark:text-indigo-300 min-h-[1.25rem]"></p>
+          </div>
+
+          <form id="writeForm" class="space-y-3">
+            <input id="writeInput" type="text" autocomplete="off" spellcheck="false" placeholder="Inglizcha so‘zni harflab yozing..." class="w-full px-4 py-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-700 text-center text-lg font-bold tracking-wide" />
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <button type="button" id="writeHintBtn" class="btn-tactile px-4 py-2.5 rounded-xl glass-panel text-xs sm:text-sm font-bold flex items-center gap-1.5">
+                <i data-lucide="lightbulb" class="w-4 h-4 text-amber-500"></i>
+                Ko‘rsatma
+              </button>
+              <button type="submit" id="writeCheckBtn" class="btn-tactile px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
+                Tekshirish (Enter)
+              </button>
+            </div>
+          </form>
+
+          <div id="writeFeedbackBox" class="hidden p-4 rounded-2xl border text-sm space-y-1.5"></div>
+
+          <div class="flex justify-end">
+            <button type="button" id="writeNextBtn" class="hidden btn-tactile px-6 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold items-center gap-2">
+              Keyingi so‘z
+              <i data-lucide="arrow-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <div id="writeSummaryBox" class="hidden glass-panel rounded-3xl p-8 text-center space-y-4">
+          <div class="w-16 h-16 rounded-3xl bg-violet-500/15 text-violet-600 dark:text-violet-300 mx-auto flex items-center justify-center">
+            <i data-lucide="sparkles" class="w-8 h-8"></i>
+          </div>
+          <h3 class="text-2xl font-extrabold">Yozma mashq yakunlandi!</h3>
+          <p id="writeSummaryStats" class="text-base font-semibold text-slate-600 dark:text-slate-300"></p>
+          <button type="button" id="writeRestartBtn" class="btn-tactile px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
+            Qayta boshlash
+          </button>
+        </div>
+      </div>
+
+      <!-- ===== MODE D: LISTENING MODE ===== -->
+      <div id="mode-listening" class="hidden max-w-2xl mx-auto space-y-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 px-1">
+          <span id="listenProgressText" class="text-sm font-extrabold">Audio 1 / 10</span>
+          <div id="listenTypeToggle" class="flex items-center p-1 rounded-xl bg-slate-200/70 dark:bg-slate-900/70">
+            <button type="button" data-listen-type="quiz" class="listen-type-btn px-3 py-1 rounded-lg text-xs font-bold transition-all">4 Variant</button>
+            <button type="button" data-listen-type="dictation" class="listen-type-btn px-3 py-1 rounded-lg text-xs font-bold transition-all">Eshitib yozish</button>
+          </div>
+          <span id="listenScoreText" class="px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-xs font-extrabold">To‘g‘ri: 0</span>
+        </div>
+        <div class="w-full h-2 rounded-full bg-slate-200/70 dark:bg-slate-800/80 overflow-hidden">
+          <div id="listenProgressBar" class="h-full rounded-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-300" style="width: 0%"></div>
+        </div>
+
+        <div id="listenCardBox" class="glass-panel rounded-3xl p-6 sm:p-8 space-y-6">
+          <div class="text-center space-y-4">
+            <p class="text-xs font-bold uppercase tracking-widest text-sky-600 dark:text-sky-300">
+              Faqat ovozni tinglang va to‘g‘ri so‘zni toping
+            </p>
+            <div class="flex items-center justify-center">
+              <button type="button" id="listenSpeakBtn" class="btn-tactile w-24 h-24 rounded-full bg-gradient-to-br from-indigo-600 to-sky-500 text-white shadow-xl shadow-indigo-500/30 flex flex-col items-center justify-center gap-1">
+                <i data-lucide="volume-2" class="w-8 h-8"></i>
+                <span class="text-[11px] font-bold">Eshitish (S)</span>
+              </button>
+            </div>
+            <div class="flex flex-wrap items-center justify-center gap-2">
+              <button type="button" id="listenSlowBtn" class="btn-tactile px-3.5 py-1.5 rounded-xl glass-panel text-xs font-bold">🐢 Sekin (0.75x)</button>
+              <button type="button" id="listenUsBtn" class="btn-tactile px-3.5 py-1.5 rounded-xl glass-panel text-xs font-bold">🇺🇸 US</button>
+              <button type="button" id="listenUkBtn" class="btn-tactile px-3.5 py-1.5 rounded-xl glass-panel text-xs font-bold">🇬🇧 UK</button>
+            </div>
+          </div>
+
+          <div id="listenQuizOptions" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+
+          <form id="listenDictationForm" class="hidden space-y-3">
+            <input id="listenDictationInput" type="text" autocomplete="off" spellcheck="false" placeholder="Eshitgan so‘zingizni yozing..." class="w-full px-4 py-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-700 text-center text-lg font-bold" />
+            <div class="flex justify-end">
+              <button type="submit" id="listenDictationCheckBtn" class="btn-tactile px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
+                Tekshirish
+              </button>
+            </div>
+          </form>
+
+          <div id="listenFeedbackBox" class="hidden p-4 rounded-2xl border text-sm space-y-1.5"></div>
+
+          <div class="flex justify-end">
+            <button type="button" id="listenNextBtn" class="hidden btn-tactile px-6 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold items-center gap-2">
+              Keyingisi
+              <i data-lucide="arrow-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <div id="listenSummaryBox" class="hidden glass-panel rounded-3xl p-8 text-center space-y-4">
+          <div class="w-16 h-16 rounded-3xl bg-sky-500/15 text-sky-600 dark:text-sky-300 mx-auto flex items-center justify-center">
+            <i data-lucide="headphones" class="w-8 h-8"></i>
+          </div>
+          <h3 class="text-2xl font-extrabold">Listening mashqi yakunlandi!</h3>
+          <p id="listenSummaryStats" class="text-base font-semibold text-slate-600 dark:text-slate-300"></p>
+          <button type="button" id="listenRestartBtn" class="btn-tactile px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
+            Qayta boshlash
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW 3: VOCABULARY CRUD & IMPORT/EXPORT ==================== -->
+    <section id="view-vocabulary" class="hidden view-animate space-y-5">
+      <!-- Toolbar -->
+      <div class="glass-panel rounded-3xl p-5 space-y-4">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-2.5">
+              <h1 class="text-xl font-extrabold">Lug‘at bazasi va Boshqaruv</h1>
+              <span id="vocabCountBadge" class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">0 ta so‘z</span>
+            </div>
+            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">So‘zlarni qo‘shing, tahrirlang, JSON/CSV shaklida saqlang yoki yuklang.</p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" id="vocabExportJsonBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i>
+              JSON Export
+            </button>
+            <button type="button" id="vocabExportCsvBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5">
+              <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+              CSV Export
+            </button>
+            <button type="button" id="vocabImportBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5">
+              <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+              Import (JSON/CSV)
+            </button>
+            <input type="file" id="vocabImportInput" accept=".json,.csv,application/json,text/csv" class="hidden" />
+            <button type="button" id="vocabRestoreDefaultsBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-300" title="Standart 15 ta B2/C1 so‘zlarni bazaga qo‘shish">
+              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+              Default 15
+            </button>
+            <button type="button" id="vocabAddWordBtn" class="btn-tactile px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold flex items-center gap-1.5">
+              <i data-lucide="plus" class="w-4 h-4"></i>
+              Yangi so‘z
+            </button>
+          </div>
+        </div>
+
+        <!-- Search & Filters -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div class="relative sm:col-span-2 lg:col-span-1">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+            <input id="vocabSearchInput" type="search" placeholder="So‘z yoki tarjima qidirish..." class="w-full pl-10 pr-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-sm" />
+          </div>
+          <select id="vocabCategoryFilter" class="px-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-sm font-medium"></select>
+          <select id="vocabLevelFilter" class="px-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-sm font-medium">
+            <option value="ALL">Barcha darajalar (A1–C2)</option>
+            <option value="A1">A1 — Beginner</option>
+            <option value="A2">A2 — Elementary</option>
+            <option value="B1">B1 — Intermediate</option>
+            <option value="B2">B2 — Upper-Intermediate</option>
+            <option value="C1">C1 — Advanced</option>
+            <option value="C2">C2 — Mastery</option>
+          </select>
+          <select id="vocabStatusFilter" class="px-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-sm font-medium">
+            <option value="ALL">Barcha holatlar</option>
+            <option value="due">Takrorlash vaqti (Due)</option>
+            <option value="new">Yangi</option>
+            <option value="learning">O‘rganilmoqda</option>
+            <option value="review">Takrorlanmoqda</option>
+            <option value="mastered">Mastered</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Desktop Table -->
+      <div class="hidden md:block glass-panel rounded-3xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-slate-200/80 dark:border-slate-800 text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                <th class="py-3.5 px-5">So‘z &amp; Transkripsiya</th>
+                <th class="py-3.5 px-4">O‘zbekcha tarjima</th>
+                <th class="py-3.5 px-4">Kategoriya / CEFR</th>
+                <th class="py-3.5 px-4">Holati</th>
+                <th class="py-3.5 px-5 text-right">Amallar</th>
+              </tr>
+            </thead>
+            <tbody id="vocabTableBody" class="divide-y divide-slate-200/60 dark:divide-slate-800/70 text-sm"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Mobile Card List -->
+      <div id="vocabMobileCards" class="md:hidden space-y-3"></div>
+
+      <!-- Empty Filter State -->
+      <div id="vocabEmptyState" class="hidden glass-panel rounded-3xl p-10 text-center space-y-2">
+        <p class="text-base font-bold">Hech qanday so‘z topilmadi</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400">Qidiruv so‘zini o‘zgartiring yoki yangi so‘z qo‘shing.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== MODAL: ADD / EDIT WORD ==================== -->
+  <div id="wordModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+    <div class="glass-panel-strong rounded-3xl w-full max-w-2xl max-h-[92vh] overflow-y-auto p-6 sm:p-7 space-y-5">
+      <div class="flex items-center justify-between">
+        <h2 id="wordModalTitle" class="text-xl font-extrabold">Yangi so‘z qo‘shish</h2>
+        <button type="button" id="closeWordModalBtn" class="p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-800">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form id="wordForm" class="space-y-4">
+        <input type="hidden" id="wordIdInput" />
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label class="block text-xs font-bold mb-1" for="wordTextInput">Inglizcha so‘z *</label>
+            <input id="wordTextInput" required type="text" placeholder="masalan: endeavor" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold mb-1" for="wordPhoneticInput">Transkripsiya (IPA)</label>
+            <input id="wordPhoneticInput" type="text" placeholder="/ɪnˈdev.ər/" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+          <div>
+            <label class="block text-xs font-bold mb-1" for="wordPosInput">So‘z turkumi</label>
+            <select id="wordPosInput" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm">
+              <option value="noun">noun</option>
+              <option value="verb">verb</option>
+              <option value="adjective">adjective</option>
+              <option value="adverb">adverb</option>
+              <option value="verb / noun">verb / noun</option>
+              <option value="phrasal verb">phrasal verb</option>
+              <option value="idiom">idiom</option>
+              <option value="phrase">phrase</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold mb-1" for="wordCategoryInput">Kategoriya</label>
+            <select id="wordCategoryInput" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm"></select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold mb-1" for="wordLevelInput">CEFR darajasi</label>
+            <select id="wordLevelInput" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm">
+              <option value="A1">A1</option>
+              <option value="A2">A2</option>
+              <option value="B1">B1</option>
+              <option value="B2" selected>B2</option>
+              <option value="C1">C1</option>
+              <option value="C2">C2</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold mb-1" for="wordTranslationInput">O‘zbekcha tarjima *</label>
+          <input id="wordTranslationInput" required type="text" placeholder="astoydil harakat qilmoq, intilmoq" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold mb-1" for="wordDefinitionInput">Inglizcha izoh (Definition)</label>
+          <textarea id="wordDefinitionInput" rows="2" placeholder="To try very hard to achieve something important..." class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm"></textarea>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label class="block text-xs font-bold mb-1" for="wordExample1Input">1-misol gap</label>
+            <textarea id="wordExample1Input" rows="2" placeholder="Engineers **endeavor** to build reliable apps." class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm"></textarea>
+          </div>
+          <div>
+            <label class="block text-xs font-bold mb-1" for="wordExample2Input">2-misol gap</label>
+            <textarea id="wordExample2Input" rows="2" placeholder="Learning a language is a rewarding **endeavor**." class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm"></textarea>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div>
+            <label class="block text-xs font-bold mb-1" for="wordSynonymsInput">Sinonimlar (vergul bilan)</label>
+            <input id="wordSynonymsInput" type="text" placeholder="strive, attempt, undertake" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold mb-1" for="wordAntonymsInput">Antonimlar (vergul bilan)</label>
+            <input id="wordAntonymsInput" type="text" placeholder="neglect, abandon" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold mb-1" for="wordMnemonicInput">Assotsiatsiya (Mnemonic note)</label>
+          <input id="wordMnemonicInput" type="text" placeholder="So‘zni oson eslab qolish uchun qisqa usul..." class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+        </div>
+
+        <div class="flex items-center justify-end gap-2.5 pt-2">
+          <button type="button" id="cancelWordModalBtn" class="btn-tactile px-5 py-2.5 rounded-xl glass-panel text-sm font-bold">Bekor qilish</button>
+          <button type="submit" class="btn-tactile px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold shadow-lg shadow-indigo-500/25">Saqlash</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: ADD CATEGORY ==================== -->
+  <div id="categoryModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+    <div class="glass-panel-strong rounded-3xl w-full max-w-md p-6 space-y-5">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-extrabold">Yangi kategoriya yaratish</h2>
+        <button type="button" id="closeCategoryModalBtn" class="p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-800">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <form id="categoryForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold mb-1" for="categoryNameInput">Kategoriya nomi *</label>
+          <input id="categoryNameInput" required type="text" placeholder="masalan: IT &amp; Software" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold mb-1" for="categoryColorSelect">Rang</label>
+            <select id="categoryColorSelect" class="w-full px-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm">
+              <option value="indigo">Indigo</option>
+              <option value="emerald">Emerald</option>
+              <option value="sky">Sky Blue</option>
+              <option value="amber">Amber</option>
+              <option value="rose">Rose</option>
+              <option value="violet">Violet</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold mb-1" for="categoryIconSelect">Ikonka</label>
+            <select id="categoryIconSelect" class="w-full px-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm">
+              <option value="folder">Papka</option>
+              <option value="code-2">Dasturlash</option>
+              <option value="globe">Dunyo</option>
+              <option value="bookmark">Xatcho‘p</option>
+              <option value="zap">Tezkor</option>
+              <option value="star">Yulduz</option>
+            </select>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2.5 pt-2">
+          <button type="button" id="cancelCategoryModalBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-sm font-bold">Bekor qilish</button>
+          <button type="submit" class="btn-tactile px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold">Yaratish</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: KEYBOARD SHORTCUTS ==================== -->
+  <div id="shortcutsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+    <div class="glass-panel-strong rounded-3xl w-full max-w-md p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-extrabold flex items-center gap-2">
+          <i data-lucide="keyboard" class="w-5 h-5 text-indigo-500"></i>
+          Klaviatura boshqaruvi
+        </h2>
+        <button type="button" id="closeShortcutsModalBtn" class="p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-800">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="space-y-2.5 text-sm">
+        <div class="flex items-center justify-between py-1.5 border-b border-slate-200/70 dark:border-slate-800">
+          <span>Kartani aylantirish</span>
+          <kbd class="kbd-badge">Space</kbd>
+        </div>
+        <div class="flex items-center justify-between py-1.5 border-b border-slate-200/70 dark:border-slate-800">
+          <span>Ovozni eshitish (Talaffuz)</span>
+          <kbd class="kbd-badge">S</kbd>
+        </div>
+        <div class="flex items-center justify-between py-1.5 border-b border-slate-200/70 dark:border-slate-800">
+          <span>Baholash (Bilmadim / Qiyin / Yaxshi / Oson)</span>
+          <div class="flex gap-1"><kbd class="kbd-badge">1</kbd><kbd class="kbd-badge">2</kbd><kbd class="kbd-badge">3</kbd><kbd class="kbd-badge">4</kbd></div>
+        </div>
+        <div class="flex items-center justify-between py-1.5 border-b border-slate-200/70 dark:border-slate-800">
+          <span>Oldingi / Keyingi karta</span>
+          <div class="flex gap-1"><kbd class="kbd-badge">←</kbd><kbd class="kbd-badge">→</kbd></div>
+        </div>
+        <div class="flex items-center justify-between py-1.5">
+          <span>Oynani yopish</span>
+          <kbd class="kbd-badge">Esc</kbd>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: CONFIRMATION ==================== -->
+  <div id="confirmModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+    <div class="glass-panel-strong rounded-3xl w-full max-w-sm p-6 space-y-4">
+      <h3 id="confirmTitle" class="text-lg font-extrabold">Tasdiqlash</h3>
+      <p id="confirmMessage" class="text-sm text-slate-600 dark:text-slate-300"></p>
+      <div class="flex justify-end gap-2.5 pt-2">
+        <button type="button" id="confirmCancelBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-sm font-bold">Bekor qilish</button>
+        <button type="button" id="confirmOkBtn" class="btn-tactile px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-sm font-bold">Tasdiqlash</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+  <!-- Application Scripts -->
+  <script src="js/default-data.js" defer></script>
+  <script src="js/srs.js" defer></script>
+  <script src="js/storage.js" defer></script>
+  <script src="js/speech.js" defer></script>
+  <script src="js/app.js" defer></script>
+</body>
+</html>
