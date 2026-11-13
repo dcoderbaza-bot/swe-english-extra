@@ -1,5 +1,5 @@
 /**
- * SWE ENGLISH EXTRA — Default Categories & 15 Starter B2/C1 Academic / IELTS Words
+ * SWE ENGLISH EXTRA — Default Categories, Lessons & 15 Starter B2/C1 Academic / IELTS Words
  */
 (function (root) {
   'use strict';
@@ -10,6 +10,27 @@
     { id: 'Business', name: 'Business', icon: 'briefcase', color: 'amber', builtIn: true },
     { id: 'Phrasal Verbs', name: 'Phrasal Verbs', icon: 'git-branch', color: 'emerald', builtIn: true },
     { id: 'Idioms', name: 'Idioms', icon: 'sparkles', color: 'rose', builtIn: true }
+  ];
+
+  const DEFAULT_LESSONS = [
+    {
+      id: 'lesson-1',
+      name: '1-dars: Academic Foundations',
+      description: 'Akademik yozuv va IELTS Reading/Writing uchun asosiy C1 fe’llar va sifatlar',
+      order: 1
+    },
+    {
+      id: 'lesson-2',
+      name: '2-dars: Society & Analysis',
+      description: 'Tahliliy fikrlash, muammolarni bayon qilish va ilmiy baholash lug‘ati',
+      order: 2
+    },
+    {
+      id: 'lesson-3',
+      name: '3-dars: Business & Expressions',
+      description: 'Biznes qarorlar, frazali fe’llar va yuqori darajadagi idiomalar',
+      order: 3
+    }
   ];
 
   const DEFAULT_WORDS = [
@@ -28,6 +49,7 @@
       antonyms: ['neglect', 'abandon', 'idle'],
       mnemonic: 'End + ever: oxirigacha ("end") doim ("ever") to‘xtamasdan harakat qilib intilish.',
       category: 'IELTS',
+      lesson: '1-dars: Academic Foundations',
       level: 'C1'
     },
     {
@@ -45,6 +67,7 @@
       antonyms: ['rare', 'scarce', 'uncommon'],
       mnemonic: '"Ubi" (lotincha — qayerda) + "quit": hamma joyda uchraydigan, hech qayerdan ketmaydigan (quit qilmaydigan) narsa.',
       category: 'IELTS',
+      lesson: '1-dars: Academic Foundations',
       level: 'C1'
     },
     {
@@ -62,6 +85,7 @@
       antonyms: ['aggravate', 'intensify', 'worsen'],
       mnemonic: 'Mini + gate: muammo darvozasini kichraytirib ("mini"), ta’sirini yumshatish.',
       category: 'IELTS',
+      lesson: '1-dars: Academic Foundations',
       level: 'C1'
     },
     {
@@ -79,6 +103,7 @@
       antonyms: ['mitigate', 'alleviate', 'improve'],
       mnemonic: 'Ex + "zahar" (asab): vaziyatni yanada achchiq va asabiy holatga keltirib og‘irlashtirish.',
       category: 'IELTS',
+      lesson: '1-dars: Academic Foundations',
       level: 'C1'
     },
     {
@@ -96,6 +121,7 @@
       antonyms: ['ordinary', 'familiar', 'conventional'],
       mnemonic: 'Un (yo‘q) + precedent (oldingi namuna): avval hech qanday namunasi bo‘lmagan holat.',
       category: 'IELTS',
+      lesson: '1-dars: Academic Foundations',
       level: 'C1'
     },
     {
@@ -113,6 +139,7 @@
       antonyms: ['dwindle', 'decline', 'shrink'],
       mnemonic: 'Pro (ko‘payish) + life: hayot tez sur’atda ko‘payib tarqalayotganini tasavvur qiling.',
       category: 'IELTS',
+      lesson: '2-dars: Society & Analysis',
       level: 'C1'
     },
     {
@@ -130,6 +157,7 @@
       antonyms: ['consistency', 'harmony', 'agreement'],
       mnemonic: 'Dis (yo‘q) + "skrepka": ikki hujjat bir-biriga skrepka bilan mos tushmay, orasida farq chiqishi.',
       category: 'IELTS',
+      lesson: '2-dars: Society & Analysis',
       level: 'C1'
     },
     {
@@ -147,6 +175,7 @@
       antonyms: ['fragile', 'vulnerable', 'brittle'],
       mnemonic: 'Re (qayta) + silent/spring: egilsa ham sinmaydigan, yana o‘z holiga qaytadigan prujina.',
       category: 'General English',
+      lesson: '2-dars: Society & Analysis',
       level: 'B2'
     },
     {
@@ -164,6 +193,7 @@
       antonyms: ['explicit', 'unambiguous', 'clear'],
       mnemonic: 'Ambi- (ikkala tomon, masalan ambidextrous) — ikki yoqlama ma’no berib, noaniqlik tug‘diruvchi.',
       category: 'General English',
+      lesson: '2-dars: Society & Analysis',
       level: 'B2'
     },
     {
@@ -181,6 +211,7 @@
       antonyms: ['incoherent', 'disjointed', 'muddled'],
       mnemonic: 'Co- (birga) + adhere (yopishmoq): fikrlar bir-biriga mahkam yopishib, mantiqiy zanjir hosil qilishi.',
       category: 'General English',
+      lesson: '2-dars: Society & Analysis',
       level: 'B2'
     },
     {
@@ -198,6 +229,7 @@
       antonyms: ['idealistic', 'impractical', 'utopian'],
       mnemonic: '"Praktika" so‘ziga o‘xshash: faqat nazariya emas, amaliy natijaga qarab ish tutadigan.',
       category: 'Business',
+      lesson: '3-dars: Business & Expressions',
       level: 'C1'
     },
     {
@@ -215,6 +247,7 @@
       antonyms: ['unprofitable', 'loss-making', 'worthless'],
       mnemonic: 'Lukr (lotincha — foyda/daromad) + -ative: ko‘p daromad olib keluvchi biznes.',
       category: 'Business',
+      lesson: '3-dars: Business & Expressions',
       level: 'C1'
     },
     {
@@ -232,6 +265,7 @@
       antonyms: ['prevent', 'halt', 'suppress'],
       mnemonic: 'Bring (olib kelmoq) + about (atrofga): yangi natija yoki o‘zgarishni hayotga olib kelish.',
       category: 'Phrasal Verbs',
+      lesson: '3-dars: Business & Expressions',
       level: 'B2'
     },
     {
@@ -249,6 +283,7 @@
       antonyms: ['result in', 'give rise to'],
       mnemonic: 'Stem (o‘simlik poyasi) + from (...dan): poya ildizdan o‘sib chiqqani kabi muammoning asl manbadan chiqishi.',
       category: 'Phrasal Verbs',
+      lesson: '3-dars: Business & Expressions',
       level: 'C1'
     },
     {
@@ -266,12 +301,14 @@
       antonyms: ['pure advantage', 'unmixed blessing'],
       mnemonic: 'Ikkala tomoni ham o‘tkir qilich — ehtiyotsiz ishlatsangiz ham foyda, ham zarar keltirishi mumkin.',
       category: 'Idioms',
+      lesson: '3-dars: Business & Expressions',
       level: 'C1'
     }
   ];
 
   const payload = {
     DEFAULT_CATEGORIES: DEFAULT_CATEGORIES,
+    DEFAULT_LESSONS: DEFAULT_LESSONS,
     DEFAULT_WORDS: DEFAULT_WORDS
   };
 

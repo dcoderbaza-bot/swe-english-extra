@@ -9,11 +9,13 @@ Ilova build bosqichisiz (zero-bundler) ishlashi uchun klassik modul patterni (`I
 
 | Fayl | Mas'uliyati |
 | --- | --- |
-| `js/default-data.js` | 5 ta standart kategoriya va 15 ta B2/C1 darajadagi akademik/IELTS so‘zlar bazasi |
+| `js/default-data.js` | 5 ta standart kategoriya, 3 ta boshlang‘ich darslik va 15 ta B2/C1 darajadagi akademik/IELTS so‘zlar bazasi |
 | `js/srs.js` | Intervalli takrorlash (SRS) holatlari, navbat saralash, due tekshiruvi |
-| `js/storage.js` | `LocalStorage` CRUD, Kunlik seriya (Streak) hisob-kitobi, RFC-4180 CSV parser va JSON/CSV Import-Export |
+| `js/auth.js` | Sof JS tuzlangan `SHA-256` (`SWE_ENG_EXTRA_V2_SALT:`) autentifikatsiyasi, `sessionStorage` sessiyasi, RBAC (`teacher`, `it_manager`) va `auditLog` |
+| `js/storage.js` | `LocalStorage` v2 CRUD (v1->v2 avtomatik migratsiya bilan), Streak hisob-kitobi, RFC-4180 CSV (`lesson` ustuni bilan) va JSON Import-Export |
+| `js/ai-txt.js` | Ko‘p formatli `.TXT` parser, batafsil/oddiy `.TXT` exporter hamda Google Gemini / OpenAI / Custom AI paketli boyitish (`batchSize: 15`) |
 | `js/speech.js` | `window.speechSynthesis` orqali `en-US` va `en-GB` ovozlarini tanlash va ijro etish |
-| `js/app.js` | SPA navigatsiya, Dashboard, 4 ta Study Mode, CRUD modallar, xavfsiz HTML escaping va shortcutlar |
+| `js/app.js` | SPA navigatsiya, Dashboard (Darsliklar + Kategoriyalar), 4 ta Study Mode, Admin Studio (`TXT+AI`, `Lessons`, `AI Config`, `Security`), modallar va shortcutlar |
 
 ## 3. Spaced Repetition (SRS) algoritmi
 Har bir so‘z kartochkasi quyidagi SRS maydonlariga ega:
@@ -30,10 +32,10 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
 - **good (`Yaxshi`):** `nextReviewAt = now + 3 * 86_400_000` (3 kun), `status = 'review'`, `mastered = false`.
 - **easy (`Oson`):** `nextReviewAt = now + 7 * 86_400_000` (7 kun), `status = 'mastered'`, `mastered = true`.
 
-## 4. `LocalStorage` ma'lumotlar sxemasi (`swe_english_extra_v1`)
+## 4. `LocalStorage` ma'lumotlar sxemasi (`swe_english_extra_v1` kalitida v2 payload + v1 migratsiya)
 ```json
 {
-  "version": 1,
+  "version": 2,
   "words": [
     {
       "id": "w-endeavor",
@@ -47,6 +49,7 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
       "antonyms": ["neglect", "abandon"],
       "mnemonic": "...",
       "category": "IELTS",
+      "lesson": "1-dars: Academic Foundations",
       "level": "C1",
       "status": "new",
       "mastered": false,
@@ -61,6 +64,9 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
   "categories": [
     { "id": "IELTS", "name": "IELTS", "icon": "graduation-cap", "color": "indigo", "builtIn": true }
   ],
+  "lessons": [
+    { "id": "lesson-1", "name": "1-dars: Academic Foundations", "description": "...", "order": 1 }
+  ],
   "stats": {
     "streakCount": 0,
     "longestStreak": 0,
@@ -73,11 +79,26 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
   "settings": {
     "theme": "light",
     "accent": "en-US"
-  }
+  },
+  "aiConfig": {
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "customUrl": "",
+    "apiKey": ""
+  },
+  "auth": {
+    "hashes": {
+      "it_manager": "<salted-sha256-hex>",
+      "teacher": "<salted-sha256-hex>"
+    },
+    "updatedAt": null
+  },
+  "auditLog": []
 }
 ```
 
 ## 5. Xavfsizlik va Barqarorlik
-- Foydalanuvchi kiritgan matnlar (so‘z, tarjima, misol gaplar) DOM ga chiqarilishidan oldin `escapeHtml()` orqali tozalanadi; `**word**` ajratmasi esa escapingdan so‘ng xavfsiz `<strong>` tegiga o‘giriladi.
+- Foydalanuvchi kiritgan va AI qaytargan barcha matnlar (so‘z, tarjima, darslik nomi, misol gaplar) DOM ga chiqarilishidan oldin `escapeHtml()` orqali tozalanadi; `**word**` ajratmasi esa escapingdan so‘ng xavfsiz `<strong>` tegiga o‘giriladi.
 - Matn kiritish maydonlarida (`input`, `textarea`, `select`) yozilayotganda global klaviatura shortcutlari (`Space`, `1–4`, `S`, `←`, `→`) avtomatik bloklanadi.
+- Admin parollari hech qachon ochiq matnda saqlanmaydi (`SHA-256` + `SWE_ENG_EXTRA_V2_SALT:`). AI API Key faqat foydalanuvchining o‘z brauzeri `LocalStorage` ida saqlanadi va to‘g‘ridan-to‘g‘ri tanlangan AI endpointiga yuboriladi.
 - CSV eksportida Windows Excel o‘zbek harflarini to‘g‘ri ochishi uchun UTF-8 BOM (`\uFEFF`) qo‘shiladi.

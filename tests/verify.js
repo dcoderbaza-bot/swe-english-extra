@@ -3,7 +3,9 @@
 const assert = require('node:assert/strict');
 const Data = require('../js/default-data.js');
 const SRS = require('../js/srs.js');
+const Auth = require('../js/auth.js');
 const Storage = require('../js/storage.js');
+const AiTxt = require('../js/ai-txt.js');
 
 function createMockLocalStorage() {
   const store = new Map();
@@ -22,13 +24,20 @@ function test(name, fn) {
   console.log('PASS:', name);
 }
 
-test('Default dataset has 5 built-in categories and 15 rich B2/C1 words', () => {
+async function testAsync(name, fn) {
+  await fn();
+  passed++;
+  console.log('PASS:', name);
+}
+
+test('Default dataset has 5 built-in categories, 3 lessons, and 15 rich B2/C1 words', () => {
   assert.equal(Data.DEFAULT_CATEGORIES.length, 5);
   assert.deepEqual(
     Data.DEFAULT_CATEGORIES.map((c) => c.name),
     ['IELTS', 'General English', 'Business', 'Phrasal Verbs', 'Idioms']
   );
 
+  assert.equal(Data.DEFAULT_LESSONS.length, 3);
   assert.equal(Data.DEFAULT_WORDS.length, 15);
   Data.DEFAULT_WORDS.forEach((w) => {
     assert.ok(w.word.length > 0, 'word missing');
@@ -36,6 +45,7 @@ test('Default dataset has 5 built-in categories and 15 rich B2/C1 words', () => 
     assert.ok(w.partOfSpeech.length > 0, `POS missing for ${w.word}`);
     assert.ok(w.translation.length > 0, `translation missing for ${w.word}`);
     assert.ok(w.definition.length > 0, `definition missing for ${w.word}`);
+    assert.ok(w.lesson && w.lesson.length > 0, `lesson missing for ${w.word}`);
     assert.equal(w.examples.length, 2, `2 examples required for ${w.word}`);
     w.examples.forEach((ex) => {
       assert.match(ex, /\*\*[^*]+\*\*/, `bolded word marker missing in example for ${w.word}`);
@@ -122,29 +132,211 @@ test('CSV export/parse and JSON/CSV merge import handle quotes, commas, and dedu
   const parsedRows = Storage.parseCSV('\uFEFF' + csv);
   assert.equal(parsedRows.length, 15);
   assert.equal(parsedRows[0].word, 'endeavor');
+  assert.ok(parsedRows[0].lesson.length > 0);
   assert.equal(parsedRows[0].examples.length, 2);
   assert.ok(parsedRows[0].synonyms.includes('strive'));
 
   const customCsv = [
-    'word,phonetic,partOfSpeech,translation,definition,example1,example2,synonyms,antonyms,mnemonic,category,level',
-    '"meticulous","/məˈtɪk.jə.ləs/","adjective","juda sinchkov, puxta","Showing great attention to detail","She kept **meticulous** notes, even under pressure.","A **meticulous** audit caught the bug.","thorough; careful","careless; sloppy","Met + tick: har bir detalga belgi (tick) qo‘yish.","Academic","C1"',
-    '"invalid-no-translation","","","","","","","","","","IELTS","B2"'
+    'word,phonetic,partOfSpeech,translation,definition,example1,example2,synonyms,antonyms,mnemonic,category,lesson,level',
+    '"meticulous","/məˈtɪk.jə.ləs/","adjective","juda sinchkov, puxta","Showing great attention to detail","She kept **meticulous** notes, even under pressure.","A **meticulous** audit caught the bug.","thorough; careful","careless; sloppy","Met + tick: har bir detalga belgi (tick) qo‘yish.","Academic","4-dars: Research Skills","C1"',
+    '"invalid-no-translation","","","","","","","","","","IELTS","4-dars: Research Skills","B2"'
   ].join('\n');
 
   const imported = Storage.parseCSV(customCsv);
-  const merged = Storage.mergeImportedWords(state, imported, null, now);
+  const merged = Storage.mergeImportedWords(
+    state,
+    imported,
+    null,
+    now,
+    [{ name: '4-dars: Research Skills', description: 'Tadqiqot so‘zlari' }]
+  );
   assert.equal(merged.summary.added, 1);
   assert.equal(merged.summary.skipped, 1);
   assert.equal(merged.state.words.length, 16);
   assert.ok(merged.state.categories.some((c) => c.name === 'Academic'));
+  assert.ok(merged.state.lessons.some((l) => l.name === '4-dars: Research Skills'));
 
   const meticulous = merged.state.words.find((w) => w.word === 'meticulous');
   assert.equal(meticulous.translation, 'juda sinchkov, puxta');
+  assert.equal(meticulous.lesson, '4-dars: Research Skills');
   assert.equal(meticulous.examples[0], 'She kept **meticulous** notes, even under pressure.');
 
   const jsonBackup = JSON.parse(Storage.exportToJSON(merged.state));
   assert.equal(jsonBackup.app, 'SWE ENGLISH EXTRA');
+  assert.equal(jsonBackup.version, 2);
   assert.equal(jsonBackup.words.length, 16);
+  assert.ok(Array.isArray(jsonBackup.lessons));
 });
 
-console.log(`\nAll ${passed} test suites passed!`);
+test('LocalStorage v1 state migrates cleanly to v2 schema with lessons, auth, and aiConfig', () => {
+  const mockStore = createMockLocalStorage();
+  const now = Date.now();
+  const v1State = {
+    version: 1,
+    words: [
+      { id: 'w-v1', word: 'legacy', translation: 'meros', category: 'IELTS', level: 'B2' }
+    ],
+    categories: Data.DEFAULT_CATEGORIES,
+    stats: { dailyGoal: 10, streakCount: 3 },
+    settings: { theme: 'dark', accent: 'en-GB' }
+  };
+  mockStore.setItem(Storage.STORAGE_KEY, JSON.stringify(v1State));
+
+  const loaded = Storage.loadState(mockStore, now);
+  assert.equal(loaded.version, 2);
+  assert.equal(loaded.lessons.length, 3);
+  assert.equal(loaded.words[0].lesson, '1-dars: Academic Foundations');
+  assert.equal(loaded.settings.theme, 'dark');
+  assert.equal(loaded.settings.accent, 'en-GB');
+  assert.ok(loaded.auth && loaded.auth.hashes && loaded.auth.hashes.it_manager);
+  assert.ok(loaded.aiConfig && loaded.aiConfig.provider === 'gemini');
+});
+
+test('SWEAuth validates salted SHA-256 hashing, IT Manager & Teacher permissions, and audit log', () => {
+  const mockSession = createMockLocalStorage();
+  assert.equal(
+    Auth.sha256Hex('abc'),
+    'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+  );
+
+  let authState = Auth.createDefaultAuthState();
+  assert.match(authState.hashes.it_manager, /^[a-f0-9]{64}$/);
+  assert.match(authState.hashes.teacher, /^[a-f0-9]{64}$/);
+  assert.notEqual(authState.hashes.it_manager, authState.hashes.teacher);
+  assert.equal(Auth.verifyRolePassword(authState, 'it_manager', 'wrong'), false);
+  assert.equal(Auth.verifyRolePassword(authState, 'teacher', 'wrong'), false);
+  assert.equal(Auth.canManageSecurity('it_manager'), true);
+  assert.equal(Auth.canManageSecurity('teacher'), false);
+  assert.equal(Auth.canManageLessons('teacher'), true);
+
+  assert.throws(() => Auth.changeRolePassword(authState, 'teacher', 'it_manager', 'NewPass123'));
+  assert.throws(() => Auth.changeRolePassword(authState, 'it_manager', 'teacher', '123'));
+
+  authState = Auth.changeRolePassword(authState, 'it_manager', 'teacher', 'TeacherSample#2026');
+  authState = Auth.changeRolePassword(authState, 'it_manager', 'it_manager', 'ManagerSample#2026');
+  assert.equal(Auth.verifyRolePassword(authState, 'teacher', 'TeacherSample#2026'), true);
+  assert.equal(Auth.verifyRolePassword(authState, 'it_manager', 'ManagerSample#2026'), true);
+  assert.equal(Auth.verifyRolePassword(authState, 'it_manager', 'TeacherSample#2026'), false);
+
+  assert.equal(Auth.getSessionRole(mockSession), 'student');
+  Auth.setSessionRole('teacher', mockSession);
+  assert.equal(Auth.getSessionRole(mockSession), 'teacher');
+  Auth.setSessionRole('student', mockSession);
+  assert.equal(Auth.getSessionRole(mockSession), 'student');
+
+  const logs = Auth.appendAuditLog([], 'it_manager', 'PASSWORD_CHANGE', 'Teacher updated', 123456);
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0].actorRole, 'it_manager');
+});
+
+test('AiTxt parses messy mixed .txt formats across lessons and exports both TXT modes', () => {
+  const parsed = AiTxt.parseRawTxtVocabulary(AiTxt.SAMPLE_TXT, 'Umumiy');
+  assert.deepEqual(parsed.detectedLessons, [
+    'Umumiy',
+    '4-dars: Technology & Innovation',
+    '5-dars: Environment & Policy'
+  ]);
+  assert.equal(parsed.entries.length, 8);
+  assert.equal(parsed.entries[0].word, 'ubiquitous');
+  assert.equal(parsed.entries[0].translation, 'hamma joyda uchraydigan');
+  assert.equal(parsed.entries[0].lesson, '4-dars: Technology & Innovation');
+  assert.equal(parsed.entries[2].word, 'obsolete');
+  assert.equal(parsed.entries[2].translation, 'eskirgan, foydalanishdan chiqqan');
+  assert.equal(parsed.entries[3].word, 'streamline');
+  assert.equal(parsed.entries[3].translation, '');
+  assert.equal(parsed.entries[3].needsAi, true);
+  assert.equal(parsed.entries[7].word, 'carbon footprint');
+  assert.equal(parsed.entries[7].lesson, '5-dars: Environment & Policy');
+
+  const txtDetailed = AiTxt.exportToTXT(Data.DEFAULT_WORDS, Data.DEFAULT_LESSONS, 'detailed');
+  assert.match(txtDetailed, /=== 1-dars: Academic Foundations ===/);
+  assert.match(txtDetailed, /endeavor/);
+
+  const txtSimple = AiTxt.exportToTXT(Data.DEFAULT_WORDS, Data.DEFAULT_LESSONS, 'simple');
+  assert.match(txtSimple, /1\. endeavor/);
+
+  const extracted = AiTxt.extractJsonFromAiResponse('```json\n[{"word":"streamline","translation":"soddalashtirmoq"}]\n```');
+  assert.equal(extracted[0].word, 'streamline');
+});
+
+async function runAsyncTests() {
+  await testAsync('AiTxt enrichEntriesWithAI supports mocked Gemini and OpenAI responses', async () => {
+    const entries = [
+      { rawLine: 'streamline', word: 'streamline', translation: '', lesson: '4-dars: Tech', phonetic: '' }
+    ];
+
+    const geminiFetch = async (url, init) => {
+      assert.match(url, /generativelanguage\.googleapis\.com/);
+      assert.equal(init.method, 'POST');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{
+            content: {
+              parts: [{
+                text: JSON.stringify([{
+                  word: 'streamline',
+                  phonetic: '/ˈstriːm.laɪn/',
+                  partOfSpeech: 'verb',
+                  translation: 'tizimlashtirmoq, soddalashtirmoq',
+                  definition: 'Make a process simpler and more efficient.',
+                  examples: [
+                    'We must streamline our workflow.',
+                    'New software will **streamline** deployments.'
+                  ],
+                  synonyms: ['simplify', 'optimize'],
+                  antonyms: ['complicate'],
+                  mnemonic: 'Stream (oqim) + line (chiziq): suv oqimidek ravon qilish.',
+                  category: 'Business',
+                  lesson: '4-dars: Tech',
+                  level: 'C1'
+                }])
+              }]
+            }
+          }]
+        })
+      };
+    };
+
+    const geminiResult = await AiTxt.enrichEntriesWithAI(
+      entries,
+      { provider: 'gemini', model: 'gemini-2.5-flash', apiKey: 'AIzaTestKey' },
+      { fetchImpl: geminiFetch, batchSize: 10 }
+    );
+    assert.equal(geminiResult.length, 1);
+    assert.equal(geminiResult[0].translation, 'tizimlashtirmoq, soddalashtirmoq');
+    assert.match(geminiResult[0].examples[0], /\*\*streamline\*\*/i);
+    assert.equal(geminiResult[0].level, 'C1');
+
+    const openaiFetch = async (url, init) => {
+      assert.equal(url, 'https://api.openai.com/v1/chat/completions');
+      assert.equal(init.headers.Authorization, 'Bearer sk-test');
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: '[{"word":"streamline","phonetic":"/ˈstriːm.laɪn/","partOfSpeech":"verb","translation":"soddalashtirmoq","definition":"Simplify","examples":["Streamline the code.","Use CI to **streamline** releases."],"synonyms":["simplify"],"antonyms":[],"mnemonic":"Stream + line","category":"Business","lesson":"4-dars: Tech","level":"B2"}]'
+            }
+          }]
+        })
+      };
+    };
+
+    const openaiResult = await AiTxt.enrichEntriesWithAI(
+      entries,
+      { provider: 'openai', model: 'gpt-4o-mini', apiKey: 'sk-test' },
+      { fetchImpl: openaiFetch }
+    );
+    assert.equal(openaiResult[0].translation, 'soddalashtirmoq');
+  });
+
+  console.log(`\nAll ${passed} test suites passed!`);
+}
+
+runAsyncTests().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

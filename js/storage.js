@@ -1,5 +1,5 @@
 /**
- * SWE ENGLISH EXTRA — LocalStorage Persistence, Streak Engine & JSON/CSV Import-Export
+ * SWE ENGLISH EXTRA — LocalStorage Persistence, Lessons, Streak Engine & JSON/CSV Import-Export
  */
 (function (root) {
   'use strict';
@@ -13,7 +13,10 @@
     const srsMod = (typeof module !== 'undefined' && module.exports && typeof require === 'function')
       ? require('./srs.js')
       : root.SWESRS;
-    return { dataMod: dataMod, srsMod: srsMod };
+    const authMod = (typeof module !== 'undefined' && module.exports && typeof require === 'function')
+      ? require('./auth.js')
+      : root.SWEAuth;
+    return { dataMod: dataMod, srsMod: srsMod, authMod: authMod };
   }
 
   function getLocalDateKey(dateInput) {
@@ -41,6 +44,23 @@
         .filter(Boolean);
     }
     return [];
+  }
+
+  function resolveDefaultLessonForWord(wordObj, dataMod) {
+    if (wordObj && wordObj.lesson && String(wordObj.lesson).trim()) {
+      return String(wordObj.lesson).trim();
+    }
+    if (dataMod && Array.isArray(dataMod.DEFAULT_WORDS) && wordObj) {
+      const targetWord = String(wordObj.word || '').trim().toLowerCase();
+      const match = dataMod.DEFAULT_WORDS.find(function (dw) {
+        return (wordObj.id && dw.id === wordObj.id) || (targetWord && dw.word.toLowerCase() === targetWord);
+      });
+      if (match && match.lesson) return match.lesson;
+    }
+    if (dataMod && Array.isArray(dataMod.DEFAULT_LESSONS) && dataMod.DEFAULT_LESSONS[0]) {
+      return dataMod.DEFAULT_LESSONS[0].name;
+    }
+    return '1-dars: Academic Foundations';
   }
 
   function normalizeWordRecord(raw, now) {
@@ -72,6 +92,7 @@
       antonyms: normalizeListField(raw.antonyms),
       mnemonic: String(raw.mnemonic || '').trim(),
       category: String(raw.category || 'IELTS').trim() || 'IELTS',
+      lesson: resolveDefaultLessonForWord(raw, deps.dataMod),
       level: level,
       status: status,
       mastered: mastered,
@@ -88,18 +109,30 @@
     };
   }
 
+  function createDefaultAiConfig() {
+    return {
+      provider: 'gemini',
+      model: 'gemini-2.5-flash',
+      apiKey: '',
+      customUrl: ''
+    };
+  }
+
   function createDefaultState(now) {
     const deps = getDeps();
     const ts = typeof now === 'number' ? now : Date.now();
     const todayKey = getLocalDateKey(new Date(ts));
 
     return {
-      version: 1,
+      version: 2,
       words: deps.dataMod.DEFAULT_WORDS.map(function (w) {
         return normalizeWordRecord(w, ts);
       }),
       categories: deps.dataMod.DEFAULT_CATEGORIES.map(function (c) {
         return Object.assign({}, c);
+      }),
+      lessons: (deps.dataMod.DEFAULT_LESSONS || []).map(function (l) {
+        return Object.assign({}, l);
       }),
       stats: {
         streakCount: 0,
@@ -113,7 +146,10 @@
       settings: {
         theme: 'light',
         accent: 'en-US'
-      }
+      },
+      aiConfig: createDefaultAiConfig(),
+      auth: deps.authMod ? deps.authMod.createDefaultAuthState() : { hashes: {} },
+      auditLog: []
     };
   }
 
@@ -180,12 +216,38 @@
         ? parsed.categories
         : defaults.categories;
 
+      const normalizedWords = parsed.words.map(function (w) { return normalizeWordRecord(w, ts); });
+      const lessonsList = Array.isArray(parsed.lessons) && parsed.lessons.length > 0
+        ? parsed.lessons.slice()
+        : defaults.lessons.slice();
+
+      const lessonNames = new Set(lessonsList.map(function (l) { return l.name.toLowerCase(); }));
+      normalizedWords.forEach(function (w) {
+        if (w.lesson && !lessonNames.has(w.lesson.toLowerCase())) {
+          lessonsList.push({
+            id: 'lesson-' + (lessonsList.length + 1) + '-' + Math.random().toString(36).slice(2, 5),
+            name: w.lesson,
+            description: '',
+            order: lessonsList.length + 1
+          });
+          lessonNames.add(w.lesson.toLowerCase());
+        }
+      });
+
+      const mergedAuth = Object.assign({}, defaults.auth, parsed.auth || {}, {
+        hashes: Object.assign({}, defaults.auth.hashes, (parsed.auth && parsed.auth.hashes) || {})
+      });
+
       return {
-        version: 1,
-        words: parsed.words.map(function (w) { return normalizeWordRecord(w, ts); }),
+        version: 2,
+        words: normalizedWords,
         categories: mergedCategories,
+        lessons: lessonsList,
         stats: Object.assign({}, defaults.stats, parsed.stats || {}),
-        settings: Object.assign({}, defaults.settings, parsed.settings || {})
+        settings: Object.assign({}, defaults.settings, parsed.settings || {}),
+        aiConfig: Object.assign({}, defaults.aiConfig, parsed.aiConfig || {}),
+        auth: mergedAuth,
+        auditLog: Array.isArray(parsed.auditLog) ? parsed.auditLog : []
       };
     } catch (err) {
       return defaults;
@@ -206,9 +268,10 @@
   function exportToJSON(state) {
     return JSON.stringify({
       app: 'SWE ENGLISH EXTRA',
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       categories: state.categories,
+      lessons: state.lessons,
       words: state.words
     }, null, 2);
   }
@@ -234,6 +297,7 @@
       'antonyms',
       'mnemonic',
       'category',
+      'lesson',
       'level',
       'status',
       'mastered'
@@ -254,6 +318,7 @@
         (w.antonyms || []).join('; '),
         w.mnemonic,
         w.category,
+        w.lesson || '',
         w.level,
         w.status,
         w.mastered ? 'true' : 'false'
@@ -350,6 +415,7 @@
         antonyms: obj.antonyms ? obj.antonyms.split(/[;|]/).map(function (s) { return s.trim(); }).filter(Boolean) : [],
         mnemonic: obj.mnemonic || '',
         category: obj.category || 'IELTS',
+        lesson: obj.lesson || '',
         level: obj.level || 'B2',
         status: obj.status || 'new',
         mastered: obj.mastered === 'true' || obj.status === 'mastered'
@@ -359,7 +425,7 @@
     return records;
   }
 
-  function mergeImportedWords(state, rawItems, importedCategories, now) {
+  function mergeImportedWords(state, rawItems, importedCategories, now, importedLessons) {
     const ts = typeof now === 'number' ? now : Date.now();
     const existingWords = state.words.slice();
     const existingByKey = new Map();
@@ -383,6 +449,24 @@
             builtIn: false
           });
           categoryNames.add(name.toLowerCase());
+        }
+      });
+    }
+
+    const lessons = Array.isArray(state.lessons) ? state.lessons.slice() : [];
+    const lessonNames = new Set(lessons.map(function (l) { return l.name.toLowerCase(); }));
+
+    if (Array.isArray(importedLessons)) {
+      importedLessons.forEach(function (l) {
+        const name = String(l && l.name ? l.name : l || '').trim();
+        if (name && !lessonNames.has(name.toLowerCase())) {
+          lessons.push({
+            id: (l && l.id) || ('lesson-' + (lessons.length + 1) + '-' + Math.random().toString(36).slice(2, 5)),
+            name: name,
+            description: (l && l.description) || '',
+            order: (l && l.order) || (lessons.length + 1)
+          });
+          lessonNames.add(name.toLowerCase());
         }
       });
     }
@@ -411,6 +495,16 @@
         categoryNames.add(normalized.category.toLowerCase());
       }
 
+      if (normalized.lesson && !lessonNames.has(normalized.lesson.toLowerCase())) {
+        lessons.push({
+          id: 'lesson-' + (lessons.length + 1) + '-' + Math.random().toString(36).slice(2, 5),
+          name: normalized.lesson,
+          description: '',
+          order: lessons.length + 1
+        });
+        lessonNames.add(normalized.lesson.toLowerCase());
+      }
+
       if (existingByKey.has(key)) {
         const idx = existingByKey.get(key);
         const current = existingWords[idx];
@@ -424,6 +518,7 @@
           antonyms: normalized.antonyms.length ? normalized.antonyms : current.antonyms,
           mnemonic: normalized.mnemonic || current.mnemonic,
           category: normalized.category || current.category,
+          lesson: (raw.lesson && String(raw.lesson).trim()) ? normalized.lesson : current.lesson,
           level: normalized.level || current.level,
           updatedAt: ts
         });
@@ -437,7 +532,8 @@
 
     const nextState = Object.assign({}, state, {
       words: existingWords,
-      categories: categories
+      categories: categories,
+      lessons: lessons
     });
 
     return {
@@ -451,6 +547,7 @@
     getLocalDateKey: getLocalDateKey,
     getPreviousDateKey: getPreviousDateKey,
     normalizeWordRecord: normalizeWordRecord,
+    createDefaultAiConfig: createDefaultAiConfig,
     createDefaultState: createDefaultState,
     getActiveStreak: getActiveStreak,
     getTodayReviewedCount: getTodayReviewedCount,
