@@ -26,27 +26,27 @@
 - **Writing / Spelling (Yozma mashq):** O‘zbekcha tarjima va audio asosida inglizcha so‘zni harflab yozish (`Ko‘rsatma` yordami bilan).
 - **Listening Mode:** Faqat audio tinglash (normal va `0.75x` sekin tezlik, US/UK aksentlari) hamda `4 Variant` yoki `Eshitib yozish` rejimlari.
 
-### 4. Lug‘at bazasi (CRUD), `.TXT` Import/Export va AI Boyitish
-- Yangi so‘z qo‘shish, tahrirlash, o‘chirish, darslik/kategoriya/daraja bo‘yicha qidirish va filtrlash.
-- **Umumiy `.TXT` Import & Export:** Barcha darslik lug‘atlarini bitta `.txt` faylga (`To‘liq` yoki `Oddiy: So‘z - Tarjima`) eksport qilish hamda istalgan tartibdagi `.txt` fayllarni yuklash (`# 4-dars`, `=== Unit ===`, `word - tarjima`, yoki faqat inglizcha so‘zlar).
-- **AI Auto-Formatter (`Admin Studio` -> `TXT + AI`):** Foydalanuvchi o‘z **API Key** ini (**DeepSeek AI (`deepseek-chat`)**, **Google Gemini**, **OpenAI GPT**, yoki **Custom OpenAI-Compatible** endpoint) kiritganda, `.txt` ichidagi xato yozilgan so‘zlarni to‘g‘rilaydi, IPA transkripsiya, o‘zbekcha tarjima, izoh, 2 ta bold qilingan misol gap, sinonim/antonim va mnemonika yaratib beradi (`<think>` teglarini avtomatik tozalaydi, server rejimida `/api/ai-proxy` CORS fallback bilan ishlaydi).
-- **JSON va CSV (Excel UTF-8 BOM) Export / Import** — dublikatlarni aqlli birlashtirish va v1/v2->v3 migratsiya bilan.
+### 4. Teacher uchun faqat `.TXT` Lug‘at Kiritish va AI Boyitish
+- **Faqat `.TXT` oqimi (Teacher & IT Manager):** O‘qituvchi lug‘atni **faqat `.txt` fayl** yuklash (yoki Drag-and-Drop dropzone / matn joylash) hamda eksport qilish orqali boshqaradi; murakkab qo‘lda so‘z/kategoriya qo‘shish va JSON/CSV tugmalari olib tashlanib interfeys soddalashtirildi.
+- **Umumiy `.TXT` Parser & Exporter:** Barcha darslik lug‘atlarini bitta `.txt` faylga (`To‘liq` yoki `Oddiy: So‘z - Tarjima`) eksport qilish hamda istalgan tartibdagi `.txt` fayllarni yuklash (`# 4-dars`, `=== Unit ===`, `word - tarjima`, yoki faqat inglizcha so‘zlar).
+- **AI Auto-Formatter (`DeepSeek API Sozlamasi`):** `.TXT Kiritish` sahifasining ichidagi ochiluvchi panelda **API Key** (**DeepSeek AI (`deepseek-chat`)**, **Google Gemini**, **OpenAI GPT**, yoki **Custom HTTPS** endpoint) kiritilganda, `.txt` ichidagi xato yozilgan so‘zlarni to‘g‘rilaydi, IPA transkripsiya, o‘zbekcha tarjima, izoh, 2 ta bold misol gap, sinonim/antonim va mnemonika yaratib beradi. Server rejimida API kalit brauzerdan yashiriladi (`hasApiKey`, `apiKeyMasked`) va `/api/ai-proxy` orqali yuboriladi.
 - Boshlang‘ich holatda darhol sinab ko‘rish uchun **3 ta darslikda 15 ta B2/C1 akademik va IELTS so‘zlari** tayyor holda yuklanadi.
 
-### 5. Yagona Login Tizimi, O‘quvchi Akkauntlari va Jonli Teacher Monitoring
-- **Yagona kirish ekrani (`#view-login`):** Tizimga kirishdan oldin foydalanuvchi o‘z rolini (**O‘quvchi**, **Teacher**, yoki **IT Manager**) tanlab login/parol bilan kiradi. Boshlang‘ich to‘plamda `student1`, `ali`, `madina` nomli namuna o‘quvchi loginlari tayyor bo‘ladi.
-- **Ajratilgan o‘quvchi progressi:** Har bir o‘quvchining SRS kartochka holatlari, `Mastered` ko‘rsatkichi, `Daily Streak` va test aniqligi boshqalarnikidan mustaqil saqlanadi; o‘quvchilarda admin/tahrirlash tugmalari yashiriladi.
-- **Jonli Teacher Monitoring (`Live` bo‘limi):** O‘qituvchi (va IT Manager) barcha o‘quvchilarni real vaqt rejimida kuzatadi: `Online / Yaqinda / Oflayn` holati, joriy bo‘lim/rejim/so‘z, bugungi takrorlar soni, o‘zlashtirish foizi, test aniqligi, jonli harakatlar oqimi (`LOGIN`, `VIEW_CHANGE`, `MODE_CHANGE`, `FLASHCARD_FLIP`, `FLASHCARD_RATE`, `QUIZ_ANSWER`, `WRITING_CHECK`, `LISTENING_CHECK`, `LOGOUT`) va har bir o‘quvchi kartochkasini bosganda batafsil modal.
-- **Gibrid Sinxronizatsiya (`Live Server Sync` + `Local Multi-Tab`):**
-  - `node server.js` orqali ishga tushirilganda **REST API + Server-Sent Events (`/api/stream`)** orqali turli brauzer va qurilmalardan kirgan o‘quvchilarning harakatlari o‘qituvchi ekranida darhol aks etadi (`data/db.json` faylida saqlanadi).
-  - Serverisiz (`file:///` yoki statik hostingda) ham `LocalStorage` + `BroadcastChannel` + `storage` eventlari orqali bitta brauzerdagi ko‘p tabli sinxron rejimda to‘liq ishlaydi.
-- **Teacher & IT Manager huquqlari:**
-  - **Teacher:** Jonli monitoring, o‘quvchilar yaratish / parolini yangilash / bloklash (`Admin -> O‘quvchilar`), darsliklar, lug‘at CRUD, `.TXT + AI (DeepSeek)` import.
-  - **IT Manager:** Yuqoridagi barcha imkoniyatlardan tashqari **Parollar & Jurnal** paneli (Teacher va IT Manager parollarini almashtirish, `Audit Log` hamda bazani tiklash).
-- **Xavfsizlik:** Kodda va omborda ochiq parollar saqlanmaydi; faqat tuzlangan `SHA-256` (`SWE_ENG_EXTRA_V2_SALT:`) xeshlari va serverda HMAC-SHA256 imzolangan sessiya tokenlari (`data/.session-secret`) ishlatiladi. Boshlang‘ich parollar topshirish vaqtida alohida beriladi hamda Admin/IT Manager panelidan istalgan vaqt o‘zgartiriladi.
+### 5. Saralangan Rol Menyulari, O‘quvchi Akkauntlari va Kiberxavfsizlik
+- **Yagona kirish ekrani (`#view-login`):** Rolni tanlab (**O‘quvchi**, **Teacher**, **IT Manager**) kirish hamda Kiberhimoya qalqoni (HMAC · CSP · 5x Lockout). Boshlang‘ich to‘plamda `student1`, `ali`, `madina` nomli namuna o‘quvchi loginlari tayyor bo‘ladi.
+- **Har bir rol uchun alohida saralangan menyu (ichma-ich tablar yo‘q):**
+  - **O‘quvchi:** `Boshqaruv` · `Mashqlar` · `Lug‘atlar`
+  - **Teacher:** `Jonli Kuzatuv` · `.TXT Kiritish` · `O‘quvchilar` · `Lug‘atlar`
+  - **IT Manager:** `Jonli Kuzatuv` · `.TXT Kiritish` · `O‘quvchilar` · `Lug‘atlar` · `Xavfsizlik`
+- **Ajratilgan o‘quvchi progressi va Jonli Monitoring (`#view-monitor`):** Har bir o‘quvchining SRS holatlari va `Daily Streak` mustaqil saqlanadi; o‘qituvchi real vaqtda (`SSE /api/stream`) o‘quvchilarning joriy bo‘limi, so‘zi, aniqligi va jonli harakatlar oqimini kuzatadi.
+- **Kiberxavfsizlik (v4):**
+  - `swe3:4000:<salt>:<sha256>` ko‘p raundli tuzlangan parol xeshlash + kuchli parol siyosati (min 8 belgi, harf + raqam/belgi, jonli kuch o‘lchagich).
+  - Brute-force himoyasi: 5 ta xato kirishdan so‘ng 3 daqiqalik `429 Too Many Requests` (`Retry-After`) + lokal blokirovka va IT Manager tomonidan `Xavfsizlik` bo‘limidan blokni ochish (`clearRateLimits`).
+  - Server sessiyalari: `12h` muddatli HMAC-SHA256 token (`iat`/`exp`/`jti`), `/api/logout` da tezkor token bekor qilish (`revokedTokens`) va token bilan himoyalangan SSE `/api/stream`.
+  - Qat’iy CSP (`script-src 'self' https://cdn.tailwindcss.com https://unpkg.com` — nol inline script), `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, `COOP`, API kalitlarni maskalash hamda `/api/ai-proxy` da HTTPS-only + SSRF blokirovkasi. Boshlang‘ich parollar topshirish vaqtida alohida beriladi hamda IT Manager tomonidan `Xavfsizlik` bo‘limida o‘zgartiriladi.
 
 ### 6. UI/UX va Klaviatura boshqaruvi
-- **Glassmorphism + Minimalizm** dizayni, **Dark Mode / Light Mode** almashinuvi.
+- **Zamonaviy Glassmorphism + Minimalizm** dizayni, gradient `.nav-pill` menyular, foydalanuvchi initsial avatarlari, `.TXT` drag-and-drop dropzone va **Dark Mode / Light Mode** almashinuvi.
 - Mobil, planshet va kompyuter ekranlariga to‘liq moslashuvchan (`Responsive`).
 
 | Tugma | Vazifasi |
@@ -59,30 +59,32 @@
 
 ## Texnologik stek
 - **HTML5**, **CSS3** (**Tailwind CSS CDN** + custom 3D flip va glassmorphism stillari)
-- **Vanilla JavaScript** (modulli struktura, `file://` va HTTP/Node serverda bevosita ishlaydi)
+- **Vanilla JavaScript** (CSP-xavfsiz tashqi skriptlar: `js/theme-init.js`, `js/tailwind-config.js`, modulli app arxitekturasi)
 - **Gibrid Ma’lumotlar Qatlami:** Zero-dependency **Node.js HTTP + SSE serveri (`server.js` -> `data/db.json`)** hamda **`LocalStorage` (`swe_english_extra_v1`, v3 sxema) + `BroadcastChannel`**
 - **Web Speech API** (`speechSynthesis` — `en-US` va `en-GB` aksentlari)
-- **AI Integratsiyasi:** DeepSeek AI (`https://api.deepseek.com/chat/completions`), Google Gemini, OpenAI va Custom OpenAI-Compatible API lar (`/api/ai-proxy` server CORS himoyasi bilan)
+- **AI Integratsiyasi:** DeepSeek AI (`https://api.deepseek.com/chat/completions`), Google Gemini, OpenAI va Custom HTTPS endpointlar (`/api/ai-proxy` SSRF/CORS himoyasi bilan)
 - **Lucide Icons CDN**
 
 ## Loyiha tuzilmasi
 ```text
 swe-english-extra/
-├── index.html            # Login Gate, Header, Live Monitor, Dashboard, Study Hub, Admin Studio va modallar
-├── server.js             # Zero-dependency Node HTTP + SSE real-time sinxronizatsiya va AI proxy serveri
+├── index.html            # Login Gate, saralangan Header, Live Monitor, TXT Kiritish, O‘quvchilar, Xavfsizlik va modallar
+├── server.js             # Zero-dependency Node HTTP + SSE server, brute-force 429, token revocation, AI proxy (SSRF/HTTPS)
 ├── css/
-│   └── styles.css        # Glassmorphism, Dark/Light o‘zgaruvchilar va 3D Flip CSS
+│   └── styles.css        # Glassmorphism v4 tokenlari, .nav-pill, .txt-dropzone, pw-meter va 3D Flip CSS
 ├── js/
+│   ├── theme-init.js     # CSP-xavfsiz dastlabki Dark/Light tema yuklovchi skript
+│   ├── tailwind-config.js# CSP-xavfsiz Tailwind konfiguratsiyasi
 │   ├── default-data.js   # 5 ta kategoriya, 3 ta boshlang‘ich darslik va 15 ta B2/C1 so‘z
 │   ├── srs.js            # Spaced Repetition algoritmi
-│   ├── auth.js           # Salted SHA-256 ko‘p foydalanuvchili auth (O‘quvchi, Teacher, IT Manager), Student CRUD
-│   ├── storage.js        # v3 sxema (v1/v2->v3 migratsiya), per-student SRS/telemetriya va JSON/CSV Import-Export
-│   ├── ai-txt.js         # Umumiy .TXT parser/exporter va DeepSeek/Gemini/OpenAI/Custom AI boyitish moduli
-│   ├── sync.js           # Gibrid sinxronizatsiya (REST + SSE / BroadcastChannel + storage events)
+│   ├── auth.js           # swe3:4000 tuzlangan xeshlash, brute-force cheklovi, parol kuchi va Student CRUD
+│   ├── storage.js        # v3 sxema, per-student SRS/telemetriya, API kalit maskalash va CWE-1236 CSV himoyasi
+│   ├── ai-txt.js         # .TXT parser/exporter, HTTPS/SSRF validator va DeepSeek/Gemini/OpenAI/Custom AI boyitish
+│   ├── sync.js           # Gibrid sinxronizatsiya (tokenli SSE /api/stream + REST va BroadcastChannel)
 │   ├── speech.js         # Web Speech API (US/UK) ovozli tizim
-│   └── app.js            # Asosiy UI kontroller, Live Monitor, O‘quvchi CRUD, telemetriya va shortcutlar
+│   └── app.js            # UI kontroller, saralangan rol menyulari, drag-and-drop .TXT va jonli monitoring
 ├── tests/
-│   └── verify.js         # Node.js avtomatlashtirilgan unit + server integratsiya testlari (10 ta suite)
+│   └── verify.js         # Node.js avtomatlashtirilgan unit + kiberxavfsizlik va server integratsiya testlari (12 ta suite)
 ├── README.md             # Loyiha hujjati
 ├── ARCHITECTURE.md       # Texnik arxitektura va ma'lumotlar modeli
 └── WORK_LOG.md           # Bajarilgan ishlar va tekshiruv hisoboti

@@ -356,6 +356,56 @@
     ].join('\n');
   }
 
+  function isPrivateOrLocalHostname(hostname) {
+    const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+    if (!host) return true;
+    if (
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal') ||
+      host === '0.0.0.0' ||
+      host === '::1' ||
+      host === '::' ||
+      host.indexOf('fe80:') === 0 ||
+      host.indexOf('fc') === 0 ||
+      host.indexOf('fd') === 0
+    ) {
+      return true;
+    }
+    const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4) {
+      const a = Number(ipv4[1]);
+      const b = Number(ipv4[2]);
+      if (a === 10 || a === 127 || a === 0) return true;
+      if (a === 169 && b === 254) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 100 && b >= 64 && b <= 127) return true;
+    }
+    return false;
+  }
+
+  function validateAiEndpoint(rawUrl) {
+    const str = String(rawUrl || '').trim();
+    if (!str) {
+      throw new Error('AI Endpoint URL kiritilmagan.');
+    }
+    let parsed;
+    try {
+      parsed = new URL(str);
+    } catch (e) {
+      throw new Error('AI Endpoint URL noto‘g‘ri formatda.');
+    }
+    if (parsed.protocol !== 'https:') {
+      throw new Error('Xavfsizlik talabi: AI endpoint faqat HTTPS protokoli bo‘lishi shart.');
+    }
+    if (isPrivateOrLocalHostname(parsed.hostname)) {
+      throw new Error('Xavfsizlik talabi: Lokal yoki ichki tarmoq (SSRF) manzillariga so‘rov yuborish taqiqlangan.');
+    }
+    return parsed.toString();
+  }
+
   async function callAiProvider(promptText, aiConfig, fetchImpl) {
     const fetcher = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
     if (!fetcher) {
@@ -363,31 +413,52 @@
     }
 
     const cfg = aiConfig || {};
-    const apiKey = String(cfg.apiKey || '').trim();
-    if (!apiKey) {
-      throw new Error('AI API Key kiritilmagan. Admin Panel -> AI & API Key bo‘limida kalitni saqlang.');
+    const rawKey = String(cfg.apiKey || '').trim();
+    const isMasked = rawKey.indexOf('••') !== -1;
+    const apiKey = isMasked ? '' : rawKey;
+    const serverMode = !fetchImpl && root && root.SWESync && typeof root.SWESync.proxyAiRequest === 'function' && root.SWESync.isServerMode();
+    const hasServerKey = Boolean(cfg.hasApiKey) && serverMode;
+
+    if (!apiKey && !hasServerKey) {
+      throw new Error('AI API Key kiritilmagan. .TXT Kiritish bo‘limidagi DeepSeek API sozlamasiga kalitni kiriting.');
     }
 
     const provider = cfg.provider || 'deepseek';
 
     if (provider === 'gemini') {
       const model = String(cfg.model || 'gemini-2.5-flash').trim();
-      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+      const baseEndpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' +
         encodeURIComponent(model) +
-        ':generateContent?key=' +
-        encodeURIComponent(apiKey);
+        ':generateContent';
+      const safeEndpoint = validateAiEndpoint(baseEndpoint);
+      const requestPayload = {
+        contents: [{ parts: [{ text: promptText }] }],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: 'application/json'
+        }
+      };
 
-      const res = await fetcher(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }],
-          generationConfig: {
-            temperature: 0.2,
-            responseMimeType: 'application/json'
-          }
-        })
-      });
+      if (!apiKey && hasServerKey) {
+        return root.SWESync.proxyAiRequest(safeEndpoint, '', requestPayload, 'gemini');
+      }
+
+      let res;
+      try {
+        res = await fetcher(safeEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey
+          },
+          body: JSON.stringify(requestPayload)
+        });
+      } catch (networkErr) {
+        if (serverMode) {
+          return root.SWESync.proxyAiRequest(safeEndpoint, apiKey, requestPayload, 'gemini');
+        }
+        throw new Error('Gemini serveriga ulanib bo‘lmadi: ' + (networkErr && networkErr.message ? networkErr.message : 'Network error'));
+      }
 
       const data = await res.json().catch(function () { return {}; });
       if (!res.ok) {
@@ -407,18 +478,16 @@
     }
 
     // DeepSeek, OpenAI or Custom OpenAI-compatible
-    let endpoint = 'https://api.deepseek.com/chat/completions';
+    let rawEndpoint = 'https://api.deepseek.com/chat/completions';
     if (provider === 'openai') {
-      endpoint = 'https://api.openai.com/v1/chat/completions';
+      rawEndpoint = 'https://api.openai.com/v1/chat/completions';
     } else if (provider === 'custom') {
-      endpoint = String(cfg.customUrl || '').trim();
+      rawEndpoint = String(cfg.customUrl || '').trim();
     } else if (provider === 'deepseek') {
-      endpoint = String(cfg.customUrl || '').trim() || 'https://api.deepseek.com/chat/completions';
+      rawEndpoint = String(cfg.customUrl || '').trim() || 'https://api.deepseek.com/chat/completions';
     }
 
-    if (!endpoint) {
-      throw new Error('Custom AI Endpoint URL kiritilmagan.');
-    }
+    const endpoint = validateAiEndpoint(rawEndpoint);
 
     const defaultModel = (PROVIDER_DEFAULTS[provider] && PROVIDER_DEFAULTS[provider].defaultModel) || 'deepseek-chat';
     const model = String(cfg.model || defaultModel).trim();
@@ -432,6 +501,11 @@
       ]
     };
 
+    // Prefer secure server proxy when key lives server-side (or falls back on CORS)
+    if (!apiKey && hasServerKey) {
+      return root.SWESync.proxyAiRequest(endpoint, '', requestPayload, provider);
+    }
+
     let res;
     try {
       res = await fetcher(endpoint, {
@@ -443,9 +517,8 @@
         body: JSON.stringify(requestPayload)
       });
     } catch (networkErr) {
-      // Optional local Node server CORS fallback if user is connected to server.js
-      if (!fetchImpl && root && root.SWESync && typeof root.SWESync.proxyAiRequest === 'function' && root.SWESync.isServerMode()) {
-        return root.SWESync.proxyAiRequest(endpoint, apiKey, requestPayload);
+      if (serverMode) {
+        return root.SWESync.proxyAiRequest(endpoint, apiKey, requestPayload, provider);
       }
       throw new Error('AI serveriga ulanib bo‘lmadi: ' + (networkErr && networkErr.message ? networkErr.message : 'Network error'));
     }
@@ -515,6 +588,8 @@
   const api = {
     PROVIDER_DEFAULTS: PROVIDER_DEFAULTS,
     SAMPLE_TXT: SAMPLE_TXT,
+    isPrivateOrLocalHostname: isPrivateOrLocalHostname,
+    validateAiEndpoint: validateAiEndpoint,
     parseRawTxtVocabulary: parseRawTxtVocabulary,
     exportToTXT: exportToTXT,
     extractJsonFromAiResponse: extractJsonFromAiResponse,

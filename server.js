@@ -14,6 +14,12 @@ const Data = require('./js/default-data.js');
 const SRS = require('./js/srs.js');
 const Auth = require('./js/auth.js');
 const Storage = require('./js/storage.js');
+const AiTxt = require('./js/ai-txt.js');
+
+const DEFAULT_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
+const SERVER_MAX_LOGIN_ATTEMPTS = 5;
+const SERVER_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+const SERVER_LOCKOUT_MS = 3 * 60 * 1000;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -27,6 +33,42 @@ const MIME_TYPES = {
   '.jpeg': 'image/jpeg',
   '.ico': 'image/x-icon'
 };
+
+const BASE_SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
+  'Cross-Origin-Opener-Policy': 'same-origin'
+};
+
+const HTML_CSP = [
+  "default-src 'self'",
+  "script-src 'self' https://cdn.tailwindcss.com https://unpkg.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' data: blob:",
+  "connect-src 'self' https:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'"
+].join('; ');
+
+function getSecurityHeaders(isHtml) {
+  if (!isHtml) {
+    return Object.assign({}, BASE_SECURITY_HEADERS);
+  }
+  return Object.assign({}, BASE_SECURITY_HEADERS, {
+    'Content-Security-Policy': HTML_CSP
+  });
+}
+
+function maskApiKey(rawKey) {
+  const key = String(rawKey || '').trim();
+  if (!key) return '';
+  if (key.length <= 8) return '••••••••';
+  return key.slice(0, 4) + '••••' + key.slice(-4);
+}
 
 function readOrCreateSecret(secretFile) {
   const dir = path.dirname(secretFile);
@@ -42,13 +84,20 @@ function readOrCreateSecret(secretFile) {
   return secret;
 }
 
-function signSessionToken(sessionObj, secret) {
-  const payload = Buffer.from(JSON.stringify(sessionObj), 'utf8').toString('base64url');
+function signSessionToken(sessionObj, secret, ttlMs, nowMs) {
+  const issuedAt = typeof nowMs === 'number' ? nowMs : Date.now();
+  const lifetime = typeof ttlMs === 'number' && ttlMs > 0 ? ttlMs : DEFAULT_TOKEN_TTL_MS;
+  const enriched = Object.assign({}, sessionObj, {
+    iat: issuedAt,
+    exp: issuedAt + lifetime,
+    jti: crypto.randomBytes(12).toString('hex')
+  });
+  const payload = Buffer.from(JSON.stringify(enriched), 'utf8').toString('base64url');
   const sig = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
   return payload + '.' + sig;
 }
 
-function verifySessionToken(token, secret) {
+function verifySessionToken(token, secret, revokedSet, nowMs) {
   if (!token || typeof token !== 'string' || token.indexOf('.') === -1) return null;
   const parts = token.split('.');
   if (parts.length !== 2) return null;
@@ -60,6 +109,9 @@ function verifySessionToken(token, secret) {
   try {
     const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     if (!parsed || !parsed.role || !parsed.userId) return null;
+    const now = typeof nowMs === 'number' ? nowMs : Date.now();
+    if (!parsed.exp || now > Number(parsed.exp)) return null;
+    if (revokedSet && parsed.jti && revokedSet.has(parsed.jti)) return null;
     return parsed;
   } catch (e) {
     return null;
@@ -86,14 +138,22 @@ function sanitizeDbForSession(db, session) {
       studentActivityLog: [],
       stats: Storage.createEmptyStats(Date.now()),
       settings: db.settings,
-      aiConfig: { provider: (db.aiConfig && db.aiConfig.provider) || 'deepseek', model: (db.aiConfig && db.aiConfig.model) || 'deepseek-chat', apiKey: '', customUrl: '' },
+      aiConfig: {
+        provider: (db.aiConfig && db.aiConfig.provider) || 'deepseek',
+        model: (db.aiConfig && db.aiConfig.model) || 'deepseek-chat',
+        apiKey: '',
+        customUrl: '',
+        hasApiKey: false,
+        apiKeyMasked: ''
+      },
       auth: { hashes: {}, updatedAt: null },
       auditLog: []
     };
   }
 
-  // Teacher & IT Manager receive sanitized student records (no password hashes), full progress, and live logs
+  // Teacher & IT Manager receive sanitized student records (no hashes) and masked API key metadata
   const safeStudents = (db.students || []).map(Auth.sanitizeStudentForClient);
+  const rawAi = db.aiConfig || {};
   return {
     version: 3,
     words: db.words,
@@ -104,7 +164,14 @@ function sanitizeDbForSession(db, session) {
     studentActivityLog: db.studentActivityLog || [],
     stats: db.stats,
     settings: db.settings,
-    aiConfig: db.aiConfig,
+    aiConfig: {
+      provider: rawAi.provider || 'deepseek',
+      model: rawAi.model || 'deepseek-chat',
+      customUrl: rawAi.customUrl || '',
+      apiKey: '',
+      hasApiKey: Boolean(rawAi.apiKey),
+      apiKeyMasked: maskApiKey(rawAi.apiKey)
+    },
     auth: { hashes: {}, updatedAt: (db.auth && db.auth.updatedAt) || null },
     auditLog: db.auditLog || []
   };
@@ -136,12 +203,12 @@ function readJsonBody(req, limitBytes) {
   });
 }
 
-function sendJson(res, statusCode, payload) {
+function sendJson(res, statusCode, payload, extraHeaders) {
   const body = JSON.stringify(payload);
-  res.writeHead(statusCode, {
+  res.writeHead(statusCode, Object.assign({
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store'
-  });
+  }, getSecurityHeaders(false), extraHeaders || {}));
   res.end(body);
 }
 
@@ -150,9 +217,83 @@ function createAppServer(options) {
   const rootDir = path.resolve(opts.rootDir || __dirname);
   const dataFilePath = path.resolve(opts.dataFilePath || path.join(rootDir, 'data', 'db.json'));
   const secretFilePath = path.resolve(opts.secretFilePath || path.join(path.dirname(dataFilePath), '.session-secret'));
+  const tokenTtlMs = typeof opts.tokenTtlMs === 'number' && opts.tokenTtlMs > 0 ? opts.tokenTtlMs : DEFAULT_TOKEN_TTL_MS;
+  const maxAttempts = typeof opts.maxLoginAttempts === 'number' && opts.maxLoginAttempts > 0 ? opts.maxLoginAttempts : SERVER_MAX_LOGIN_ATTEMPTS;
+  const lockoutMs = typeof opts.lockoutMs === 'number' && opts.lockoutMs > 0 ? opts.lockoutMs : SERVER_LOCKOUT_MS;
+  const fetcher = opts.fetchImpl || (typeof fetch === 'function' ? fetch : null);
 
   const sessionSecret = readOrCreateSecret(secretFilePath);
   const sseClients = new Set();
+  const revokedTokens = new Map();
+  const rateLimitMap = new Map();
+
+  function pruneSecurityMaps(nowMs) {
+    const ts = typeof nowMs === 'number' ? nowMs : Date.now();
+    revokedTokens.forEach(function (exp, jti) {
+      if (!exp || ts > Number(exp)) revokedTokens.delete(jti);
+    });
+    rateLimitMap.forEach(function (rec, key) {
+      if (rec.lockedUntil && ts > rec.lockedUntil + SERVER_ATTEMPT_WINDOW_MS) {
+        rateLimitMap.delete(key);
+      } else if (!rec.lockedUntil && rec.firstAttemptAt && (ts - rec.firstAttemptAt) > SERVER_ATTEMPT_WINDOW_MS) {
+        rateLimitMap.delete(key);
+      }
+    });
+  }
+
+  function getClientIp(req) {
+    return (req && req.socket && req.socket.remoteAddress) ? String(req.socket.remoteAddress) : '127.0.0.1';
+  }
+
+  function getLoginBucketKey(req, role, username) {
+    const ip = getClientIp(req);
+    const cleanRole = String(role || 'student');
+    const cleanUser = cleanRole === 'student' ? Auth.normalizeUsername(username) : cleanRole;
+    return ip + ':' + cleanRole + ':' + (cleanUser || '_blank_');
+  }
+
+  function checkServerRateLimit(bucketKey, nowMs) {
+    const ts = typeof nowMs === 'number' ? nowMs : Date.now();
+    pruneSecurityMaps(ts);
+    const rec = rateLimitMap.get(bucketKey);
+    if (!rec) return { allowed: true, retryAfterSec: 0, remaining: maxAttempts };
+    if (rec.lockedUntil && ts < rec.lockedUntil) {
+      return {
+        allowed: false,
+        retryAfterSec: Math.max(1, Math.ceil((rec.lockedUntil - ts) / 1000)),
+        remaining: 0
+      };
+    }
+    if (rec.firstAttemptAt && (ts - rec.firstAttemptAt) > SERVER_ATTEMPT_WINDOW_MS) {
+      rateLimitMap.delete(bucketKey);
+      return { allowed: true, retryAfterSec: 0, remaining: maxAttempts };
+    }
+    return {
+      allowed: true,
+      retryAfterSec: 0,
+      remaining: Math.max(0, maxAttempts - Number(rec.count || 0))
+    };
+  }
+
+  function recordServerFailure(bucketKey, nowMs) {
+    const ts = typeof nowMs === 'number' ? nowMs : Date.now();
+    const prev = rateLimitMap.get(bucketKey);
+    let count = 1;
+    let firstAttemptAt = ts;
+    if (prev && prev.firstAttemptAt && (ts - prev.firstAttemptAt) <= SERVER_ATTEMPT_WINDOW_MS) {
+      count = Number(prev.count || 0) + 1;
+      firstAttemptAt = prev.firstAttemptAt;
+    }
+    const justLocked = count >= maxAttempts;
+    const lockedUntil = justLocked ? (ts + lockoutMs) : 0;
+    rateLimitMap.set(bucketKey, { count: count, firstAttemptAt: firstAttemptAt, lockedUntil: lockedUntil });
+    return {
+      locked: justLocked,
+      count: count,
+      remaining: Math.max(0, maxAttempts - count),
+      retryAfterSec: lockedUntil ? Math.max(1, Math.ceil(lockoutMs / 1000)) : 0
+    };
+  }
 
   function loadDb() {
     const dir = path.dirname(dataFilePath);
@@ -199,37 +340,47 @@ function createAppServer(options) {
     const authHeader = req.headers.authorization || '';
     const bearer = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
     const token = bearer || (parsedUrl && parsedUrl.searchParams.get('token')) || '';
-    return verifySessionToken(token, sessionSecret);
+    pruneSecurityMaps(Date.now());
+    return verifySessionToken(token, sessionSecret, revokedTokens, Date.now());
   }
 
   function serveStaticFile(reqPath, res) {
     const cleanRel = reqPath === '/' ? 'index.html' : reqPath.replace(/^\/+/, '');
     const resolved = path.resolve(rootDir, cleanRel);
 
-    // Block path traversal outside rootDir and block sensitive runtime data/server source
+    // Block path traversal outside rootDir and block sensitive runtime data, tests, or server code
     if (resolved !== rootDir && !resolved.startsWith(rootDir + path.sep)) {
-      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, getSecurityHeaders(false)));
       res.end('Forbidden');
       return;
     }
     const relFromRoot = path.relative(rootDir, resolved).replace(/\\/g, '/');
-    if (relFromRoot === 'server.js' || relFromRoot === '.gitignore' || relFromRoot === 'data' || relFromRoot.startsWith('data/') || relFromRoot.startsWith('.git')) {
-      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    if (
+      relFromRoot === 'server.js' ||
+      relFromRoot === '.gitignore' ||
+      relFromRoot === 'package.json' ||
+      relFromRoot === 'data' ||
+      relFromRoot.startsWith('data/') ||
+      relFromRoot === 'tests' ||
+      relFromRoot.startsWith('tests/') ||
+      relFromRoot.startsWith('.git')
+    ) {
+      res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, getSecurityHeaders(false)));
       res.end('Forbidden');
       return;
     }
 
     fs.stat(resolved, function (err, stat) {
       if (err || !stat.isFile()) {
-        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, getSecurityHeaders(false)));
         res.end('Not found');
         return;
       }
       const ext = path.extname(resolved).toLowerCase();
-      res.writeHead(200, {
+      res.writeHead(200, Object.assign({
         'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
         'Cache-Control': 'no-cache'
-      });
+      }, getSecurityHeaders(ext === '.html')));
       fs.createReadStream(resolved).pipe(res);
     });
   }
@@ -240,16 +391,30 @@ function createAppServer(options) {
 
     try {
       if (pathname === '/api/health' && req.method === 'GET') {
-        sendJson(res, 200, { ok: true, mode: 'server', version: 3, timestamp: Date.now() });
+        sendJson(res, 200, { ok: true, mode: 'server', version: 4, timestamp: Date.now() });
         return;
       }
 
       if (pathname === '/api/stream' && req.method === 'GET') {
-        res.writeHead(200, {
+        const session = getSessionFromRequest(req, parsedUrl);
+        if (!session) {
+          sendJson(res, 401, { ok: false, error: 'Jonli oqim (SSE) uchun avtorizatsiya talab qilinadi.' });
+          return;
+        }
+        if (session.role === 'student') {
+          const existsActive = (db.students || []).some(function (s) {
+            return s.id === session.userId && s.active !== false;
+          });
+          if (!existsActive) {
+            sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti faol emas.' });
+            return;
+          }
+        }
+        res.writeHead(200, Object.assign({
           'Content-Type': 'text/event-stream; charset=utf-8',
-          'Cache-Control': 'no-cache',
+          'Cache-Control': 'no-store',
           'Connection': 'keep-alive'
-        });
+        }, getSecurityHeaders(false)));
         res.write('event: connected\ndata: {"ok":true}\n\n');
         sseClients.add(res);
         const keepAlive = setInterval(function () {
@@ -264,20 +429,67 @@ function createAppServer(options) {
 
       if (pathname === '/api/login' && req.method === 'POST') {
         const body = await readJsonBody(req);
+        const now = Date.now();
+        const rlBucket = getLoginBucketKey(req, body.role, body.username);
+        const rlCheck = checkServerRateLimit(rlBucket, now);
+
+        if (!rlCheck.allowed) {
+          sendJson(
+            res,
+            429,
+            {
+              ok: false,
+              rateLimited: true,
+              retryAfterSec: rlCheck.retryAfterSec,
+              error: 'Juda ko‘p xato urinish! ' + rlCheck.retryAfterSec + ' soniyadan keyin qayta urinib ko‘ring.'
+            },
+            { 'Retry-After': String(rlCheck.retryAfterSec) }
+          );
+          return;
+        }
+
         const authRes = Auth.authenticate({
           authState: db.auth,
           students: db.students,
           role: body.role || 'student',
           username: body.username || '',
-          password: body.password || ''
+          password: body.password || '',
+          now: now
         });
 
         if (!authRes.ok) {
-          sendJson(res, 401, { ok: false, error: authRes.error });
+          const failState = recordServerFailure(rlBucket, now);
+          if (failState.locked) {
+            db.auditLog = Auth.appendAuditLog(
+              db.auditLog,
+              String(body.role || 'student'),
+              'AUTH_LOCKOUT',
+              'Brute-force himoya: ' + rlBucket + ' vaqtincha bloklandi (' + maxAttempts + ' xato urinish)',
+              now
+            );
+            saveDb();
+            sendJson(
+              res,
+              429,
+              {
+                ok: false,
+                rateLimited: true,
+                retryAfterSec: failState.retryAfterSec,
+                error: 'Juda ko‘p xato urinish! ' + failState.retryAfterSec + ' soniyadan keyin qayta urinib ko‘ring.'
+              },
+              { 'Retry-After': String(failState.retryAfterSec) }
+            );
+            return;
+          }
+          sendJson(res, 401, {
+            ok: false,
+            remainingAttempts: failState.remaining,
+            error: authRes.error
+          });
           return;
         }
 
-        const now = Date.now();
+        rateLimitMap.delete(rlBucket);
         const session = authRes.session;
         if (session.role === 'student') {
           db = Storage.recordStudentEvent(db, session, {
@@ -297,7 +509,7 @@ function createAppServer(options) {
         saveDb();
         broadcastSse('login');
 
-        const token = signSessionToken(session, sessionSecret);
+        const token = signSessionToken(session, sessionSecret, tokenTtlMs, now);
         sendJson(res, 200, {
           ok: true,
           token: token,
@@ -311,6 +523,9 @@ function createAppServer(options) {
         const session = getSessionFromRequest(req, parsedUrl);
         if (session) {
           const now = Date.now();
+          if (session.jti) {
+            revokedTokens.set(session.jti, session.exp || (now + tokenTtlMs));
+          }
           if (session.role === 'student') {
             db = Storage.recordStudentEvent(db, session, {
               type: 'LOGOUT',
@@ -455,17 +670,36 @@ function createAppServer(options) {
         }
         const body = await readJsonBody(req);
         const cfg = body.aiConfig || {};
+        const customUrl = String(cfg.customUrl || '').trim();
+        if (customUrl) {
+          try {
+            AiTxt.validateAiEndpoint(customUrl);
+          } catch (urlErr) {
+            sendJson(res, 400, { ok: false, error: urlErr.message });
+            return;
+          }
+        }
+
+        const rawSubmittedKey = String(cfg.apiKey || '').trim();
+        const isMaskedSubmit = rawSubmittedKey.indexOf('••') !== -1;
+        let nextApiKey = (db.aiConfig && db.aiConfig.apiKey) || '';
+        if (cfg.clearKey === true) {
+          nextApiKey = '';
+        } else if (rawSubmittedKey && !isMaskedSubmit) {
+          nextApiKey = rawSubmittedKey;
+        }
+
         db.aiConfig = {
           provider: String(cfg.provider || 'deepseek'),
           model: String(cfg.model || 'deepseek-chat'),
-          customUrl: String(cfg.customUrl || ''),
-          apiKey: String(cfg.apiKey || '')
+          customUrl: customUrl,
+          apiKey: nextApiKey
         };
         db.auditLog = Auth.appendAuditLog(
           db.auditLog,
           session.role,
           'AI_CONFIG',
-          db.aiConfig.provider + ' (' + db.aiConfig.model + ') saqlandi',
+          db.aiConfig.provider + ' (' + db.aiConfig.model + ') sozlandi' + (nextApiKey ? ' [API Key himoyalangan]' : ' [API Key tozalangan]'),
           Date.now()
         );
         saveDb();
@@ -479,24 +713,41 @@ function createAppServer(options) {
           sendJson(res, 403, { ok: false, error: 'Faqat Teacher yoki IT Manager ruxsatiga ega.' });
           return;
         }
-        const body = await readJsonBody(req, 4 * 1024 * 1024);
-        const endpoint = String(body.endpoint || '').trim();
-        const apiKey = String(body.apiKey || (db.aiConfig && db.aiConfig.apiKey) || '').trim();
-        if (!endpoint || !/^https?:\/\//i.test(endpoint)) {
-          sendJson(res, 400, { ok: false, error: 'Noto‘g‘ri AI endpoint URL.' });
+        if (!fetcher) {
+          sendJson(res, 500, { ok: false, error: 'Serverda fetch API mavjud emas.' });
           return;
         }
+        const body = await readJsonBody(req, 4 * 1024 * 1024);
+        let safeEndpoint;
+        try {
+          safeEndpoint = AiTxt.validateAiEndpoint(body.endpoint || '');
+        } catch (urlErr) {
+          sendJson(res, 400, { ok: false, error: urlErr.message });
+          return;
+        }
+
+        const submittedKey = String(body.apiKey || '').trim();
+        const apiKey = (submittedKey && submittedKey.indexOf('••') === -1 ? submittedKey : '') ||
+          String((db.aiConfig && db.aiConfig.apiKey) || '').trim();
+
         if (!apiKey) {
           sendJson(res, 400, { ok: false, error: 'API Key kiritilmagan.' });
           return;
         }
 
-        const aiRes = await fetch(endpoint, {
+        const provider = String(body.provider || (db.aiConfig && db.aiConfig.provider) || 'deepseek');
+        const isGemini = provider === 'gemini' || safeEndpoint.indexOf('generativelanguage.googleapis.com') !== -1;
+        const headers = { 'Content-Type': 'application/json' };
+        if (isGemini) {
+          headers['x-goog-api-key'] = apiKey;
+        } else {
+          headers['Authorization'] = 'Bearer ' + apiKey;
+        }
+
+        const aiRes = await fetcher(safeEndpoint, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + apiKey
-          },
+          headers: headers,
+          redirect: 'error',
           body: JSON.stringify(body.payload || {})
         });
         const aiData = await aiRes.json().catch(function () { return {}; });
@@ -505,8 +756,18 @@ function createAppServer(options) {
           sendJson(res, aiRes.status, { ok: false, error: 'AI API xatosi: ' + msg });
           return;
         }
-        const content = aiData && aiData.choices && aiData.choices[0] && aiData.choices[0].message && aiData.choices[0].message.content;
-        sendJson(res, 200, { ok: true, content: content || '' });
+        let content = '';
+        if (isGemini) {
+          content = (aiData &&
+            aiData.candidates &&
+            aiData.candidates[0] &&
+            aiData.candidates[0].content &&
+            aiData.candidates[0].content.parts &&
+            aiData.candidates[0].content.parts.map(function (p) { return p.text || ''; }).join('')) || '';
+        } else {
+          content = (aiData && aiData.choices && aiData.choices[0] && aiData.choices[0].message && aiData.choices[0].message.content) || '';
+        }
+        sendJson(res, 200, { ok: true, content: content });
         return;
       }
 
@@ -526,6 +787,15 @@ function createAppServer(options) {
             session.role,
             'PASSWORD_CHANGE',
             Auth.ROLE_META[body.targetRole].label + ' paroli yangilandi',
+            now
+          );
+        } else if (body.action === 'clearRateLimits') {
+          rateLimitMap.clear();
+          db.auditLog = Auth.appendAuditLog(
+            db.auditLog,
+            session.role,
+            'RATE_LIMIT_CLEAR',
+            'Brute-force bloklovlari IT Manager tomonidan tozalandi',
             now
           );
         } else if (body.action === 'resetDatabase') {
@@ -577,5 +847,9 @@ if (require.main === module) {
 
 module.exports = {
   createAppServer: createAppServer,
-  MIME_TYPES: MIME_TYPES
+  MIME_TYPES: MIME_TYPES,
+  signSessionToken: signSessionToken,
+  verifySessionToken: verifySessionToken,
+  getSecurityHeaders: getSecurityHeaders,
+  maskApiKey: maskApiKey
 };

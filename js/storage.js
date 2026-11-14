@@ -560,7 +560,15 @@
       hashes: Object.assign({}, defaults.auth.hashes, (parsed.auth && parsed.auth.hashes) || {})
     });
 
-    const mergedAi = Object.assign({}, defaults.aiConfig, parsed.aiConfig || {});
+    const mergedAi = Object.assign({
+      provider: 'deepseek',
+      model: 'deepseek-chat',
+      customUrl: '',
+      apiKey: '',
+      hasApiKey: false,
+      apiKeyMasked: ''
+    }, defaults.aiConfig, parsed.aiConfig || {});
+    mergedAi.hasApiKey = Boolean(mergedAi.hasApiKey || mergedAi.apiKey);
 
     return {
       version: 3,
@@ -621,7 +629,11 @@
   }
 
   function escapeCsvCell(value) {
-    const str = String(value === undefined || value === null ? '' : value);
+    let str = String(value === undefined || value === null ? '' : value);
+    // Guard against CSV formula injection (CWE-1236) in Excel / Sheets
+    if (/^[=+\-@\t\r]/.test(str)) {
+      str = "'" + str;
+    }
     if (/[",\r\n]/.test(str)) {
       return '"' + str.replace(/"/g, '""') + '"';
     }

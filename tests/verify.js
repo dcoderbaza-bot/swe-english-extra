@@ -9,7 +9,7 @@ const SRS = require('../js/srs.js');
 const Auth = require('../js/auth.js');
 const Storage = require('../js/storage.js');
 const AiTxt = require('../js/ai-txt.js');
-const { createAppServer } = require('../server.js');
+const { createAppServer, signSessionToken, verifySessionToken, getSecurityHeaders, maskApiKey } = require('../server.js');
 
 function createMockLocalStorage() {
   const store = new Map();
@@ -572,6 +572,354 @@ async function runAsyncTests() {
       assert.equal(summary.masteredCount, 1);
       assert.equal(summary.accuracyPct, 100);
       assert.ok(teachState.state.studentActivityLog.some((e) => e.studentId === qaStu.id && e.type === 'QUIZ_ANSWER'));
+    } finally {
+      server.closeAllSse();
+      await new Promise((resolve) => server.close(resolve));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test('Security hardening v4: stretched swe3 hashes, password strength, lockout, SSRF guard, and CSV formula escape', () => {
+    const stretched = Auth.hashRolePassword('teacher', 'StrongKey#2026');
+    assert.match(stretched, /^swe3:4000:[a-f0-9]{16,}:[a-f0-9]{64}$/);
+    assert.equal(Auth.isStretchedHash(stretched), true);
+    assert.equal(Auth.verifyPasswordHash('role:teacher', 'StrongKey#2026', stretched), true);
+    assert.equal(Auth.verifyPasswordHash('role:teacher', 'WrongKey#2026', stretched), false);
+
+    // Password strength rules
+    assert.equal(Auth.validatePasswordStrength('short').ok, false);
+    assert.equal(Auth.validatePasswordStrength('onlyletters').ok, false);
+    assert.equal(Auth.validatePasswordStrength('12345678').ok, false);
+    assert.equal(Auth.validatePasswordStrength(' Leading#2026').ok, false);
+    assert.equal(Auth.validatePasswordStrength('StrongPass#2026').ok, true);
+
+    // Client-side brute-force rate limiting (5 failures -> lockout on 6th)
+    const rlStore = createMockLocalStorage();
+    let authState = Auth.createDefaultAuthState();
+    authState = Auth.changeRolePassword(authState, 'it_manager', 'teacher', 'CleanTeacher#2026');
+    const t0 = 1_700_000_000_000;
+    for (let i = 0; i < 5; i++) {
+      const fail = Auth.authenticate({
+        authState,
+        students: [],
+        role: 'teacher',
+        password: 'wrong-' + i,
+        enforceRateLimit: true,
+        rateLimitStore: rlStore,
+        now: t0 + i * 100
+      });
+      assert.equal(fail.ok, false);
+    }
+    const lockedOut = Auth.authenticate({
+      authState,
+      students: [],
+      role: 'teacher',
+      password: 'CleanTeacher#2026',
+      enforceRateLimit: true,
+      rateLimitStore: rlStore,
+      now: t0 + 1000
+    });
+    assert.equal(lockedOut.ok, false);
+    assert.equal(lockedOut.rateLimited, true);
+    assert.ok(lockedOut.retryAfterSec > 0);
+
+    // Lockout expires after window
+    const afterCooldown = Auth.authenticate({
+      authState,
+      students: [],
+      role: 'teacher',
+      password: 'CleanTeacher#2026',
+      enforceRateLimit: true,
+      rateLimitStore: rlStore,
+      now: t0 + 4 * 60 * 1000
+    });
+    assert.equal(afterCooldown.ok, true);
+
+    // SSRF & HTTPS endpoint policy
+    assert.equal(AiTxt.validateAiEndpoint('https://api.deepseek.com/chat/completions'), 'https://api.deepseek.com/chat/completions');
+    assert.throws(() => AiTxt.validateAiEndpoint('http://api.deepseek.com/chat/completions'));
+    assert.throws(() => AiTxt.validateAiEndpoint('https://localhost:8080/v1'));
+    assert.throws(() => AiTxt.validateAiEndpoint('https://127.0.0.1/v1'));
+    assert.throws(() => AiTxt.validateAiEndpoint('https://169.254.169.254/latest/meta-data'));
+    assert.throws(() => AiTxt.validateAiEndpoint('https://192.168.1.10/v1'));
+
+    // CSV formula injection defense (CWE-1236)
+    const csvOut = Storage.exportToCSV([
+      {
+        word: '=cmd|"/C calc"!A0',
+        translation: '+SUM(A1:A2)',
+        phonetic: '@bad',
+        partOfSpeech: '-test',
+        lesson: '1-dars',
+        category: 'IELTS',
+        level: 'B2',
+        definition: '\tmacro',
+        examples: [],
+        synonyms: [],
+        antonyms: [],
+        mnemonic: '',
+        status: 'new',
+        interval: 0
+      }
+    ]);
+    assert.match(csvOut, /'=cmd/);
+    assert.match(csvOut, /'\+SUM/);
+    assert.match(csvOut, /'@bad/);
+    assert.match(csvOut, /'-test/);
+
+    // Token exp & revocation helpers
+    const tokNow = 1_700_000_000_000;
+    const tok = signSessionToken({ role: 'teacher', userId: 'teacher' }, 'test-secret', 60_000, tokNow);
+    const decoded = verifySessionToken(tok, 'test-secret', new Set(), tokNow + 10_000);
+    assert.equal(decoded.role, 'teacher');
+    assert.equal(verifySessionToken(tok, 'test-secret', new Set(), tokNow + 120_000), null);
+    assert.equal(verifySessionToken(tok, 'test-secret', new Set([decoded.jti]), tokNow + 10_000), null);
+    assert.equal(maskApiKey('sk-1234567890abcdef'), 'sk-1••••cdef');
+    assert.ok(getSecurityHeaders(true)['Content-Security-Policy'].includes("script-src 'self'"));
+  });
+
+  await testAsync('Server security v4: CSP/headers, TXT-only HTML check, 429 lockout, logout jti revocation, masked API proxy & SSRF block', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-sec-v4-'));
+    const dataFilePath = path.join(tmpDir, 'db.json');
+    const secretFilePath = path.join(tmpDir, '.secret');
+
+    const now = Date.now();
+    let seedState = Storage.createDefaultState(now);
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'teacher', 'SecTeach#2026!');
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'it_manager', 'SecAdmin#2026!');
+    const stuCreated = Auth.createStudentAccount(seedState.students, 'it_manager', {
+      username: 'secstu',
+      fullName: 'Sec Student',
+      group: 'SecGroup',
+      password: 'SecStudent#2026!'
+    }, now);
+    seedState.students = stuCreated.students;
+    seedState.studentProgress = Storage.ensureStudentProgress(seedState, stuCreated.created.id, now);
+    fs.writeFileSync(dataFilePath, JSON.stringify(seedState, null, 2), 'utf8');
+
+    let lastProxiedCall = null;
+    const mockProxyFetch = async (url, init) => {
+      lastProxiedCall = { url, init };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{ message: { content: '[{"word":"lucid","translation":"ravshan"}]' } }]
+        })
+      };
+    };
+
+    const server = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath,
+      secretFilePath,
+      maxLoginAttempts: 3,
+      lockoutMs: 60_000,
+      fetchImpl: mockProxyFetch
+    });
+
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+      // 1. HTML CSP headers & TXT-only markup audit
+      const homeRes = await fetch(`${baseUrl}/`);
+      assert.equal(homeRes.status, 200);
+      assert.equal(homeRes.headers.get('x-frame-options'), 'DENY');
+      assert.equal(homeRes.headers.get('x-content-type-options'), 'nosniff');
+      const csp = homeRes.headers.get('content-security-policy') || '';
+      const scriptSrcDirective = csp.split(';').find((d) => d.trim().startsWith('script-src')) || '';
+      assert.ok(scriptSrcDirective.includes("'self' https://cdn.tailwindcss.com https://unpkg.com"));
+      assert.equal(scriptSrcDirective.includes("'unsafe-inline'"), false);
+
+      const htmlBody = await homeRes.text();
+      assert.equal(/<script(?![^>]*\bsrc=)[^>]*>/i.test(htmlBody), false, 'Expected zero inline <script> blocks');
+      assert.equal(htmlBody.includes('id="wordModal"'), false);
+      assert.equal(htmlBody.includes('id="categoryModal"'), false);
+      assert.equal(htmlBody.includes('id="vocabAddWordBtn"'), false);
+      assert.equal(htmlBody.includes('id="vocabImportBtn"'), false);
+
+      // 2. Blocked files & unauthenticated SSE stream
+      assert.equal((await fetch(`${baseUrl}/tests/verify.js`)).status, 403);
+      assert.equal((await fetch(`${baseUrl}/package.json`)).status, 403);
+      assert.equal((await fetch(`${baseUrl}/api/stream`)).status, 401);
+      assert.equal((await fetch(`${baseUrl}/api/stream?token=invalid.token`)).status, 401);
+
+      // 3. Server brute-force 429 lockout & IT Manager clearRateLimits
+      for (let i = 0; i < 3; i++) {
+        const failRes = await fetch(`${baseUrl}/api/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ role: 'teacher', password: 'bad-' + i })
+        });
+        assert.equal(failRes.status, i < 2 ? 401 : 429);
+      }
+      const lockedRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'SecTeach#2026!' })
+      });
+      assert.equal(lockedRes.status, 429);
+      assert.ok(Number(lockedRes.headers.get('retry-after')) >= 1);
+
+      const itLoginRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'it_manager', password: 'SecAdmin#2026!' })
+      });
+      const itLogin = await itLoginRes.json();
+      assert.equal(itLogin.ok, true);
+      assert.ok(itLogin.state.auditLog.some((e) => e.action === 'AUTH_LOCKOUT'));
+
+      const clearRlRes = await fetch(`${baseUrl}/api/security`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${itLogin.token}`
+        },
+        body: JSON.stringify({ action: 'clearRateLimits' })
+      });
+      assert.equal(clearRlRes.status, 200);
+
+      // 4. Teacher can now log in + authenticated SSE + logout revocation
+      const teachLoginRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'SecTeach#2026!' })
+      });
+      const teachLogin = await teachLoginRes.json();
+      assert.equal(teachLogin.ok, true);
+
+      // Authenticated SSE opens with 200 and closes cleanly on abort
+      const sseController = new AbortController();
+      const sseRes = await fetch(`${baseUrl}/api/stream?token=${encodeURIComponent(teachLogin.token)}`, {
+        signal: sseController.signal
+      });
+      assert.equal(sseRes.status, 200);
+      sseController.abort();
+
+      // 5. API Key SSRF guard + server masking + server AI proxy injection
+      const ssrfRes = await fetch(`${baseUrl}/api/ai-config`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${teachLogin.token}`
+        },
+        body: JSON.stringify({
+          aiConfig: {
+            provider: 'custom',
+            model: 'm',
+            customUrl: 'http://127.0.0.1:9000/v1',
+            apiKey: 'sk-1234567890abcd'
+          }
+        })
+      });
+      assert.equal(ssrfRes.status, 400);
+
+      const saveKeyRes = await fetch(`${baseUrl}/api/ai-config`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${teachLogin.token}`
+        },
+        body: JSON.stringify({
+          aiConfig: {
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            customUrl: '',
+            apiKey: 'sk-secret-deepseek-9876'
+          }
+        })
+      });
+      const savedKeyJson = await saveKeyRes.json();
+      assert.equal(saveKeyRes.status, 200);
+      assert.equal(savedKeyJson.state.aiConfig.apiKey, '');
+      assert.equal(savedKeyJson.state.aiConfig.hasApiKey, true);
+      assert.equal(savedKeyJson.state.aiConfig.apiKeyMasked, 'sk-s••••9876');
+
+      // SSRF blocked at proxy level too
+      const proxySsrfRes = await fetch(`${baseUrl}/api/ai-proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${teachLogin.token}`
+        },
+        body: JSON.stringify({
+          provider: 'custom',
+          endpoint: 'https://169.254.169.254/latest/meta-data',
+          payload: { messages: [] }
+        })
+      });
+      assert.equal(proxySsrfRes.status, 400);
+
+      // Proxy uses stored secret without browser having apiKey
+      const proxyRes = await fetch(`${baseUrl}/api/ai-proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${teachLogin.token}`
+        },
+        body: JSON.stringify({
+          provider: 'deepseek',
+          endpoint: 'https://api.deepseek.com/chat/completions',
+          payload: { model: 'deepseek-chat', messages: [{ role: 'user', content: 'hi' }] }
+        })
+      });
+      const proxyJson = await proxyRes.json();
+      assert.equal(proxyRes.status, 200);
+      assert.equal(proxyJson.ok, true);
+      assert.match(proxyJson.content, /lucid/);
+      assert.equal(lastProxiedCall.url, 'https://api.deepseek.com/chat/completions');
+      assert.equal(lastProxiedCall.init.redirect, 'error');
+      assert.equal(lastProxiedCall.init.headers.Authorization, 'Bearer sk-secret-deepseek-9876');
+
+      // Clearing key clears hasApiKey
+      const clearKeyRes = await fetch(`${baseUrl}/api/ai-config`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${teachLogin.token}`
+        },
+        body: JSON.stringify({
+          aiConfig: {
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            customUrl: '',
+            clearKey: true
+          }
+        })
+      });
+      const clearedKeyJson = await clearKeyRes.json();
+      assert.equal(clearKeyRes.status, 200);
+      assert.equal(clearedKeyJson.state.aiConfig.hasApiKey, false);
+
+      // Student cannot call /api/ai-proxy
+      const stuRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'student', username: 'secstu', password: 'SecStudent#2026!' })
+      });
+      const stuJson = await stuRes.json();
+      const stuProxyRes = await fetch(`${baseUrl}/api/ai-proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${stuJson.token}`
+        },
+        body: JSON.stringify({ body: { messages: [] } })
+      });
+      assert.equal(stuProxyRes.status, 403);
+
+      // Logout revokes token jti immediately
+      const logoutRes = await fetch(`${baseUrl}/api/logout`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${teachLogin.token}` }
+      });
+      assert.equal(logoutRes.status, 200);
+      const afterLogoutState = await fetch(`${baseUrl}/api/state`, {
+        headers: { 'Authorization': `Bearer ${teachLogin.token}` }
+      });
+      assert.equal(afterLogoutState.status, 401);
     } finally {
       server.closeAllSse();
       await new Promise((resolve) => server.close(resolve));

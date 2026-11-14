@@ -9,15 +9,17 @@ Ilova build bosqichisiz (zero-bundler) ham **Local Multi-Tab (`file:///`)**, ham
 
 | Fayl | Mas'uliyati |
 | --- | --- |
-| `server.js` | Zero-dependency Node HTTP + SSE serveri, HMAC-SHA256 sessiyalar, per-student/curriculum endpointlar va `/api/ai-proxy` |
+| `server.js` | Zero-dependency Node HTTP + SSE serveri, qat’iy CSP & xavfsizlik headerlari, brute-force `429` cheklovi, `12h` HMAC `jti`/`revokedTokens` sessiyalari, tokenli SSE `/api/stream`, API kalitni serverda maskalash va SSRF himoyali `/api/ai-proxy` |
+| `js/theme-init.js` | CSP-mos (inline scriptlarsiz) Dark/Light tema initsializatori |
+| `js/tailwind-config.js` | CSP-mos Tailwind shrift va dark-mode konfiguratsiyasi |
 | `js/default-data.js` | 5 ta standart kategoriya, 3 ta boshlang‘ich darslik va 15 ta B2/C1 darajadagi akademik/IELTS so‘zlar bazasi |
 | `js/srs.js` | Intervalli takrorlash (SRS) holatlari, navbat saralash, due tekshiruvi |
-| `js/auth.js` | Sof JS tuzlangan `SHA-256` (`SWE_ENG_EXTRA_V2_SALT:`) autentifikatsiyasi (`student`, `teacher`, `it_manager`), o‘quvchi CRUD, `sessionStorage` v2 va `auditLog` |
-| `js/storage.js` | v3 ma’lumot modeli (v1/v2->v3 migratsiya), ajratilgan per-student SRS & telemetriya (`applyWordReviewForSession`, `recordStudentEvent`, `getStudentSummary`), RFC-4180 CSV va JSON Import-Export |
-| `js/ai-txt.js` | Ko‘p formatli `.TXT` parser, batafsil/oddiy `.TXT` exporter hamda **DeepSeek AI**, Google Gemini, OpenAI va Custom AI boyitish (`<think>` tozalash va `/api/ai-proxy` fallback bilan) |
-| `js/sync.js` | Gibrid sinxronizatsiya (`Live Server Sync` SSE / `Local Multi-Tab` BroadcastChannel) |
+| `js/auth.js` | `swe3:4000:<salt>:<sha256>` ko‘p raundli tuzlangan autentifikatsiya (boshlang‘ich xeshlar bilan moslik), kuchli parol tekshiruvi (`validatePasswordStrength`), brute-force cheklovi (`checkLoginRateLimit` / `recordLoginFailure`), O‘quvchi CRUD va `auditLog` |
+| `js/storage.js` | v3 ma’lumot modeli (v1/v2->v3 migratsiya), ajratilgan per-student SRS & telemetriya, `hasApiKey` / `apiKeyMasked` normalizatsiyasi va CWE-1236 formula-in’yeksiya himoyali CSV/JSON utilitalari |
+| `js/ai-txt.js` | Ko‘p formatli `.TXT` parser, batafsil/oddiy `.TXT` exporter, `validateAiEndpoint` HTTPS-only + private IP SSRF himoyasi hamda **DeepSeek AI**, Gemini, OpenAI, Custom AI boyitish (`<think>` tozalash va `/api/ai-proxy` orqali maxfiy kalit yubormasdan so‘rov) |
+| `js/sync.js` | Gibrid sinxronizatsiya (`?token=...` orqali himoyalangan SSE `/api/stream`, `429 Retry-After` uzatish / Local `BroadcastChannel`) |
 | `js/speech.js` | `window.speechSynthesis` orqali `en-US` va `en-GB` ovozlarini tanlash va ijro etish |
-| `js/app.js` | Yagona Login Gate, Live Teacher Monitoring, O‘quvchi CRUD, Dashboard, 4 ta Study Mode, Admin Studio va klaviatura shortcutlari |
+| `js/app.js` | Saralangan rol menyulari (`O‘quvchi`: 3 tab, `Teacher`: `.TXT`-only 4 tab, `IT Manager`: 5 tab), Drag-and-Drop `.TXT Kiritish`, yig‘iluvchi AI drawer, jonli parol kuch o‘lchagichlari va real-time kuzatuv |
 
 ## 3. Spaced Repetition (SRS) algoritmi
 Har bir so‘z kartochkasi quyidagi SRS maydonlariga ega:
@@ -99,7 +101,8 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
 
 ## 5. Xavfsizlik va Barqarorlik
 - Foydalanuvchi kiritgan, o‘quvchi telemetriyasidan kelgan va AI qaytargan barcha matnlar DOM ga chiqarilishidan oldin `escapeHtml()` orqali tozalanadi; `**word**` ajratmasi esa escapingdan so‘ng xavfsiz `<strong>` tegiga o‘giriladi.
-- Matn kiritish maydonlarida (`input`, `textarea`, `select`) yozilayotganda global klaviatura shortcutlari (`Space`, `1–4`, `S`, `←`, `→`) avtomatik bloklanadi.
-- Admin va o‘quvchi parollari hech qachon ochiq matnda saqlanmaydi (`SHA-256` + `SWE_ENG_EXTRA_V2_SALT:`). Server rejimida `/api/state` o‘quvchi sessiyasiga boshqa o‘quvchilar va admin ma’lumotlarini qirqib yuboradi, static server esa `server.js`, `.gitignore`, `.git` va `data/` fayllariga to‘g‘ridan-to‘g‘ri kirishni `403` bilan bloklaydi.
+- `index.html` da inline `<script>` lar butunlay olib tashlangan (`js/theme-init.js` + `js/tailwind-config.js`); server HTML ga qat’iy `Content-Security-Policy` (`script-src 'self' https://cdn.tailwindcss.com https://unpkg.com`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy` va `Cross-Origin-Opener-Policy: same-origin` yuboradi.
+- **Brute-force va Sessiya Himoyasi:** Server va Lokal rejimda ketma-ket 5 ta xato urinishda login 3 daqiqaga bloklanadi (`429` + `Retry-After` + `AUTH_LOCKOUT` audit jurnali; IT Manager `clearRateLimits` bilan ocha oladi). Server sessiya tokenlari `12h` muddatga (`iat`/`exp`/`jti`) ega bo‘lib, `/api/logout` da `revokedTokens` ro‘yxatiga qo‘shiladi; `/api/stream` endi valid tokensiz `401` qaytaradi.
+- **Parollar va API Kalit Himoyasi:** Yangi va o‘zgartirilgan parollar `swe3:4000:<salt>:<sha256>` ko‘p raundli xeshlash va min 8 belgili kuch siyosati bilan saqlanadi. Server rejimida `aiConfig.apiKey` saqlangandan so‘ng mijozga hech qachon ochiq holda qaytarilmaydi (`hasApiKey: true`, `apiKeyMasked: "sk-••••"`), `/api/ai-proxy` esa kalitni server xotirasidan qo‘yadi hamda `validateAiEndpoint` va `redirect: 'error'` bilan faqat ommaviy HTTPS AI hostlariga ruxsat beradi (private/loopback SSRF bloklanadi).
+- Static server `server.js`, `tests/`, `package.json`, `.gitignore`, `.git` va `data/` ga kirishni `403` bilan bloklaydi; CSV eksportida formula-in’yeksiya (`^[=+\-@\t\r]` -> `'` prefiksi, CWE-1236) va UTF-8 BOM (`\uFEFF`) himoyasi qo‘llanadi.
 - O‘quv dasturi o‘zgarishi (`POST /api/curriculum`) faqat `words`, `categories`, `lessons` va `auditLog` ni yangilab, parallel ishlayotgan o‘quvchilarning `studentProgress` va `studentActivityLog` ma’lumotlarini ustidan yozib yubormaydi.
-- CSV eksportida Windows Excel o‘zbek harflarini to‘g‘ri ochishi uchun UTF-8 BOM (`\uFEFF`) qo‘shiladi.

@@ -6,45 +6,17 @@
   <title>SWE ENGLISH EXTRA — Smart Flashcards &amp; Vocabulary Mastery</title>
   <meta name="description" content="Ingliz tili lug‘atini 3D Flashcards, Spaced Repetition, Test, Yozma va Tinglash mashqlari orqali o‘rganish platformasi." />
 
-  <!-- Prevent theme flash before paint -->
-  <script>
-    (function () {
-      try {
-        var raw = localStorage.getItem('swe_english_extra_v1');
-        var theme = 'light';
-        if (raw) {
-          var parsed = JSON.parse(raw);
-          if (parsed && parsed.settings && parsed.settings.theme) {
-            theme = parsed.settings.theme;
-          }
-        } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-          theme = 'dark';
-        }
-        if (theme === 'dark') document.documentElement.classList.add('dark');
-      } catch (e) {}
-    })();
-  </script>
+  <!-- Prevent theme flash before paint (CSP-safe external script) -->
+  <script src="js/theme-init.js"></script>
 
   <!-- Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
 
-  <!-- Tailwind CSS CDN -->
+  <!-- Tailwind CSS CDN & Config -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Plus Jakarta Sans', 'Inter', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace']
-          }
-        }
-      }
-    };
-  </script>
+  <script src="js/tailwind-config.js"></script>
 
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
@@ -87,7 +59,7 @@
       </div>
 
       <form id="loginForm" class="space-y-4">
-        <div class="grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-slate-200/70 dark:bg-slate-900">
+        <div class="grid grid-cols-3 gap-1.5 p-1.5 rounded-2xl bg-slate-200/70 dark:bg-slate-900 border border-slate-300/40 dark:border-slate-800">
           <button type="button" data-auth-role="student" class="auth-role-btn py-2.5 px-2 rounded-xl text-xs font-bold transition-all">
             🎓 O‘quvchi
           </button>
@@ -101,14 +73,14 @@
 
         <div id="loginUsernameWrap">
           <label for="loginUsernameInput" class="block text-xs font-bold mb-1">O‘quvchi logini *</label>
-          <input id="loginUsernameInput" type="text" autocomplete="username" placeholder="masalan: student1, ali, madina" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
+          <input id="loginUsernameInput" type="text" autocomplete="username" placeholder="masalan: student1, ali, madina" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
         </div>
 
         <div>
           <label for="loginPasswordInput" class="block text-xs font-bold mb-1">Parol *</label>
           <div class="flex items-center gap-2">
-            <input id="loginPasswordInput" required type="password" autocomplete="current-password" placeholder="Parolni kiriting..." class="flex-1 px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-            <button type="button" id="toggleLoginPwBtn" class="px-3 py-2.5 rounded-xl glass-panel text-xs font-bold">
+            <input id="loginPasswordInput" required type="password" autocomplete="current-password" placeholder="Parolni kiriting..." class="flex-1 px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+            <button type="button" id="toggleLoginPwBtn" class="px-3 py-2.5 rounded-xl glass-panel text-xs font-bold" aria-label="Parolni ko‘rsatish">
               <i data-lucide="eye" class="w-4 h-4"></i>
             </button>
           </div>
@@ -120,53 +92,73 @@
         </button>
       </form>
 
-      <p class="text-[11px] text-center text-slate-500 dark:text-slate-400 leading-relaxed">
-        O‘quvchi login va parolingizni o‘qituvchi yoki IT Managerdan oling. O‘qituvchi jonli rejimda o‘quvchilar faoliyatini kuzatib boradi.
-      </p>
+      <div class="p-3.5 rounded-2xl bg-slate-100/80 dark:bg-slate-900/75 border border-slate-200/70 dark:border-slate-800 space-y-1.5 text-[11px] text-slate-600 dark:text-slate-400">
+        <div class="flex items-center justify-between gap-2">
+          <span class="inline-flex items-center gap-1.5 font-extrabold text-slate-700 dark:text-slate-200">
+            <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-500"></i>
+            Kiberhimoya Faol
+          </span>
+          <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">HMAC · CSP · 5x Lockout</span>
+        </div>
+        <p class="leading-relaxed">O‘quvchi login va parolini Teacher yoki IT Manager beradi. Barcha sessiyalar imzolangan token bilan himoyalangan.</p>
+      </div>
     </div>
   </section>
 
-  <!-- Sticky Glass Header -->
-  <header id="appHeader" class="hidden sticky top-0 z-40 border-b border-white/40 dark:border-slate-800/70 bg-white/70 dark:bg-slate-950/70 backdrop-blur-xl">
+  <!-- Sticky Glass Header (Curated Role-Based Navigation) -->
+  <header id="appHeader" class="hidden sticky top-0 z-40 border-b border-white/40 dark:border-slate-800/70 bg-white/75 dark:bg-slate-950/75 backdrop-blur-xl">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-[4rem] py-1.5 flex flex-wrap items-center justify-between gap-2">
       <!-- Brand -->
-      <button type="button" data-nav-view="dashboard" class="flex items-center gap-2.5 text-left group shrink-0">
+      <button type="button" id="brandHomeBtn" class="flex items-center gap-2.5 text-left group shrink-0">
         <div class="w-9 h-9 rounded-2xl bg-gradient-to-br from-indigo-600 via-violet-600 to-emerald-500 p-[2px] shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform shrink-0">
           <div class="w-full h-full rounded-[14px] bg-slate-950/90 flex items-center justify-center text-white">
             <i data-lucide="layers" class="w-4 h-4 text-indigo-300"></i>
           </div>
         </div>
         <div class="min-w-0">
-          <div class="flex items-center gap-2">
-            <span class="whitespace-nowrap font-extrabold tracking-tight text-sm bg-gradient-to-r from-indigo-600 to-emerald-600 dark:from-indigo-300 dark:to-emerald-300 bg-clip-text text-transparent">
-              SWE ENGLISH EXTRA
-            </span>
-          </div>
-          <p class="text-[10px] text-slate-500 dark:text-slate-400 hidden xl:block whitespace-nowrap">Live Learning &amp; SRS Studio</p>
+          <span class="whitespace-nowrap font-extrabold tracking-tight text-sm bg-gradient-to-r from-indigo-600 to-emerald-600 dark:from-indigo-300 dark:to-emerald-300 bg-clip-text text-transparent block">
+            SWE ENGLISH EXTRA
+          </span>
+          <p class="text-[10px] text-slate-500 dark:text-slate-400 hidden xl:block whitespace-nowrap">Smart SRS &amp; .TXT AI Studio</p>
         </div>
       </button>
 
-      <!-- Desktop Navigation -->
-      <nav class="hidden lg:flex items-center gap-1 p-1 rounded-2xl bg-slate-200/60 dark:bg-slate-900/80 border border-white/50 dark:border-slate-800 shrink-0">
-        <button type="button" data-nav-view="monitor" class="nav-pill staff-only-ui hidden whitespace-nowrap px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
-          <i data-lucide="activity" class="w-4 h-4"></i>
-          O‘quvchilar (Live)
-        </button>
-        <button type="button" data-nav-view="dashboard" class="nav-pill whitespace-nowrap px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
+      <!-- Desktop Role-Curated Navigation -->
+      <nav aria-label="Asosiy menyu" class="hidden lg:flex items-center gap-1 p-1 rounded-2xl bg-slate-200/65 dark:bg-slate-900/85 border border-white/50 dark:border-slate-800 shrink-0">
+        <!-- Student Views -->
+        <button type="button" data-nav-view="dashboard" class="nav-pill student-only-ui whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5">
           <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
           Boshqaruv
         </button>
-        <button type="button" data-nav-view="study" class="nav-pill whitespace-nowrap px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
+        <button type="button" data-nav-view="study" class="nav-pill student-only-ui whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5">
           <i data-lucide="brain-circuit" class="w-4 h-4"></i>
           Mashqlar
         </button>
-        <button type="button" data-nav-view="vocabulary" class="nav-pill whitespace-nowrap px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
-          <i data-lucide="book-marked" class="w-4 h-4"></i>
-          Lug‘at bazasi
+
+        <!-- Staff (Teacher & IT Manager) Core Views -->
+        <button type="button" data-nav-view="monitor" class="nav-pill staff-only-ui hidden whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5">
+          <i data-lucide="activity" class="w-4 h-4"></i>
+          Jonli Kuzatuv
         </button>
-        <button type="button" data-nav-view="admin" class="nav-pill staff-only-ui hidden whitespace-nowrap px-3 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center gap-1.5">
+        <button type="button" data-nav-view="txt-import" class="nav-pill staff-only-ui hidden whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5">
+          <i data-lucide="file-text" class="w-4 h-4"></i>
+          .TXT Kiritish
+        </button>
+        <button type="button" data-nav-view="students" class="nav-pill staff-only-ui hidden whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5">
+          <i data-lucide="users" class="w-4 h-4"></i>
+          O‘quvchilar
+        </button>
+
+        <!-- Shared Vocabulary View -->
+        <button type="button" data-nav-view="vocabulary" class="nav-pill whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5">
+          <i data-lucide="book-marked" class="w-4 h-4"></i>
+          Lug‘atlar
+        </button>
+
+        <!-- IT Manager Security View -->
+        <button type="button" data-nav-view="security" class="nav-pill it-only-ui hidden whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5">
           <i data-lucide="shield-check" class="w-4 h-4"></i>
-          Admin / TXT+AI
+          Xavfsizlik
         </button>
       </nav>
 
@@ -178,26 +170,14 @@
           Local
         </span>
 
-        <!-- Signed-in User Badge -->
-        <button type="button" id="userBadgeBtn" class="btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl glass-panel text-xs font-bold" title="Joriy foydalanuvchi">
-          <i data-lucide="user-check" class="w-3.5 h-3.5 shrink-0"></i>
-          <span id="userBadgeLabel" class="max-w-[135px] sm:max-w-[170px] truncate">Foydalanuvchi</span>
-        </button>
-
-        <!-- Logout -->
-        <button type="button" id="headerLogoutBtn" class="btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-300 border border-rose-500/25 text-xs font-bold" title="Tizimdan chiqish">
-          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
-          <span class="hidden xl:inline">Chiqish</span>
-        </button>
-
-        <!-- US / UK Accent Switcher -->
+        <!-- US / UK Accent Switcher (Visible in Study / Student) -->
         <div class="flex items-center p-1 rounded-xl bg-slate-200/70 dark:bg-slate-800/80 border border-white/40 dark:border-slate-700/60 shrink-0" title="Talaffuz aksenti (US / UK)">
           <button type="button" id="accentUsBtn" class="accent-btn px-2 py-1 rounded-lg text-xs font-bold transition-all">US</button>
           <button type="button" id="accentUkBtn" class="accent-btn px-2 py-1 rounded-lg text-xs font-bold transition-all">UK</button>
         </div>
 
-        <!-- Keyboard Shortcuts -->
-        <button type="button" id="shortcutsBtn" class="hidden sm:inline-flex w-8 h-8 rounded-xl glass-panel items-center justify-center text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 btn-tactile shrink-0" title="Klaviatura tugmalari">
+        <!-- Keyboard Shortcuts (Student) -->
+        <button type="button" id="shortcutsBtn" class="student-only-ui hidden sm:inline-flex w-8 h-8 rounded-xl glass-panel items-center justify-center text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 btn-tactile shrink-0" title="Klaviatura tugmalari">
           <i data-lucide="keyboard" class="w-4 h-4"></i>
         </button>
 
@@ -207,35 +187,49 @@
           <i data-lucide="sun" id="themeIconDark" class="w-4 h-4 hidden"></i>
         </button>
 
-        <!-- Add Word CTA (Staff Only) -->
-        <button type="button" id="openAddWordHeaderBtn" class="staff-only-ui hidden btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold shadow-lg shadow-indigo-500/25">
-          <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-          <span class="hidden sm:inline">So‘z qo‘shish</span>
+        <!-- Signed-in User Badge -->
+        <button type="button" id="userBadgeBtn" class="btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl glass-panel text-xs font-bold" title="Joriy foydalanuvchi">
+          <span id="userAvatarInitials" class="w-5 h-5 rounded-md bg-indigo-600 text-white text-[10px] font-extrabold inline-flex items-center justify-center shrink-0">U</span>
+          <span id="userBadgeLabel" class="max-w-[130px] sm:max-w-[160px] truncate">Foydalanuvchi</span>
+        </button>
+
+        <!-- Logout -->
+        <button type="button" id="headerLogoutBtn" class="btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-300 border border-rose-500/25 text-xs font-bold" title="Tizimdan chiqish">
+          <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+          <span class="hidden xl:inline">Chiqish</span>
         </button>
       </div>
     </div>
 
-    <!-- Mobile & Tablet Sub-navigation -->
-    <div class="lg:hidden border-t border-slate-200/60 dark:border-slate-800/80 px-3 py-2 flex items-center justify-around gap-1">
-      <button type="button" data-nav-view="monitor" class="nav-pill staff-only-ui hidden flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1">
-        <i data-lucide="activity" class="w-3.5 h-3.5"></i>
-        Live
-      </button>
-      <button type="button" data-nav-view="dashboard" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1">
+    <!-- Mobile & Tablet Role-Curated Sub-navigation -->
+    <div class="lg:hidden border-t border-slate-200/60 dark:border-slate-800/80 px-2 py-1.5 flex items-center gap-1 overflow-x-auto">
+      <button type="button" data-nav-view="dashboard" class="nav-pill student-only-ui flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">
         <i data-lucide="layout-dashboard" class="w-3.5 h-3.5"></i>
         Boshqaruv
       </button>
-      <button type="button" data-nav-view="study" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1">
+      <button type="button" data-nav-view="study" class="nav-pill student-only-ui flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">
         <i data-lucide="brain-circuit" class="w-3.5 h-3.5"></i>
         Mashqlar
       </button>
-      <button type="button" data-nav-view="vocabulary" class="nav-pill flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1">
-        <i data-lucide="book-marked" class="w-3.5 h-3.5"></i>
-        Lug‘at
+      <button type="button" data-nav-view="monitor" class="nav-pill staff-only-ui hidden flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">
+        <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+        Kuzatuv
       </button>
-      <button type="button" data-nav-view="admin" class="nav-pill staff-only-ui hidden flex-1 py-1.5 px-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1">
+      <button type="button" data-nav-view="txt-import" class="nav-pill staff-only-ui hidden flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">
+        <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+        .TXT Kiritish
+      </button>
+      <button type="button" data-nav-view="students" class="nav-pill staff-only-ui hidden flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">
+        <i data-lucide="users" class="w-3.5 h-3.5"></i>
+        O‘quvchilar
+      </button>
+      <button type="button" data-nav-view="vocabulary" class="nav-pill flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">
+        <i data-lucide="book-marked" class="w-3.5 h-3.5"></i>
+        Lug‘atlar
+      </button>
+      <button type="button" data-nav-view="security" class="nav-pill it-only-ui hidden flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">
         <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-        Admin
+        Xavfsizlik
       </button>
     </div>
   </header>
@@ -243,8 +237,8 @@
   <!-- Main Content -->
   <main id="appMain" class="hidden max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 pb-16">
 
-    <!-- ==================== VIEW 1: DASHBOARD ==================== -->
-    <section id="view-dashboard" class="view-animate space-y-6">
+    <!-- ==================== VIEW 1: DASHBOARD (STUDENT LEARNING HOME) ==================== -->
+    <section id="view-dashboard" class="view-enter space-y-6">
       <!-- Hero Banner -->
       <div class="glass-panel rounded-3xl p-6 sm:p-8 relative overflow-hidden">
         <div class="absolute -right-16 -top-16 w-56 h-56 rounded-full bg-indigo-500/15 blur-3xl pointer-events-none"></div>
@@ -264,10 +258,10 @@
           </div>
 
           <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
-            <div class="px-4 py-3 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-white/60 dark:border-slate-700/60 min-w-[190px]">
+            <div class="px-4 py-3 rounded-2xl bg-white/65 dark:bg-slate-900/65 border border-white/60 dark:border-slate-700/60 min-w-[190px]">
               <div class="flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400 mb-1.5">
                 <span>Kunlik maqsad</span>
-                <span id="dashDailyGoalText" class="text-indigo-600 dark:text-indigo-300">0 / 10</span>
+                <span id="dashDailyGoalText" class="text-indigo-600 dark:text-indigo-300 tabular-nums">0 / 10</span>
               </div>
               <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
                 <div id="dashDailyGoalBar" class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-500" style="width: 0%"></div>
@@ -284,10 +278,10 @@
 
       <!-- 4 Statistics Cards -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+        <div class="glass-panel interactive-card rounded-3xl p-5 flex items-start justify-between">
           <div>
             <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Jami so‘zlar</p>
-            <p id="statTotalWords" class="text-3xl font-extrabold mt-2">0</p>
+            <p id="statTotalWords" class="text-3xl font-extrabold mt-2 tabular-nums">0</p>
             <p id="statNewCount" class="text-xs font-semibold text-indigo-600 dark:text-indigo-300 mt-1">0 ta yangi so‘z</p>
           </div>
           <div class="w-11 h-11 rounded-2xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 flex items-center justify-center">
@@ -295,10 +289,10 @@
           </div>
         </div>
 
-        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+        <div class="glass-panel interactive-card rounded-3xl p-5 flex items-start justify-between">
           <div>
             <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">O‘rganilgan (Mastered)</p>
-            <p id="statMasteredWords" class="text-3xl font-extrabold mt-2 text-emerald-600 dark:text-emerald-400">0</p>
+            <p id="statMasteredWords" class="text-3xl font-extrabold mt-2 text-emerald-600 dark:text-emerald-400 tabular-nums">0</p>
             <p id="statMasteredPct" class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">0% to‘liq yodlangan</p>
           </div>
           <div class="w-11 h-11 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 flex items-center justify-center">
@@ -306,10 +300,10 @@
           </div>
         </div>
 
-        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+        <div class="glass-panel interactive-card rounded-3xl p-5 flex items-start justify-between">
           <div>
             <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Bugun takrorlash</p>
-            <p id="statDueWords" class="text-3xl font-extrabold mt-2 text-amber-600 dark:text-amber-400">0</p>
+            <p id="statDueWords" class="text-3xl font-extrabold mt-2 text-amber-600 dark:text-amber-400 tabular-nums">0</p>
             <p id="statDueStatus" class="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">Takrorlash kutilmoqda</p>
           </div>
           <div class="w-11 h-11 rounded-2xl bg-amber-500/15 text-amber-600 dark:text-amber-300 flex items-center justify-center">
@@ -317,11 +311,11 @@
           </div>
         </div>
 
-        <div class="glass-panel rounded-3xl p-5 flex items-start justify-between">
+        <div class="glass-panel interactive-card rounded-3xl p-5 flex items-start justify-between">
           <div>
             <p class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Kunlik seriya</p>
             <div class="flex items-baseline gap-1.5 mt-2">
-              <p id="statStreakDays" class="text-3xl font-extrabold text-orange-600 dark:text-orange-400">0</p>
+              <p id="statStreakDays" class="text-3xl font-extrabold text-orange-600 dark:text-orange-400 tabular-nums">0</p>
               <span class="text-sm font-bold text-slate-500 dark:text-slate-400">kun</span>
               <span class="text-xl streak-flame" aria-hidden="true">🔥</span>
             </div>
@@ -342,7 +336,7 @@
               Kartochkalarni "Oson (Easy)" deb baholaganingizda ular avtomatik Mastered bo‘limiga o‘tadi.
             </p>
           </div>
-          <span id="overallMasteryPercent" class="text-2xl font-extrabold bg-gradient-to-r from-indigo-600 to-emerald-500 dark:from-indigo-300 dark:to-emerald-300 bg-clip-text text-transparent">
+          <span id="overallMasteryPercent" class="text-2xl font-extrabold bg-gradient-to-r from-indigo-600 to-emerald-500 dark:from-indigo-300 dark:to-emerald-300 bg-clip-text text-transparent tabular-nums">
             0%
           </span>
         </div>
@@ -354,58 +348,38 @@
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 text-xs font-semibold">
           <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">
             <span class="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
-            Yangi: <span id="breakdownNew" class="font-bold">0</span>
+            Yangi: <span id="breakdownNew" class="font-bold tabular-nums">0</span>
           </div>
           <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300">
             <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-            O‘rganilmoqda: <span id="breakdownLearning" class="font-bold">0</span>
+            O‘rganilmoqda: <span id="breakdownLearning" class="font-bold tabular-nums">0</span>
           </div>
           <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-sky-500/10 text-sky-700 dark:text-sky-300">
             <span class="w-2.5 h-2.5 rounded-full bg-sky-500"></span>
-            Takrorlash: <span id="breakdownReview" class="font-bold">0</span>
+            Takrorlash: <span id="breakdownReview" class="font-bold tabular-nums">0</span>
           </div>
           <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            Mastered: <span id="breakdownMastered" class="font-bold">0</span>
+            Mastered: <span id="breakdownMastered" class="font-bold tabular-nums">0</span>
           </div>
         </div>
       </div>
 
       <!-- Lessons (Darsliklar) -->
       <div class="space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 class="text-lg sm:text-xl font-extrabold">Darsliklar (Lessons)</h2>
-            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Har bir darslik bo‘yicha alohida lug‘atlarni yodlang</p>
-          </div>
-          <div class="flex items-center gap-2 staff-only-ui hidden">
-            <button type="button" id="dashTxtAiBtn" class="btn-tactile inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl glass-panel text-xs sm:text-sm font-bold text-emerald-700 dark:text-emerald-300 hover:border-emerald-400/50">
-              <i data-lucide="file-text" class="w-4 h-4"></i>
-              TXT + AI Yuklash
-            </button>
-            <button type="button" id="dashManageLessonsBtn" class="btn-tactile inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl glass-panel text-xs sm:text-sm font-bold text-indigo-700 dark:text-indigo-300 hover:border-indigo-400/50">
-              <i data-lucide="book-plus" class="w-4 h-4"></i>
-              Darslik qo‘shish
-            </button>
-          </div>
+        <div>
+          <h2 class="text-lg sm:text-xl font-extrabold">Darsliklar (Lessons)</h2>
+          <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Har bir darslik bo‘yicha alohida lug‘atlarni yodlang</p>
         </div>
-
         <div id="lessonsGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
       </div>
 
       <!-- Categories / Decks -->
       <div class="space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 class="text-lg sm:text-xl font-extrabold">Kategoriyalar (Decks)</h2>
-            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Istalgan kategoriyani tanlab darhol mashqni boshlang</p>
-          </div>
-          <button type="button" id="openAddCategoryBtn" class="staff-only-ui hidden btn-tactile inline-flex items-center gap-2 px-4 py-2.5 rounded-2xl glass-panel text-sm font-bold text-indigo-700 dark:text-indigo-300 hover:border-indigo-400/50">
-            <i data-lucide="folder-plus" class="w-4 h-4"></i>
-            Yangi kategoriya
-          </button>
+        <div>
+          <h2 class="text-lg sm:text-xl font-extrabold">Kategoriyalar (Decks)</h2>
+          <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Istalgan yo‘nalishni tanlab darhol mashqni boshlang</p>
         </div>
-
         <div id="decksGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
       </div>
     </section>
@@ -488,9 +462,6 @@
                     <span id="fcLevelBadge" class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-slate-900 text-white dark:bg-white dark:text-slate-900">C1</span>
                     <span id="fcStatusBadge" class="px-2.5 py-1 rounded-full text-xs font-bold border">Yangi</span>
                   </div>
-                  <button type="button" id="fcEditBtn" class="staff-only-ui hidden p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-700/60 text-slate-500 dark:text-slate-400 transition-colors" title="So‘zni tahrirlash">
-                    <i data-lucide="pencil" class="w-4 h-4"></i>
-                  </button>
                 </div>
 
                 <div class="my-auto py-6 text-center space-y-4">
@@ -837,48 +808,27 @@
       </div>
     </section>
 
-    <!-- ==================== VIEW 3: VOCABULARY CRUD & IMPORT/EXPORT ==================== -->
+    <!-- ==================== VIEW 3: VOCABULARY BROWSER (.TXT EXPORT + SEARCH) ==================== -->
     <section id="view-vocabulary" class="hidden view-animate space-y-5">
       <!-- Toolbar -->
       <div class="glass-panel rounded-3xl p-5 space-y-4">
         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div>
             <div class="flex items-center gap-2.5">
-              <h1 class="text-xl font-extrabold">Lug‘at bazasi va Boshqaruv</h1>
-              <span id="vocabCountBadge" class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">0 ta so‘z</span>
+              <h1 class="text-xl font-extrabold">Lug‘atlar Ro‘yxati</h1>
+              <span id="vocabCountBadge" class="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 tabular-nums">0 ta so‘z</span>
             </div>
-            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">So‘zlarni qo‘shing, tahrirlang, JSON/CSV shaklida saqlang yoki yuklang.</p>
+            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Darsliklar bo‘yicha barcha so‘zlarni qidiring, talaffuzini tinglang yoki umumiy <code class="font-mono-ipa">.txt</code> shaklida yuklab oling.</p>
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
-            <button type="button" id="vocabExportTxtBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300" title="Barcha darslik lug‘atlarini umumiy .txt faylga eksport qilish">
-              <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
-              TXT Export
+            <button type="button" id="vocabExportTxtBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs sm:text-sm font-bold flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300" title="Barcha darslik lug‘atlarini .txt faylga eksport qilish">
+              <i data-lucide="download" class="w-4 h-4"></i>
+              .TXT Yuklab olish
             </button>
-            <button type="button" id="vocabExportJsonBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5">
-              <i data-lucide="download" class="w-3.5 h-3.5"></i>
-              JSON Export
-            </button>
-            <button type="button" id="vocabExportCsvBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5">
-              <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
-              CSV Export
-            </button>
-            <button type="button" id="vocabImportBtn" class="staff-only-ui hidden btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5">
-              <i data-lucide="upload" class="w-3.5 h-3.5"></i>
-              Import (JSON/CSV)
-            </button>
-            <input type="file" id="vocabImportInput" accept=".json,.csv,application/json,text/csv" class="hidden" />
-            <button type="button" id="vocabOpenTxtAiBtn" class="staff-only-ui hidden btn-tactile px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5">
-              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-              TXT + AI
-            </button>
-            <button type="button" id="vocabRestoreDefaultsBtn" class="staff-only-ui hidden btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5 text-amber-700 dark:text-amber-300" title="Standart 15 ta B2/C1 so‘zlarni bazaga qo‘shish">
-              <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
-              Default 15
-            </button>
-            <button type="button" id="vocabAddWordBtn" class="staff-only-ui hidden btn-tactile px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold flex items-center gap-1.5">
-              <i data-lucide="plus" class="w-4 h-4"></i>
-              Yangi so‘z
+            <button type="button" id="vocabOpenTxtAiBtn" class="staff-only-ui hidden btn-tactile px-4 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-emerald-600 hover:opacity-95 text-white text-xs sm:text-sm font-bold shadow-md shadow-indigo-500/20 flex items-center gap-1.5">
+              <i data-lucide="file-up" class="w-4 h-4"></i>
+              .TXT Orqali So‘z Qo‘shish
             </button>
           </div>
         </div>
@@ -1059,514 +1009,370 @@
       </div>
     </section>
 
-    <!-- ==================== VIEW 4: ADMIN STUDIO (IT MANAGER & TEACHER) ==================== -->
-    <section id="view-admin" class="hidden view-animate space-y-6">
-      <!-- Admin Header Banner -->
-      <div class="glass-panel rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div class="space-y-1">
-          <div class="flex items-center gap-2.5">
-            <span id="adminRoleBadge" class="px-3 py-1 rounded-full text-xs font-extrabold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">Teacher</span>
-            <h1 class="text-xl sm:text-2xl font-extrabold">Admin Studio — Darsliklar, TXT+AI &amp; Boshqaruv</h1>
+    <!-- ==================== VIEW 4: .TXT LUG'AT KIRITISH & DEEPSEEK AI (TEACHER & IT) ==================== -->
+    <section id="view-txt-import" class="hidden view-animate space-y-6">
+      <!-- Top Studio Header + Collapsible DeepSeek API Settings -->
+      <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div class="space-y-1">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/12 border border-emerald-500/25 text-emerald-700 dark:text-emerald-300 text-xs font-extrabold">
+              <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+              Faqat .TXT Format Kiritish
+            </div>
+            <h1 class="text-xl sm:text-2xl font-extrabold tracking-tight">.TXT Lug‘at Yuklash &amp; DeepSeek AI Studio</h1>
+            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+              O‘qituvchi uchun soddalashtirilgan oqim: <strong>1. .TXT tashlang</strong> → <strong>2. DeepSeek AI to‘g‘rilaydi</strong> → <strong>3. Lug‘atga saqlang</strong>.
+            </p>
           </div>
-          <p id="adminRoleDesc" class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-            Darsliklar yaratish, .txt fayllarni AI yordamida to‘g‘rilab yuklash va bazani boshqarish markazi.
-          </p>
+
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <button type="button" id="toggleAiSettingsBtn" class="btn-tactile px-4 py-2.5 rounded-2xl glass-panel text-xs sm:text-sm font-bold flex items-center gap-2">
+              <i data-lucide="key-round" class="w-4 h-4 text-indigo-500"></i>
+              <span id="txtAiStatusIndicator">DeepSeek API Sozlamasi</span>
+              <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
+            </button>
+            <button type="button" id="txtExportAllBtn" class="btn-tactile px-4 py-2.5 rounded-2xl glass-panel text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i>
+              Barcha .TXT Yuklash
+            </button>
+          </div>
         </div>
 
-        <button type="button" id="adminLogoutBtn" class="btn-tactile shrink-0 px-4 py-2.5 rounded-2xl bg-rose-600/10 hover:bg-rose-600/20 text-rose-700 dark:text-rose-300 border border-rose-500/25 text-xs sm:text-sm font-bold flex items-center gap-2">
-          <i data-lucide="log-out" class="w-4 h-4"></i>
-          Chiqish (Lock)
-        </button>
-      </div>
-
-      <!-- Admin Sub-tabs -->
-      <div class="glass-panel rounded-2xl p-1.5 flex flex-wrap items-center gap-1.5">
-        <button type="button" data-admin-tab="txt-ai" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all">
-          <i data-lucide="file-text" class="w-4 h-4"></i>
-          TXT + AI Lug‘at Yuklash
-        </button>
-        <button type="button" data-admin-tab="students" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all">
-          <i data-lucide="users" class="w-4 h-4"></i>
-          O‘quvchilar (Login/Parol)
-        </button>
-        <button type="button" data-admin-tab="lessons" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all">
-          <i data-lucide="book-open-check" class="w-4 h-4"></i>
-          Darsliklar (Lessons)
-        </button>
-        <button type="button" data-admin-tab="ai-config" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all">
-          <i data-lucide="key-round" class="w-4 h-4"></i>
-          AI &amp; DeepSeek API
-        </button>
-        <button type="button" data-admin-tab="security" id="adminSecurityTabBtn" class="admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all">
-          <i data-lucide="shield-alert" class="w-4 h-4"></i>
-          IT Manager: Parollar &amp; Jurnal
-        </button>
-      </div>
-
-      <!-- ===== ADMIN TAB 1: TXT + AI BULK IMPORTER ===== -->
-      <div id="admin-tab-txt-ai" class="space-y-5">
-        <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-5">
-          <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <!-- Collapsible DeepSeek AI API Key Drawer -->
+        <div id="aiSettingsDrawer" class="hidden pt-4 border-t border-slate-200/70 dark:border-slate-800 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <h2 class="text-lg font-extrabold">Umumiy .TXT lug‘atlarni tashlash va AI bilan to‘g‘rilash</h2>
-              <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                Istalgan tartibdagi .txt fayllarni yuklang (masalan: <code class="font-mono-ipa">word - tarjima</code>, <code class="font-mono-ipa"># 4-dars</code>, yoki faqat inglizcha so‘zlar). AI xatolarni tuzatadi, transkripsiya, 2 ta misol gap, sinonim va mnemonika yaratadi.
+              <h2 class="text-sm font-extrabold flex items-center gap-2">
+                <i data-lucide="sparkles" class="w-4 h-4 text-indigo-500"></i>
+                AI Provayder va Xavfsiz API Key
+              </h2>
+              <p class="text-xs text-slate-500 dark:text-slate-400">
+                Server rejimida kalit <code class="font-mono-ipa">data/db.json</code> ichida saqlanadi va qayta ochilganda brauzerga ochiq holda qaytarilmaydi (maskalanadi).
               </p>
             </div>
-            <div class="flex flex-wrap items-center gap-2 shrink-0">
-              <button type="button" id="txtLoadSampleBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold">
-                Namuna .txt yuklash
-              </button>
-              <button type="button" id="txtExportAllBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
-                <i data-lucide="download" class="w-3.5 h-3.5"></i>
-                Umumiy .txt yuklab olish
-              </button>
-              <button type="button" id="txtExportSimpleBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold">
-                Oddiy .txt (So‘z - Tarjima)
-              </button>
-            </div>
+            <span id="aiKeySecurityBadge" class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Kalit holati</span>
           </div>
 
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div class="space-y-3">
-              <label class="block text-xs font-bold">1. .TXT fayl(lar)ni tanlang</label>
-              <label for="txtFileInput" class="flex flex-col items-center justify-center p-6 rounded-2xl border-2 border-dashed border-indigo-400/50 hover:border-indigo-500 bg-indigo-500/5 cursor-pointer text-center gap-2 transition-colors">
-                <i data-lucide="file-up" class="w-7 h-7 text-indigo-500"></i>
-                <span class="text-xs font-bold">.txt fayllarni bu yerga tanlang (bir nechta mumkin)</span>
-                <span id="txtSelectedFilesLabel" class="text-[11px] text-slate-500 dark:text-slate-400">Hali fayl tanlanmagan</span>
-              </label>
-              <input id="txtFileInput" type="file" accept=".txt,text/plain" multiple class="hidden" />
-
-              <div>
-                <label for="txtTargetLessonSelect" class="block text-xs font-bold mb-1">Darslikni belgilash</label>
-                <select id="txtTargetLessonSelect" class="w-full px-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-semibold"></select>
-              </div>
-
-              <div id="txtCustomLessonWrap" class="hidden">
-                <label for="txtCustomLessonInput" class="block text-xs font-bold mb-1">Yangi darslik nomi</label>
-                <input id="txtCustomLessonInput" type="text" placeholder="masalan: 4-dars: Technology" class="w-full px-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-              </div>
-
-              <div>
-                <label for="txtTargetCategorySelect" class="block text-xs font-bold mb-1">Kategoriya</label>
-                <select id="txtTargetCategorySelect" class="w-full px-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-semibold"></select>
-              </div>
-            </div>
-
-            <div class="lg:col-span-2 flex flex-col gap-2">
-              <label for="txtRawInput" class="block text-xs font-bold">2. Yoki umumiy .txt matnini shu yerga tashlang / tahrirlang</label>
-              <textarea id="txtRawInput" rows="11" placeholder="# 4-dars: Technology&#10;1. ubiquitous - hamma joyda uchraydigan&#10;2. breakthrough — kashfiyot&#10;3. streamline&#10;..." class="w-full flex-1 px-4 py-3 rounded-2xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-mono-ipa leading-relaxed"></textarea>
-            </div>
-          </div>
-
-          <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
-            <div class="text-xs text-slate-500 dark:text-slate-400">
-              AI holati: <span id="txtAiStatusIndicator" class="font-bold">API Key kiritilmagan</span>
-            </div>
-            <div class="flex flex-wrap items-center gap-2.5">
-              <button type="button" id="txtParseOnlyBtn" class="btn-tactile px-4 py-2.5 rounded-xl glass-panel text-xs sm:text-sm font-bold">
-                Tezkor Parse (AI siz)
-              </button>
-              <button type="button" id="txtAiEnrichBtn" class="btn-tactile px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-emerald-600 hover:opacity-95 text-white text-xs sm:text-sm font-bold shadow-lg shadow-indigo-500/25 flex items-center gap-2">
-                <i data-lucide="sparkles" class="w-4 h-4"></i>
-                AI bilan to‘g‘rilash va boyitish
-              </button>
-            </div>
-          </div>
-
-          <!-- Progress -->
-          <div id="txtAiProgressWrap" class="hidden space-y-1.5 pt-2">
-            <div class="flex items-center justify-between text-xs font-bold">
-              <span id="txtAiProgressText">AI ishlamoqda...</span>
-              <span id="txtAiProgressPct">0%</span>
-            </div>
-            <div class="w-full h-2.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-              <div id="txtAiProgressBar" class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-300" style="width: 0%"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Preview Table -->
-        <div id="txtPreviewWrap" class="hidden glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 class="text-lg font-extrabold">Tayyorlangan so‘zlarni ko‘rib chiqish</h3>
-              <p id="txtPreviewCount" class="text-xs text-slate-500 dark:text-slate-400">0 ta so‘z tayyor</p>
-            </div>
-            <div class="flex items-center gap-2">
-              <button type="button" id="txtClearPreviewBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs font-bold">Tozalash</button>
-              <button type="button" id="txtSaveAllBtn" class="btn-tactile px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold flex items-center gap-2">
-                <i data-lucide="check" class="w-4 h-4"></i>
-                Tanlanganlarni bazaga saqlash
-              </button>
-            </div>
-          </div>
-
-          <div class="overflow-x-auto">
-            <table class="w-full text-left border-collapse text-xs sm:text-sm">
-              <thead>
-                <tr class="border-b border-slate-200 dark:border-slate-800 text-[11px] font-extrabold uppercase text-slate-500">
-                  <th class="py-2.5 px-2">✓</th>
-                  <th class="py-2.5 px-3">So‘z &amp; IPA</th>
-                  <th class="py-2.5 px-3">O‘zbekcha tarjima</th>
-                  <th class="py-2.5 px-3">Darslik</th>
-                  <th class="py-2.5 px-3">CEFR / Kat.</th>
-                  <th class="py-2.5 px-3">Misollar</th>
-                </tr>
-              </thead>
-              <tbody id="txtPreviewBody" class="divide-y divide-slate-200/60 dark:divide-slate-800/70"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- ===== ADMIN TAB 1B: STUDENTS MANAGEMENT (LOGIN / PASSWORD) ===== -->
-      <div id="admin-tab-students" class="hidden space-y-5">
-        <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
-          <div>
-            <h2 class="text-lg font-extrabold">Yangi o‘quvchi akkaunti yaratish (Login &amp; Parol)</h2>
-            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              Har bir o‘quvchi o‘z logini va paroli bilan kirganda ularning barcha mashqlari va darslik progressi alohida kuzatiladi.
-            </p>
-          </div>
-
-          <form id="studentCreateForm" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
-            <div>
-              <label for="stuFullNameInput" class="block text-xs font-bold mb-1">Ism-familiya *</label>
-              <input id="stuFullNameInput" required type="text" placeholder="Aziza Karimova" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
-            </div>
-            <div>
-              <label for="stuUsernameInput" class="block text-xs font-bold mb-1">Login (Username) *</label>
-              <input id="stuUsernameInput" required type="text" placeholder="aziza01" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
-            </div>
-            <div>
-              <label for="stuGroupInput" class="block text-xs font-bold mb-1">Guruh / Sinf</label>
-              <input id="stuGroupInput" type="text" placeholder="IELTS B2" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-            </div>
-            <div>
-              <label for="stuPasswordInput" class="block text-xs font-bold mb-1">Parol (kamida 6 belgi) *</label>
-              <input id="stuPasswordInput" required minlength="6" type="password" placeholder="••••••" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-            </div>
-            <button type="submit" class="btn-tactile px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
-              + O‘quvchi qo‘shish
-            </button>
-          </form>
-        </div>
-
-        <div id="adminStudentsList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      </div>
-
-      <!-- ===== ADMIN TAB 2: LESSONS MANAGEMENT ===== -->
-      <div id="admin-tab-lessons" class="hidden space-y-5">
-        <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
-          <h2 class="text-lg font-extrabold">Yangi darslik (Lesson) yaratish</h2>
-          <form id="lessonForm" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-            <div>
-              <label for="lessonNameInput" class="block text-xs font-bold mb-1">Darslik nomi *</label>
-              <input id="lessonNameInput" required type="text" placeholder="masalan: 4-dars: Technology" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
-            </div>
-            <div>
-              <label for="lessonDescInput" class="block text-xs font-bold mb-1">Qisqa tavsif</label>
-              <input id="lessonDescInput" type="text" placeholder="Zamonaviy texnologiya va AI lug‘atlari" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-            </div>
-            <button type="submit" class="btn-tactile px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
-              + Darslik qo‘shish
-            </button>
-          </form>
-        </div>
-
-        <div id="adminLessonsList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-      </div>
-
-      <!-- ===== ADMIN TAB 3: AI & API KEY SETTINGS ===== -->
-      <div id="admin-tab-ai-config" class="hidden space-y-5">
-        <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-5">
-          <div>
-            <h2 class="text-lg font-extrabold">AI Provayder va API Key Sozlamalari</h2>
-            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              API kalitingiz faqat brauzeringizdagi <code class="font-mono-ipa">LocalStorage</code> da saqlanadi va to‘g‘ridan-to‘g‘ri AI provayderiga yuboriladi.
-            </p>
-          </div>
-
-          <form id="aiConfigForm" class="space-y-4 max-w-2xl">
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <form id="aiConfigForm" class="space-y-4 max-w-3xl">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label for="aiProviderSelect" class="block text-xs font-bold mb-1">AI Provayder</label>
-                <select id="aiProviderSelect" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold">
-                  <option value="deepseek">DeepSeek AI (deepseek-chat — Tavsiya etiladi)</option>
+                <select id="aiProviderSelect" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold">
+                  <option value="deepseek">DeepSeek AI (deepseek-chat)</option>
                   <option value="gemini">Google Gemini</option>
                   <option value="openai">OpenAI (GPT)</option>
-                  <option value="custom">Custom OpenAI-Compatible (Groq/OpenRouter/Local)</option>
+                  <option value="custom">Custom HTTPS OpenAI-Compatible</option>
                 </select>
               </div>
               <div>
                 <label for="aiModelInput" class="block text-xs font-bold mb-1">Model nomi</label>
-                <input id="aiModelInput" type="text" placeholder="deepseek-chat" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
+                <input id="aiModelInput" type="text" placeholder="deepseek-chat" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
+              </div>
+              <div>
+                <label for="aiApiKeyInput" class="block text-xs font-bold mb-1">API Key</label>
+                <div class="flex items-center gap-1.5">
+                  <input id="aiApiKeyInput" type="password" autocomplete="off" placeholder="sk-..." class="flex-1 px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
+                  <button type="button" id="toggleApiKeyBtn" class="px-3 py-2.5 rounded-xl glass-panel text-xs font-bold" title="Kalitni ko‘rish/yashirish">
+                    <i data-lucide="eye" class="w-4 h-4"></i>
+                  </button>
+                </div>
               </div>
             </div>
 
             <div id="aiCustomUrlWrap" class="hidden">
-              <label for="aiCustomUrlInput" class="block text-xs font-bold mb-1">Custom API Endpoint URL</label>
-              <input id="aiCustomUrlInput" type="url" placeholder="https://api.groq.com/openai/v1/chat/completions" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
+              <label for="aiCustomUrlInput" class="block text-xs font-bold mb-1">Custom HTTPS Endpoint URL</label>
+              <input id="aiCustomUrlInput" type="url" placeholder="https://api.deepseek.com/chat/completions" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
             </div>
 
-            <div>
-              <label for="aiApiKeyInput" class="block text-xs font-bold mb-1">API Key</label>
-              <div class="flex items-center gap-2">
-                <input id="aiApiKeyInput" type="password" autocomplete="off" placeholder="AIza... yoki sk-..." class="flex-1 px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
-                <button type="button" id="toggleApiKeyBtn" class="px-3.5 py-2.5 rounded-xl glass-panel text-xs font-bold" title="Kalitni ko‘rish/yashirish">
-                  <i data-lucide="eye" class="w-4 h-4"></i>
-                </button>
-              </div>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-2.5 pt-1">
-              <button type="submit" id="saveAiConfigBtn" class="btn-tactile px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="submit" id="saveAiConfigBtn" class="btn-tactile px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold">
                 API Keyni saqlash
               </button>
-              <button type="button" id="testAiBtn" class="btn-tactile px-4 py-2.5 rounded-xl glass-panel text-sm font-bold">
+              <button type="button" id="testAiBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs sm:text-sm font-bold">
                 Ulanishni tekshirish
               </button>
-              <button type="button" id="clearAiKeyBtn" class="btn-tactile px-4 py-2.5 rounded-xl glass-panel text-rose-600 dark:text-rose-400 text-sm font-bold">
+              <button type="button" id="clearAiKeyBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-rose-600 dark:text-rose-400 text-xs sm:text-sm font-bold">
                 Kalitni o‘chirish
+              </button>
+              <button type="button" id="enrichIncompleteBtn" class="btn-tactile ml-auto px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5">
+                <i data-lucide="wand-2" class="w-3.5 h-3.5"></i>
+                Bazadagi bo‘sh so‘zlarni AI bilan boyitish
               </button>
             </div>
           </form>
+        </div>
+      </div>
 
-          <div class="pt-4 border-t border-slate-200/70 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h3 class="font-bold text-sm">Mavjud bazadagi to‘liq bo‘lmagan so‘zlarni boyitish</h3>
-              <p class="text-xs text-slate-500 dark:text-slate-400">IPA, izoh, misol gaplar yoki mnemonikasi bo‘sh bo‘lgan so‘zlarni AI orqali to‘ldiradi.</p>
+      <!-- Main .TXT Drag & Drop + Editor Panel -->
+      <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-5">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- Step 1: Dropzone & Lesson Target -->
+          <div class="lg:col-span-5 space-y-3.5">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">1. .TXT Fayl Tanlang / Tashlang</label>
+              <button type="button" id="txtLoadSampleBtn" class="text-xs font-bold text-indigo-600 dark:text-indigo-300 hover:underline">
+                Namuna matn yuklash
+              </button>
             </div>
-            <button type="button" id="enrichIncompleteBtn" class="btn-tactile shrink-0 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold flex items-center gap-2">
-              <i data-lucide="wand-2" class="w-4 h-4"></i>
-              Bo‘sh so‘zlarni AI bilan to‘ldirish
+
+            <label id="txtDropzone" for="txtFileInput" class="txt-dropzone flex flex-col items-center justify-center p-6 rounded-2xl cursor-pointer text-center gap-2">
+              <div class="w-12 h-12 rounded-2xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 flex items-center justify-center">
+                <i data-lucide="file-up" class="w-6 h-6"></i>
+              </div>
+              <span class="text-xs sm:text-sm font-extrabold">.txt fayl(lar)ni sudrab tashlang yoki bosing</span>
+              <span id="txtSelectedFilesLabel" class="text-[11px] text-slate-500 dark:text-slate-400">Masalan: 1-dars.txt, barcha-lugatlar.txt</span>
+            </label>
+            <input id="txtFileInput" type="file" accept=".txt,text/plain" multiple class="hidden" />
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label for="txtTargetLessonSelect" class="block text-xs font-bold mb-1">Darslikni belgilash</label>
+                <select id="txtTargetLessonSelect" class="w-full px-3 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-semibold"></select>
+              </div>
+              <div>
+                <label for="txtTargetCategorySelect" class="block text-xs font-bold mb-1">Kategoriya</label>
+                <select id="txtTargetCategorySelect" class="w-full px-3 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-semibold"></select>
+              </div>
+            </div>
+
+            <div id="txtCustomLessonWrap" class="hidden">
+              <label for="txtCustomLessonInput" class="block text-xs font-bold mb-1">Yangi darslik nomi</label>
+              <input id="txtCustomLessonInput" type="text" placeholder="masalan: 4-dars: Technology" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+            </div>
+
+            <div class="pt-1 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+              <span>Format: <code class="font-mono-ipa">word - tarjima</code> yoki <code class="font-mono-ipa"># 4-dars</code></span>
+              <button type="button" id="txtExportSimpleBtn" class="font-bold hover:text-indigo-600 dark:hover:text-indigo-300 underline">
+                Oddiy .txt eksport
+              </button>
+            </div>
+          </div>
+
+          <!-- Step 1B: Paste / Review Raw .TXT -->
+          <div class="lg:col-span-7 flex flex-col gap-2">
+            <label for="txtRawInput" class="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">2. .TXT Matni (Yozish yoki tahrirlash)</label>
+            <textarea id="txtRawInput" rows="12" placeholder="# 4-dars: Technology &amp; AI&#10;1. ubiquitous - hamma joyda uchraydigan&#10;2. breakthrough — kashfiyot&#10;3. streamline&#10;4. resilient (chidamli, bardoshli)" class="w-full flex-1 px-4 py-3 rounded-2xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-mono-ipa leading-relaxed"></textarea>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200/70 dark:border-slate-800">
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            DeepSeek AI noto‘g‘ri imlo va bo‘sh maydonlarni (IPA, 2 ta misol gap, sinonim, mnemonika) avtomatik to‘ldiradi.
+          </p>
+          <div class="flex flex-wrap items-center gap-2.5">
+            <button type="button" id="txtParseOnlyBtn" class="btn-tactile px-4 py-2.5 rounded-xl glass-panel text-xs sm:text-sm font-bold">
+              Tezkor O‘qish (AI siz)
             </button>
+            <button type="button" id="txtAiEnrichBtn" class="btn-tactile px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-emerald-600 hover:opacity-95 text-white text-xs sm:text-sm font-bold shadow-lg shadow-indigo-500/25 flex items-center gap-2">
+              <i data-lucide="sparkles" class="w-4 h-4"></i>
+              DeepSeek AI bilan boyitish
+            </button>
+          </div>
+        </div>
+
+        <!-- Progress -->
+        <div id="txtAiProgressWrap" class="hidden space-y-1.5 pt-2">
+          <div class="flex items-center justify-between text-xs font-bold">
+            <span id="txtAiProgressText">AI ishlamoqda...</span>
+            <span id="txtAiProgressPct" class="tabular-nums">0%</span>
+          </div>
+          <div class="w-full h-2.5 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+            <div id="txtAiProgressBar" class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all duration-300" style="width: 0%"></div>
           </div>
         </div>
       </div>
 
-      <!-- ===== ADMIN TAB 4: IT MANAGER SECURITY & PASSWORDS ===== -->
-      <div id="admin-tab-security" class="hidden space-y-5">
-        <div id="securityLockedNotice" class="hidden glass-panel rounded-3xl p-6 text-center space-y-2">
-          <i data-lucide="shield-alert" class="w-8 h-8 text-amber-500 mx-auto"></i>
-          <h3 class="font-extrabold text-base">Faqat IT Manager uchun ruxsat etilgan</h3>
+      <!-- Step 3: Preview & Save -->
+      <div id="txtPreviewWrap" class="hidden glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="text-lg font-extrabold">3. Tayyorlangan so‘zlarni ko‘rib chiqish</h3>
+            <p id="txtPreviewCount" class="text-xs text-slate-500 dark:text-slate-400">0 ta so‘z tayyor</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" id="txtClearPreviewBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs font-bold">Tozalash</button>
+            <button type="button" id="txtSaveAllBtn" class="btn-tactile px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold flex items-center gap-2 shadow-lg shadow-emerald-500/25">
+              <i data-lucide="check" class="w-4 h-4"></i>
+              Lug‘atga Saqlash
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs sm:text-sm">
+            <thead>
+              <tr class="border-b border-slate-200 dark:border-slate-800 text-[11px] font-extrabold uppercase text-slate-500">
+                <th class="py-2.5 px-2">✓</th>
+                <th class="py-2.5 px-3">So‘z &amp; IPA</th>
+                <th class="py-2.5 px-3">O‘zbekcha tarjima</th>
+                <th class="py-2.5 px-3">Darslik</th>
+                <th class="py-2.5 px-3">CEFR / Kat.</th>
+                <th class="py-2.5 px-3">Misollar</th>
+              </tr>
+            </thead>
+            <tbody id="txtPreviewBody" class="divide-y divide-slate-200/60 dark:divide-slate-800/70"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== VIEW 5: STUDENTS MANAGEMENT (TEACHER & IT) ==================== -->
+    <section id="view-students" class="hidden view-animate space-y-6">
+      <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
+        <div>
+          <h1 class="text-xl sm:text-2xl font-extrabold">O‘quvchilar va Kirish Parollari</h1>
           <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-            Teacher roli bilan parollarni o‘zgartirish yoki tizimni tozalash mumkin emas. IT Manager sifatida qayta kiring.
+            Har bir o‘quvchi uchun login va kuchli parol (kamida 8 belgi, harf + raqam/belgi) yarating yoki parolni yangilang.
           </p>
         </div>
 
-        <div id="securityPanelBody" class="space-y-5">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <!-- Change Teacher Password -->
-            <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
-              <h3 class="font-extrabold text-base flex items-center gap-2">
-                <i data-lucide="user-cog" class="w-4 h-4 text-emerald-500"></i>
-                Teacher parolini yangilash
-              </h3>
-              <form id="changeTeacherPwForm" class="space-y-3">
-                <div>
-                  <label for="newTeacherPwInput" class="block text-xs font-bold mb-1">Yangi Teacher paroli (kamida 6 belgi)</label>
-                  <input id="newTeacherPwInput" required minlength="6" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-                </div>
-                <div>
-                  <label for="confirmTeacherPwInput" class="block text-xs font-bold mb-1">Parolni tasdiqlang</label>
-                  <input id="confirmTeacherPwInput" required minlength="6" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-                </div>
-                <button type="submit" class="btn-tactile px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold">
-                  Teacher parolini saqlash
-                </button>
-              </form>
-            </div>
-
-            <!-- Change IT Manager Password -->
-            <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
-              <h3 class="font-extrabold text-base flex items-center gap-2">
-                <i data-lucide="shield" class="w-4 h-4 text-indigo-500"></i>
-                IT Manager parolini yangilash
-              </h3>
-              <form id="changeItPwForm" class="space-y-3">
-                <div>
-                  <label for="newItPwInput" class="block text-xs font-bold mb-1">Yangi IT Manager paroli (kamida 6 belgi)</label>
-                  <input id="newItPwInput" required minlength="6" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-                </div>
-                <div>
-                  <label for="confirmItPwInput" class="block text-xs font-bold mb-1">Parolni tasdiqlang</label>
-                  <input id="confirmItPwInput" required minlength="6" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-                </div>
-                <button type="submit" class="btn-tactile px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold">
-                  IT Manager parolini saqlash
-                </button>
-              </form>
+        <form id="studentCreateForm" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-start">
+          <div>
+            <label for="stuFullNameInput" class="block text-xs font-bold mb-1">Ism-familiya *</label>
+            <input id="stuFullNameInput" required type="text" placeholder="Aziza Karimova" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
+          </div>
+          <div>
+            <label for="stuUsernameInput" class="block text-xs font-bold mb-1">Login (Username) *</label>
+            <input id="stuUsernameInput" required type="text" placeholder="aziza01" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
+          </div>
+          <div>
+            <label for="stuGroupInput" class="block text-xs font-bold mb-1">Guruh / Sinf</label>
+            <input id="stuGroupInput" type="text" placeholder="IELTS B2" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+          </div>
+          <div class="space-y-1.5">
+            <label for="stuPasswordInput" class="block text-xs font-bold">Parol (min 8 belgi + raqam) *</label>
+            <input id="stuPasswordInput" required minlength="8" type="password" placeholder="Masalan: Aziza#2026" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+            <div class="flex items-center gap-2">
+              <div class="pw-meter-track flex-1"><div id="stuPwMeterBar" class="pw-meter-fill bg-slate-300" style="width: 0%"></div></div>
+              <span id="stuPwMeterLabel" class="text-[10px] font-bold text-slate-400 whitespace-nowrap">Kamida 8 belgi</span>
             </div>
           </div>
+          <div class="sm:pt-5">
+            <button type="submit" class="btn-tactile w-full px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-md shadow-indigo-500/20">
+              + O‘quvchi qo‘shish
+            </button>
+          </div>
+        </form>
+      </div>
 
-          <!-- Audit Log & Danger Zone -->
+      <div id="adminStudentsList" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </section>
+
+    <!-- ==================== VIEW 6: SECURITY CENTER (IT MANAGER ONLY) ==================== -->
+    <section id="view-security" class="hidden view-animate space-y-6">
+      <div id="securityLockedNotice" class="hidden glass-panel rounded-3xl p-6 text-center space-y-2">
+        <i data-lucide="shield-alert" class="w-8 h-8 text-amber-500 mx-auto"></i>
+        <h3 class="font-extrabold text-base">Faqat IT Manager uchun ruxsat etilgan</h3>
+        <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+          Kiberxavfsizlik va parollar boshqaruvi faqat IT Manager hisobida ochiladi.
+        </p>
+      </div>
+
+      <div id="securityPanelBody" class="space-y-6">
+        <!-- Active Cybersecurity Posture Grid -->
+        <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl sm:text-2xl font-extrabold flex items-center gap-2">
+                <i data-lucide="shield-check" class="w-6 h-6 text-emerald-500"></i>
+                Kiberxavfsizlik Markazi
+              </h1>
+              <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+                Real-Time server va mijoz tomonidagi faol himoya qatlamlari holati.
+              </p>
+            </div>
+            <button type="button" id="clearRateLimitsBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs font-bold text-indigo-600 dark:text-indigo-300 flex items-center gap-1.5">
+              <i data-lucide="unlock" class="w-3.5 h-3.5"></i>
+              Brute-Force Bloklarini Tozalash
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div class="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 space-y-1">
+              <p class="font-extrabold text-emerald-700 dark:text-emerald-300">CSP &amp; Security Headers</p>
+              <p class="text-slate-600 dark:text-slate-300">Inline script bloklangan, X-Frame-Options: DENY, nosniff faol.</p>
+            </div>
+            <div class="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 space-y-1">
+              <p class="font-extrabold text-indigo-700 dark:text-indigo-300">Brute-Force Lockout</p>
+              <p class="text-slate-600 dark:text-slate-300">5 ta noto‘g‘ri urinishdan keyin 3 daqiqaga HTTP 429 bloklash.</p>
+            </div>
+            <div class="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-500/20 space-y-1">
+              <p class="font-extrabold text-sky-700 dark:text-sky-300">Stretched Auth &amp; HMAC</p>
+              <p class="text-slate-600 dark:text-slate-300">Salt + 4000x SHA-256 kalit cho‘zish, 12 soatlik HMAC token + logout bekor qilish.</p>
+            </div>
+            <div class="p-3.5 rounded-2xl bg-violet-500/10 border border-violet-500/20 space-y-1">
+              <p class="font-extrabold text-violet-700 dark:text-violet-300">AI SSRF &amp; Key Masking</p>
+              <p class="text-slate-600 dark:text-slate-300">Faqat HTTPS public AI endpoint, saqlangan API key brauzerga qaytarilmaydi.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <!-- Change Teacher Password -->
           <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <h3 class="font-extrabold text-base">Admin Faoliyat Jurnali (Audit Log)</h3>
-              <button type="button" id="adminResetDbBtn" class="btn-tactile px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold">
-                Bazani standart holatga qaytarish
+            <h3 class="font-extrabold text-base flex items-center gap-2">
+              <i data-lucide="user-cog" class="w-4 h-4 text-emerald-500"></i>
+              Teacher parolini yangilash
+            </h3>
+            <form id="changeTeacherPwForm" class="space-y-3">
+              <div>
+                <label for="newTeacherPwInput" class="block text-xs font-bold mb-1">Yangi Teacher paroli (min 8 belgi + raqam/belgi)</label>
+                <input id="newTeacherPwInput" required minlength="8" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+                <div class="flex items-center gap-2 mt-1.5">
+                  <div class="pw-meter-track flex-1"><div id="teacherPwMeterBar" class="pw-meter-fill bg-slate-300" style="width: 0%"></div></div>
+                  <span id="teacherPwMeterLabel" class="text-[10px] font-bold text-slate-400">Min 8 belgi</span>
+                </div>
+              </div>
+              <div>
+                <label for="confirmTeacherPwInput" class="block text-xs font-bold mb-1">Parolni tasdiqlang</label>
+                <input id="confirmTeacherPwInput" required minlength="8" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+              </div>
+              <button type="submit" class="btn-tactile px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold">
+                Teacher parolini saqlash
               </button>
-            </div>
-            <div id="auditLogList" class="space-y-2 max-h-60 overflow-y-auto text-xs"></div>
+            </form>
           </div>
+
+          <!-- Change IT Manager Password -->
+          <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
+            <h3 class="font-extrabold text-base flex items-center gap-2">
+              <i data-lucide="shield" class="w-4 h-4 text-indigo-500"></i>
+              IT Manager parolini yangilash
+            </h3>
+            <form id="changeItPwForm" class="space-y-3">
+              <div>
+                <label for="newItPwInput" class="block text-xs font-bold mb-1">Yangi IT Manager paroli (min 8 belgi + raqam/belgi)</label>
+                <input id="newItPwInput" required minlength="8" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+                <div class="flex items-center gap-2 mt-1.5">
+                  <div class="pw-meter-track flex-1"><div id="itPwMeterBar" class="pw-meter-fill bg-slate-300" style="width: 0%"></div></div>
+                  <span id="itPwMeterLabel" class="text-[10px] font-bold text-slate-400">Min 8 belgi</span>
+                </div>
+              </div>
+              <div>
+                <label for="confirmItPwInput" class="block text-xs font-bold mb-1">Parolni tasdiqlang</label>
+                <input id="confirmItPwInput" required minlength="8" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+              </div>
+              <button type="submit" class="btn-tactile px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold">
+                IT Manager parolini saqlash
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- Audit Log & Danger Zone -->
+        <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="font-extrabold text-base">Xavfsizlik &amp; Admin Audit Jurnali</h3>
+            <button type="button" id="adminResetDbBtn" class="btn-tactile px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold">
+              Bazani standart holatga qaytarish
+            </button>
+          </div>
+          <div id="auditLogList" class="space-y-2 max-h-72 overflow-y-auto text-xs"></div>
         </div>
       </div>
     </section>
 
   </main>
-
-  <!-- ==================== MODAL: ADD / EDIT WORD ==================== -->
-  <div id="wordModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
-    <div class="glass-panel-strong rounded-3xl w-full max-w-2xl max-h-[92vh] overflow-y-auto p-6 sm:p-7 space-y-5">
-      <div class="flex items-center justify-between">
-        <h2 id="wordModalTitle" class="text-xl font-extrabold">Yangi so‘z qo‘shish</h2>
-        <button type="button" id="closeWordModalBtn" class="p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-800">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-
-      <form id="wordForm" class="space-y-4">
-        <input type="hidden" id="wordIdInput" />
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-          <div>
-            <label class="block text-xs font-bold mb-1" for="wordTextInput">Inglizcha so‘z *</label>
-            <input id="wordTextInput" required type="text" placeholder="masalan: endeavor" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold mb-1" for="wordPhoneticInput">Transkripsiya (IPA)</label>
-            <input id="wordPhoneticInput" type="text" placeholder="/ɪnˈdev.ər/" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          <div>
-            <label class="block text-xs font-bold mb-1" for="wordPosInput">So‘z turkumi</label>
-            <select id="wordPosInput" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm">
-              <option value="noun">noun</option>
-              <option value="verb">verb</option>
-              <option value="adjective">adjective</option>
-              <option value="adverb">adverb</option>
-              <option value="verb / noun">verb / noun</option>
-              <option value="phrasal verb">phrasal verb</option>
-              <option value="idiom">idiom</option>
-              <option value="phrase">phrase</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs font-bold mb-1" for="wordLessonInput">Darslik (Lesson)</label>
-            <input id="wordLessonInput" list="wordLessonDatalist" type="text" placeholder="1-dars: Academic Foundations" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-            <datalist id="wordLessonDatalist"></datalist>
-          </div>
-          <div>
-            <label class="block text-xs font-bold mb-1" for="wordCategoryInput">Kategoriya</label>
-            <select id="wordCategoryInput" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm"></select>
-          </div>
-          <div>
-            <label class="block text-xs font-bold mb-1" for="wordLevelInput">CEFR darajasi</label>
-            <select id="wordLevelInput" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm">
-              <option value="A1">A1</option>
-              <option value="A2">A2</option>
-              <option value="B1">B1</option>
-              <option value="B2" selected>B2</option>
-              <option value="C1">C1</option>
-              <option value="C2">C2</option>
-            </select>
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-xs font-bold mb-1" for="wordTranslationInput">O‘zbekcha tarjima *</label>
-          <input id="wordTranslationInput" required type="text" placeholder="astoydil harakat qilmoq, intilmoq" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
-        </div>
-
-        <div>
-          <label class="block text-xs font-bold mb-1" for="wordDefinitionInput">Inglizcha izoh (Definition)</label>
-          <textarea id="wordDefinitionInput" rows="2" placeholder="To try very hard to achieve something important..." class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm"></textarea>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-          <div>
-            <label class="block text-xs font-bold mb-1" for="wordExample1Input">1-misol gap</label>
-            <textarea id="wordExample1Input" rows="2" placeholder="Engineers **endeavor** to build reliable apps." class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm"></textarea>
-          </div>
-          <div>
-            <label class="block text-xs font-bold mb-1" for="wordExample2Input">2-misol gap</label>
-            <textarea id="wordExample2Input" rows="2" placeholder="Learning a language is a rewarding **endeavor**." class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm"></textarea>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-          <div>
-            <label class="block text-xs font-bold mb-1" for="wordSynonymsInput">Sinonimlar (vergul bilan)</label>
-            <input id="wordSynonymsInput" type="text" placeholder="strive, attempt, undertake" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold mb-1" for="wordAntonymsInput">Antonimlar (vergul bilan)</label>
-            <input id="wordAntonymsInput" type="text" placeholder="neglect, abandon" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-          </div>
-        </div>
-
-        <div>
-          <label class="block text-xs font-bold mb-1" for="wordMnemonicInput">Assotsiatsiya (Mnemonic note)</label>
-          <input id="wordMnemonicInput" type="text" placeholder="So‘zni oson eslab qolish uchun qisqa usul..." class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
-        </div>
-
-        <div class="flex items-center justify-end gap-2.5 pt-2">
-          <button type="button" id="cancelWordModalBtn" class="btn-tactile px-5 py-2.5 rounded-xl glass-panel text-sm font-bold">Bekor qilish</button>
-          <button type="submit" class="btn-tactile px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-bold shadow-lg shadow-indigo-500/25">Saqlash</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- ==================== MODAL: ADD CATEGORY ==================== -->
-  <div id="categoryModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
-    <div class="glass-panel-strong rounded-3xl w-full max-w-md p-6 space-y-5">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-extrabold">Yangi kategoriya yaratish</h2>
-        <button type="button" id="closeCategoryModalBtn" class="p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-800">
-          <i data-lucide="x" class="w-5 h-5"></i>
-        </button>
-      </div>
-      <form id="categoryForm" class="space-y-4">
-        <div>
-          <label class="block text-xs font-bold mb-1" for="categoryNameInput">Kategoriya nomi *</label>
-          <input id="categoryNameInput" required type="text" placeholder="masalan: IT &amp; Software" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
-        </div>
-        <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold mb-1" for="categoryColorSelect">Rang</label>
-            <select id="categoryColorSelect" class="w-full px-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm">
-              <option value="indigo">Indigo</option>
-              <option value="emerald">Emerald</option>
-              <option value="sky">Sky Blue</option>
-              <option value="amber">Amber</option>
-              <option value="rose">Rose</option>
-              <option value="violet">Violet</option>
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs font-bold mb-1" for="categoryIconSelect">Ikonka</label>
-            <select id="categoryIconSelect" class="w-full px-3 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm">
-              <option value="folder">Papka</option>
-              <option value="code-2">Dasturlash</option>
-              <option value="globe">Dunyo</option>
-              <option value="bookmark">Xatcho‘p</option>
-              <option value="zap">Tezkor</option>
-              <option value="star">Yulduz</option>
-            </select>
-          </div>
-        </div>
-        <div class="flex justify-end gap-2.5 pt-2">
-          <button type="button" id="cancelCategoryModalBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-sm font-bold">Bekor qilish</button>
-          <button type="submit" class="btn-tactile px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold">Yaratish</button>
-        </div>
-      </form>
-    </div>
-  </div>
 
   <!-- ==================== MODAL: KEYBOARD SHORTCUTS ==================== -->
   <div id="shortcutsModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
@@ -1660,8 +1466,12 @@
       <form id="studentResetPwForm" class="space-y-3">
         <input type="hidden" id="stuResetIdInput" />
         <div>
-          <label for="stuResetNewPwInput" class="block text-xs font-bold mb-1">Yangi parol (kamida 6 belgi) *</label>
-          <input id="stuResetNewPwInput" required minlength="6" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/80 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+          <label for="stuResetNewPwInput" class="block text-xs font-bold mb-1">Yangi parol (min 8 belgi + raqam/belgi) *</label>
+          <input id="stuResetNewPwInput" required minlength="8" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+          <div class="flex items-center gap-2 mt-1.5">
+            <div class="pw-meter-track flex-1"><div id="stuResetPwMeterBar" class="pw-meter-fill bg-slate-300" style="width: 0%"></div></div>
+            <span id="stuResetPwMeterLabel" class="text-[10px] font-bold text-slate-400">Min 8 belgi</span>
+          </div>
         </div>
         <div class="flex justify-end gap-2 pt-1">
           <button type="button" id="cancelStuResetPwBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs font-bold">Bekor qilish</button>

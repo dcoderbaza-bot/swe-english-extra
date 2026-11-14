@@ -73,3 +73,24 @@
   - O‘quvchi (`ali`) kirishi: admin tugmalari yashirilgan, 3D Flashcard flip + `Oson (7 kun)` baholash, Quiz javobi va `Chiqish` tekshirildi.
   - Teacher kirishi: to‘g‘ridan-to‘g‘ri `#view-monitor` (`Real-Time SSE ulangan`) da `Ali Valiyev` (`7%`, `2 ta` bugun, jonli harakatlar oqimi va `#studentDetailModal`) ko‘rindi; `Admin -> O‘quvchilar` da `@zarina` yaratildi va `DeepSeek AI (deepseek-chat)` konfiguratsiyasi tasdiqlandi.
   - IT Manager kirishi: `Parollar & Jurnal` da xronologik `Audit Log` hamda 4 ta o‘quvchi monitori tasdiqlandi.
+
+---
+
+## 5. 4-bosqich yangilanishlari (Kiberxavfsizlik, Saralangan Rol Menyulari, Teacher `.TXT`-only va Dizayn Yangilash)
+
+### Yangi va yangilangan fayllar
+- `js/theme-init.js` va `js/tailwind-config.js` — inline `<script>` teglaridan butunlay xoli CSP-mos tashqi konfiguratsiya skriptlari ajratildi.
+- `server.js` — Qat’iy HTTP xavfsizlik headerlari va CSP (`script-src 'self' https://cdn.tailwindcss.com https://unpkg.com`, `X-Frame-Options: DENY`, `nosniff`, `no-referrer`, `COOP`), `/api/login` da 5 urinishli `429` + `Retry-After` brute-force blokirovkasi (`AUTH_LOCKOUT`), `12h` HMAC token (`iat`/`exp`/`jti`) + `/api/logout` `revokedTokens`, tokensiz `/api/stream` ni `401` bilan bloklash, `aiConfig.apiKey` ni maskalash (`hasApiKey`, `apiKeyMasked`), `/api/ai-proxy` da server kalit injeksiyasi + SSRF/HTTPS/Gemini/mock-fetch himoyasi, `clearRateLimits` va `tests/`/`package.json` static blokirovkasi qo‘shildi.
+- `js/auth.js` — `swe3:4000:<salt>:<sha256>` ko‘p raundli tuzlangan parol xeshlash, kuchli parol siyosati (`validatePasswordStrength`: kamida 8 belgi, harf + raqam/belgi) va Lokal rejim uchun ham brute-force cheklovi (`checkLoginRateLimit`, `recordLoginFailure`, `clearLoginFailures`) joriy etildi.
+- `js/ai-txt.js` va `js/storage.js` — `validateAiEndpoint` / `isPrivateOrLocalHostname` (HTTPS-only + localhost/private IP/metadata SSRF bloki), `/api/ai-proxy` dan kalitsiz xavfsiz foydalanish va CSV formula-in’yeksiya (`CWE-1236`) himoyasi qo‘shildi.
+- `js/sync.js` — SSE `/api/stream?token=...` tokenli ulanish, `logoutRemote()` da SSE yopish va `429 Retry-After` xatolarini UI ga uzatish qo‘shildi.
+- `index.html`, `css/styles.css` va `js/app.js` — Ichma-ich `Admin Studio` olib tashlanib, har bir rol uchun saralangan tekis menyu (`O‘quvchi`: 3 ta, `Teacher`: 4 ta, `IT Manager`: 5 ta) qurildi; O‘qituvchi uchun **faqat `.TXT`** lug‘at kiritish (`#view-txt-import` + drag-and-drop dropzone + yig‘iluvchi `DeepSeek API Sozlamasi`) qoldirilib qo‘lda so‘z/kategoriya modallari va JSON/CSV tugmalari olib tashlandi; qatlamli glassmorphism, gradient `.nav-pill.is-active`, avatar initsiallari, parol kuchi o‘lchagichlari va Chromium 3D `.flashcard-face--front` / `.flashcard-face--back` backface tuzatilishi joriy etildi.
+- `tests/verify.js` — **12 ta** test to‘plamigacha kengaytirildi (`swe3` xesh, parol kuchi, client & server `429` lockout, SSRF/HTTPS, CWE-1236 CSV, CSP/inline-script/TXT-only HTML auditi, `jti` bekor qilish, API kalit maskalash va `/api/ai-proxy`).
+
+### 4-bosqich tekshiruv natijalari
+- `node --check`: `server.js` va barcha `js/*.js` (10 ta fayl) xatosiz o‘tdi.
+- `node tests/verify.js`: **12/12** test to‘plami 100% muvaffaqiyatli o‘tdi.
+- Live Server + Brauzer E2E QA (`http://127.0.0.1:4176`, 0 ta konsol xatosi, 0 ta CSP xatosi, 0 ta sahifa xatosi, 0 ta overflow):
+  - Brute-force 5x xato paroldan keyin `429` blokirovka, IT Manager `Xavfsizlik` bo‘limidan `clearRateLimits` bilan blokni ochish va `AUTH_LOCKOUT` audit jurnali tekshirildi.
+  - Teacher akkauntida 4 ta saralangan menyu, qo‘lda so‘z/JSON/CSV tugmalari yo‘qligi, faqat `.TXT` yuklash/boyitish/eksport va `15 -> 22` so‘z o‘sishi tasdiqlandi.
+  - O‘quvchi (`student1`) da faqat 3 ta menyu, 3D Flashcard old/orqa tomonlarining Dark/Light rejimda ghostingsiz silliq aylanishi va SRS `Oson (7 kun)` baholash to‘liq tasdiqlandi.

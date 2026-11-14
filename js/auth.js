@@ -165,12 +165,215 @@
       .replace(/[^a-z0-9._-]/g, '');
   }
 
+  const STRETCH_ROUNDS = 4000;
+  const RATE_LIMIT_KEY = 'swe_auth_rate_limit_v1';
+  const MAX_LOGIN_ATTEMPTS = 5;
+  const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+  const LOCKOUT_MS = 3 * 60 * 1000;
+
+  function constantTimeEqual(a, b) {
+    const strA = String(a || '');
+    const strB = String(b || '');
+    if (strA.length !== strB.length || strA.length === 0) return false;
+    let diff = 0;
+    for (let i = 0; i < strA.length; i++) {
+      diff |= strA.charCodeAt(i) ^ strB.charCodeAt(i);
+    }
+    return diff === 0;
+  }
+
+  function generateSaltHex(byteLen) {
+    const len = byteLen || 12;
+    const bytes = new Uint8Array(len);
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+      crypto.getRandomValues(bytes);
+    } else if (typeof require === 'function') {
+      try {
+        const nodeCrypto = require('crypto');
+        const buf = nodeCrypto.randomBytes(len);
+        for (let i = 0; i < len; i++) bytes[i] = buf[i];
+      } catch (e) {
+        for (let i = 0; i < len; i++) bytes[i] = Math.floor(Math.random() * 256);
+      }
+    } else {
+      for (let i = 0; i < len; i++) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    return Array.from(bytes).map(function (b) {
+      return ('0' + b.toString(16)).slice(-2);
+    }).join('');
+  }
+
+  function stretchSha256(scopeTag, secret, saltHex, rounds) {
+    const total = Math.max(100, Math.min(20000, Number(rounds) || STRETCH_ROUNDS));
+    let acc = sha256Hex(SALT_PREFIX + scopeTag + ':' + saltHex + ':' + String(secret));
+    for (let i = 0; i < total; i++) {
+      acc = sha256Hex(acc + ':' + saltHex + ':' + String(i));
+    }
+    return acc;
+  }
+
   function hashRolePassword(role, password) {
-    return sha256Hex(SALT_PREFIX + String(role) + ':' + String(password));
+    const salt = generateSaltHex(12);
+    const scope = 'role:' + String(role);
+    const digest = stretchSha256(scope, password, salt, STRETCH_ROUNDS);
+    return 'swe3:' + STRETCH_ROUNDS + ':' + salt + ':' + digest;
   }
 
   function hashStudentPassword(username, password) {
-    return sha256Hex(SALT_PREFIX + 'student:' + normalizeUsername(username) + ':' + String(password));
+    const cleanUser = normalizeUsername(username);
+    const salt = generateSaltHex(12);
+    const scope = 'student:' + cleanUser;
+    const digest = stretchSha256(scope, password, salt, STRETCH_ROUNDS);
+    return 'swe3:' + STRETCH_ROUNDS + ':' + salt + ':' + digest;
+  }
+
+  function verifyPasswordHash(scopeTag, secret, storedHash) {
+    const stored = String(storedHash || '');
+    if (!stored || typeof secret !== 'string') return false;
+
+    if (stored.indexOf('swe3:') === 0) {
+      const parts = stored.split(':');
+      if (parts.length !== 4) return false;
+      const rounds = Number(parts[1]);
+      const salt = parts[2];
+      const expected = parts[3];
+      if (!salt || !expected || !Number.isFinite(rounds) || rounds < 100 || rounds > 20000) {
+        return false;
+      }
+      const computed = stretchSha256(scopeTag, secret, salt, rounds);
+      return constantTimeEqual(computed, expected);
+    }
+
+    // Legacy v2 unsalted-per-user salted SHA-256 compatibility for starter accounts
+    const legacyTag = scopeTag.indexOf('role:') === 0 ? scopeTag.slice(5) : scopeTag;
+    const legacyDigest = sha256Hex(SALT_PREFIX + legacyTag + ':' + secret);
+    return constantTimeEqual(legacyDigest, stored);
+  }
+
+  function validatePasswordStrength(password) {
+    const pw = String(password || '');
+    const trimmed = pw.trim();
+    if (!trimmed || trimmed.length < 8) {
+      return {
+        ok: false,
+        score: 1,
+        label: 'Juda zaif',
+        error: 'Parol kamida 8 ta belgidan iborat bo‘lishi kerak.'
+      };
+    }
+    if (/^\s|\s$/.test(pw)) {
+      return {
+        ok: false,
+        score: 1,
+        label: 'Noto‘g‘ri',
+        error: 'Parol boshida yoki oxirida bo‘sh joy bo‘lmasligi kerak.'
+      };
+    }
+    const hasLetter = /[A-Za-z]/.test(pw);
+    const hasUpper = /[A-Z]/.test(pw);
+    const hasLower = /[a-z]/.test(pw);
+    const hasDigit = /\d/.test(pw);
+    const hasSymbol = /[^A-Za-z0-9]/.test(pw);
+    const classes = [hasUpper, hasLower, hasDigit, hasSymbol].filter(Boolean).length;
+
+    if (!hasLetter || (!hasDigit && !hasSymbol)) {
+      return {
+        ok: false,
+        score: 2,
+        label: 'Kuchsiz',
+        error: 'Parolda harflar bilan birga kamida bitta raqam yoki belgi bo‘lishi shart.'
+      };
+    }
+
+    const isStrong = pw.length >= 12 && classes >= 3;
+    return {
+      ok: true,
+      score: isStrong ? 4 : 3,
+      label: isStrong ? 'Kuchli' : 'Qoniqarli',
+      error: ''
+    };
+  }
+
+  function readRateLimitMap(store) {
+    const backend = store || (typeof localStorage !== 'undefined' ? localStorage : null);
+    if (!backend) return {};
+    try {
+      const raw = backend.getItem(RATE_LIMIT_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function writeRateLimitMap(map, store) {
+    const backend = store || (typeof localStorage !== 'undefined' ? localStorage : null);
+    if (!backend) return;
+    try {
+      backend.setItem(RATE_LIMIT_KEY, JSON.stringify(map));
+    } catch (e) {
+      // Ignore storage error
+    }
+  }
+
+  function checkLoginRateLimit(bucketKey, now, store) {
+    const ts = typeof now === 'number' ? now : Date.now();
+    const key = String(bucketKey || 'default');
+    const map = readRateLimitMap(store);
+    const rec = map[key];
+    if (!rec) return { allowed: true, remainingAttempts: MAX_LOGIN_ATTEMPTS, retryAfterSec: 0 };
+
+    if (rec.lockedUntil && ts < rec.lockedUntil) {
+      return {
+        allowed: false,
+        remainingAttempts: 0,
+        retryAfterSec: Math.max(1, Math.ceil((rec.lockedUntil - ts) / 1000))
+      };
+    }
+    if (rec.firstAttemptAt && (ts - rec.firstAttemptAt) > ATTEMPT_WINDOW_MS) {
+      return { allowed: true, remainingAttempts: MAX_LOGIN_ATTEMPTS, retryAfterSec: 0 };
+    }
+    const count = Number(rec.count || 0);
+    return {
+      allowed: true,
+      remainingAttempts: Math.max(0, MAX_LOGIN_ATTEMPTS - count),
+      retryAfterSec: 0
+    };
+  }
+
+  function recordLoginFailure(bucketKey, now, store) {
+    const ts = typeof now === 'number' ? now : Date.now();
+    const key = String(bucketKey || 'default');
+    const map = readRateLimitMap(store);
+    const prev = map[key];
+    let count = 1;
+    let firstAttemptAt = ts;
+
+    if (prev && prev.firstAttemptAt && (ts - prev.firstAttemptAt) <= ATTEMPT_WINDOW_MS) {
+      count = Number(prev.count || 0) + 1;
+      firstAttemptAt = prev.firstAttemptAt;
+    }
+
+    const lockedUntil = count >= MAX_LOGIN_ATTEMPTS ? (ts + LOCKOUT_MS) : 0;
+    map[key] = { count: count, firstAttemptAt: firstAttemptAt, lockedUntil: lockedUntil };
+    writeRateLimitMap(map, store);
+
+    return {
+      allowed: !lockedUntil,
+      count: count,
+      remainingAttempts: Math.max(0, MAX_LOGIN_ATTEMPTS - count),
+      retryAfterSec: lockedUntil ? Math.ceil(LOCKOUT_MS / 1000) : 0
+    };
+  }
+
+  function clearLoginFailures(bucketKey, store) {
+    const key = String(bucketKey || 'default');
+    const map = readRateLimitMap(store);
+    if (map[key]) {
+      delete map[key];
+      writeRateLimitMap(map, store);
+    }
   }
 
   function createDefaultAuthState() {
@@ -198,23 +401,46 @@
     };
   }
 
+  function isStretchedHash(hashStr) {
+    return typeof hashStr === 'string' && hashStr.indexOf('swe3:') === 0;
+  }
+
   function verifyRolePassword(authState, role, password) {
     if (role !== 'it_manager' && role !== 'teacher') return false;
     if (!password || typeof password !== 'string') return false;
     const hashes = (authState && authState.hashes) ? authState.hashes : DEFAULT_AUTH_HASHES;
     const expected = hashes[role] || DEFAULT_AUTH_HASHES[role];
-    return hashRolePassword(role, password) === expected;
+    return verifyPasswordHash('role:' + role, password, expected);
   }
 
   function authenticate(params) {
     const opts = params || {};
     const role = opts.role || 'student';
     const password = String(opts.password || '');
+    const now = typeof opts.now === 'number' ? opts.now : Date.now();
+    const rlStore = opts.rateLimitStore || null;
+    const rlBucket = role === 'student'
+      ? ('student:' + normalizeUsername(opts.username))
+      : ('staff:' + role);
+
+    if (rlStore || opts.enforceRateLimit) {
+      const rl = checkLoginRateLimit(rlBucket, now, rlStore);
+      if (!rl.allowed) {
+        return {
+          ok: false,
+          rateLimited: true,
+          retryAfterSec: rl.retryAfterSec,
+          error: 'Juda ko‘p xato urinish! ' + rl.retryAfterSec + ' soniyadan keyin qayta urinib ko‘ring.'
+        };
+      }
+    }
 
     if (role === 'it_manager' || role === 'teacher') {
       if (!verifyRolePassword(opts.authState, role, password)) {
+        if (rlStore || opts.enforceRateLimit) recordLoginFailure(rlBucket, now, rlStore);
         return { ok: false, error: 'Admin paroli noto‘g‘ri!' };
       }
+      if (rlStore || opts.enforceRateLimit) clearLoginFailures(rlBucket, rlStore);
       return {
         ok: true,
         session: {
@@ -223,7 +449,7 @@
           username: role,
           fullName: ROLE_META[role].label,
           group: 'Staff',
-          loginAt: Date.now()
+          loginAt: now
         }
       };
     }
@@ -241,15 +467,18 @@
         return normalizeUsername(s.username) === cleanUser;
       });
       if (!found) {
-        return { ok: false, error: 'Bunday loginli o‘quvchi topilmadi.' };
+        if (rlStore || opts.enforceRateLimit) recordLoginFailure(rlBucket, now, rlStore);
+        return { ok: false, error: 'O‘quvchi login yoki paroli noto‘g‘ri!' };
       }
       if (found.active === false) {
         return { ok: false, error: 'Ushbu o‘quvchi akkaunti vaqtincha bloklangan.' };
       }
-      if (hashStudentPassword(found.username, password) !== found.passwordHash) {
+      if (!verifyPasswordHash('student:' + normalizeUsername(found.username), password, found.passwordHash)) {
+        if (rlStore || opts.enforceRateLimit) recordLoginFailure(rlBucket, now, rlStore);
         return { ok: false, error: 'O‘quvchi login yoki paroli noto‘g‘ri!' };
       }
 
+      if (rlStore || opts.enforceRateLimit) clearLoginFailures(rlBucket, rlStore);
       return {
         ok: true,
         session: {
@@ -258,7 +487,7 @@
           username: found.username,
           fullName: found.fullName,
           group: found.group || 'General',
-          loginAt: Date.now()
+          loginAt: now
         }
       };
     }
@@ -273,12 +502,13 @@
     if (actorRole !== 'it_manager' && actorRole !== targetRole) {
       throw new Error('Bu parolni o‘zgartirish uchun IT Manager huquqi kerak.');
     }
-    if (!newPassword || String(newPassword).trim().length < 6) {
-      throw new Error('Parol kamida 6 ta belgidan iborat bo‘lishi kerak.');
+    const policy = validatePasswordStrength(newPassword);
+    if (!policy.ok) {
+      throw new Error(policy.error);
     }
 
     const nextHashes = Object.assign({}, DEFAULT_AUTH_HASHES, (authState && authState.hashes) || {});
-    nextHashes[targetRole] = hashRolePassword(targetRole, newPassword);
+    nextHashes[targetRole] = hashRolePassword(targetRole, String(newPassword).trim());
 
     return {
       hashes: nextHashes,
@@ -301,8 +531,9 @@
     if (fullName.length < 2) {
       throw new Error('O‘quvchining ism-familiyasini kiriting.');
     }
-    if (password.trim().length < 6) {
-      throw new Error('O‘quvchi paroli kamida 6 ta belgidan iborat bo‘lishi kerak.');
+    const policy = validatePasswordStrength(password);
+    if (!policy.ok) {
+      throw new Error(policy.error);
     }
 
     const list = Array.isArray(students) ? students.slice() : [];
@@ -317,7 +548,7 @@
       fullName: fullName,
       group: group,
       active: true,
-      passwordHash: hashStudentPassword(cleanUser, password),
+      passwordHash: hashStudentPassword(cleanUser, password.trim()),
       createdAt: ts
     };
     list.push(created);
@@ -328,8 +559,9 @@
     if (!canManageStudents(actorRole)) {
       throw new Error('Parolni yangilash uchun Teacher yoki IT Manager huquqi kerak.');
     }
-    if (!newPassword || String(newPassword).trim().length < 6) {
-      throw new Error('Parol kamida 6 ta belgidan iborat bo‘lishi kerak.');
+    const policy = validatePasswordStrength(newPassword);
+    if (!policy.ok) {
+      throw new Error(policy.error);
     }
     const list = Array.isArray(students) ? students.slice() : [];
     let found = false;
@@ -337,7 +569,7 @@
       if (s.id !== studentId && normalizeUsername(s.username) !== normalizeUsername(studentId)) return s;
       found = true;
       return Object.assign({}, s, {
-        passwordHash: hashStudentPassword(s.username, newPassword)
+        passwordHash: hashStudentPassword(s.username, String(newPassword).trim())
       });
     });
     if (!found) {
@@ -462,10 +694,20 @@
     DEFAULT_AUTH_HASHES: DEFAULT_AUTH_HASHES,
     DEFAULT_STUDENTS: DEFAULT_STUDENTS,
     ROLE_META: ROLE_META,
+    STRETCH_ROUNDS: STRETCH_ROUNDS,
+    MAX_LOGIN_ATTEMPTS: MAX_LOGIN_ATTEMPTS,
+    LOCKOUT_MS: LOCKOUT_MS,
     sha256Hex: sha256Hex,
+    constantTimeEqual: constantTimeEqual,
     normalizeUsername: normalizeUsername,
     hashRolePassword: hashRolePassword,
     hashStudentPassword: hashStudentPassword,
+    verifyPasswordHash: verifyPasswordHash,
+    isStretchedHash: isStretchedHash,
+    validatePasswordStrength: validatePasswordStrength,
+    checkLoginRateLimit: checkLoginRateLimit,
+    recordLoginFailure: recordLoginFailure,
+    clearLoginFailures: clearLoginFailures,
     createDefaultAuthState: createDefaultAuthState,
     createDefaultStudents: createDefaultStudents,
     sanitizeStudentForClient: sanitizeStudentForClient,

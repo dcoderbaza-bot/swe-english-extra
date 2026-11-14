@@ -91,17 +91,18 @@
   }
 
   function startServerStream() {
-    if (!serverMode || typeof EventSource === 'undefined') return;
+    const token = getSessionToken();
+    if (!serverMode || typeof EventSource === 'undefined' || !token) return;
     stopServerStream();
     try {
-      eventSource = new EventSource('/api/stream');
+      eventSource = new EventSource('/api/stream?token=' + encodeURIComponent(token));
       eventSource.addEventListener('update', function (ev) {
         let payload = {};
         try { payload = JSON.parse(ev.data || '{}'); } catch (e) { payload = {}; }
         emitUpdate({ source: 'server', reason: payload.reason || 'sse', timestamp: payload.timestamp || Date.now() });
       });
       eventSource.onerror = function () {
-        // EventSource automatically reconnects while server is up
+        // EventSource automatically reconnects while session token stays valid
       };
     } catch (e) {
       eventSource = null;
@@ -129,7 +130,7 @@
       }
       const data = await res.json().catch(function () { return null; });
       serverMode = Boolean(data && data.ok && data.mode === 'server');
-      if (serverMode) {
+      if (serverMode && getSessionToken()) {
         startServerStream();
       }
       return serverMode;
@@ -156,6 +157,8 @@
     if (!res.ok || data.ok === false) {
       const err = new Error(data.error || ('Server xatosi: HTTP ' + res.status));
       err.status = res.status;
+      err.rateLimited = Boolean(data.rateLimited);
+      err.retryAfterSec = Number(data.retryAfterSec || 0);
       throw err;
     }
     return data;
@@ -178,6 +181,7 @@
     } catch (e) {
       // Proceed with local logout even if network fails
     } finally {
+      stopServerStream();
       setSessionToken('');
     }
   }
@@ -210,10 +214,11 @@
     return apiRequest('/api/security', 'POST', payload);
   }
 
-  async function proxyAiRequest(endpoint, apiKey, requestPayload) {
+  async function proxyAiRequest(endpoint, apiKey, requestPayload, provider) {
     const data = await apiRequest('/api/ai-proxy', 'POST', {
       endpoint: endpoint,
-      apiKey: apiKey,
+      apiKey: apiKey || '',
+      provider: provider || 'deepseek',
       payload: requestPayload
     });
     return data.content;

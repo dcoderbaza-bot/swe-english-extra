@@ -20,8 +20,6 @@
   let activeLesson = 'ALL';
   let studyScope = 'due'; // 'due' | 'all'
   let currentRole = (currentSession && currentSession.role) || 'guest';
-  let currentAdminTab = 'txt-ai';
-  let pendingAdminTab = null;
   let loginRoleSelection = 'student';
   let txtPreviewItems = [];
   let selectedMonitorStudentId = null;
@@ -347,35 +345,35 @@
       applyAuthGateUI();
       return;
     }
-    if ((viewName === 'admin' || viewName === 'monitor') && !isStaff()) {
+
+    const staffViews = ['monitor', 'txt-import', 'students'];
+    if (staffViews.indexOf(viewName) !== -1 && !isStaff()) {
       showToast('Bu bo‘lim faqat Teacher va IT Manager uchun!', 'warning');
       viewName = 'dashboard';
     }
+    if (viewName === 'security' && !Auth.canManageSecurity(currentRole)) {
+      showToast('Xavfsizlik bo‘limi faqat IT Manager uchun!', 'warning');
+      viewName = isStaff() ? 'monitor' : 'dashboard';
+    }
 
     currentView = viewName;
-    ['monitor', 'dashboard', 'study', 'vocabulary', 'admin'].forEach(function (v) {
+    ['monitor', 'dashboard', 'study', 'vocabulary', 'txt-import', 'students', 'security'].forEach(function (v) {
       const el = $('view-' + v);
       if (el) el.classList.toggle('hidden', v !== viewName);
     });
 
     document.querySelectorAll('[data-nav-view]').forEach(function (btn) {
       const isActive = btn.getAttribute('data-nav-view') === viewName;
-      btn.className = btn.className
-        .replace(/bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm/g, '')
-        .replace(/text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white/g, '')
-        .trim();
-      if (isActive) {
-        btn.className += ' bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm';
-      } else {
-        btn.className += ' text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white';
-      }
+      btn.classList.toggle('is-active', isActive);
+      btn.classList.toggle('text-slate-600', !isActive);
+      btn.classList.toggle('dark:text-slate-300', !isActive);
     });
 
     if (isStudentSession()) {
       const viewLabels = {
         dashboard: 'Bosh sahifaga kirdi',
         study: 'Mashq bo‘limiga o‘tdi',
-        vocabulary: 'Lug‘at jadvalini ochdi'
+        vocabulary: 'Lug‘at ro‘yxatini ochdi'
       };
       emitStudentTelemetry({
         type: 'VIEW_CHANGE',
@@ -397,9 +395,14 @@
     } else if (viewName === 'vocabulary') {
       syncDeckSelects();
       renderVocabulary();
-    } else if (viewName === 'admin') {
+    } else if (viewName === 'txt-import') {
       syncDeckSelects();
-      renderAdminPanel();
+      renderTxtAiStatus();
+      renderAiConfigForm();
+    } else if (viewName === 'students') {
+      renderAdminStudentsList();
+    } else if (viewName === 'security') {
+      renderSecurityTab();
     }
     refreshIcons();
   }
@@ -514,7 +517,6 @@
     grid.innerHTML = '';
 
     const allCards = Array.isArray(sessionWords) ? sessionWords : getSessionWords();
-    const staffCanEdit = isStaff();
     const allDeck = {
       id: 'ALL',
       name: 'Barcha so‘zlar',
@@ -538,7 +540,7 @@
       const palette = COLOR_STYLES[deck.color] || COLOR_STYLES.indigo;
 
       const card = document.createElement('div');
-      card.className = 'glass-panel rounded-3xl p-5 flex flex-col justify-between gap-4 transition-all cursor-pointer border ' + palette.border;
+      card.className = 'glass-panel interactive-card rounded-3xl p-5 flex flex-col justify-between gap-4 cursor-pointer border ' + palette.border;
       card.addEventListener('click', function () {
         activeDeck = deck.isVirtualAll ? 'ALL' : deck.name;
         activeLesson = 'ALL';
@@ -546,10 +548,6 @@
         currentStudyMode = 'flashcards';
         switchView('study');
       });
-
-      const deleteBtnHtml = (staffCanEdit && !deck.builtIn)
-        ? '<button type="button" data-delete-cat="' + escapeHtml(deck.name) + '" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors" title="Kategoriyani o‘chirish"><i data-lucide="trash-2" class="w-4 h-4"></i></button>'
-        : '';
 
       card.innerHTML =
         '<div class="flex items-start justify-between gap-3">' +
@@ -566,26 +564,17 @@
             (dueCount > 0
               ? '<span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-300">' + dueCount + ' due</span>'
               : '<span class="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Tayyor</span>') +
-            deleteBtnHtml +
           '</div>' +
         '</div>' +
         '<div class="space-y-1.5">' +
           '<div class="flex items-center justify-between text-xs font-semibold text-slate-500 dark:text-slate-400">' +
             '<span>O‘zlashtirish</span>' +
-            '<span>' + pct + '% (' + masteredCount + '/' + totalCount + ')</span>' +
+            '<span class="tabular-nums">' + pct + '% (' + masteredCount + '/' + totalCount + ')</span>' +
           '</div>' +
           '<div class="w-full h-2 rounded-full bg-slate-200/80 dark:bg-slate-800 overflow-hidden">' +
             '<div class="h-full rounded-full bg-gradient-to-r ' + palette.bar + ' transition-all duration-500" style="width: ' + pct + '%"></div>' +
           '</div>' +
         '</div>';
-
-      const delBtn = card.querySelector('[data-delete-cat]');
-      if (delBtn) {
-        delBtn.addEventListener('click', function (e) {
-          e.stopPropagation();
-          deleteCategory(deck.name);
-        });
-      }
 
       grid.appendChild(card);
     });
@@ -606,8 +595,6 @@
     const studyLessonSel = $('studyLessonSelect');
     const vocabCatFilter = $('vocabCategoryFilter');
     const vocabLessonFilter = $('vocabLessonFilter');
-    const modalCatSel = $('wordCategoryInput');
-    const modalLessonList = $('wordLessonDatalist');
     const txtLessonSel = $('txtTargetLessonSelect');
     const txtCatSel = $('txtTargetCategorySelect');
 
@@ -655,29 +642,6 @@
         vocabLessonFilter.appendChild(opt);
       });
       vocabLessonFilter.value = prevL;
-    }
-
-    if (modalCatSel) {
-      const prev = modalCatSel.value;
-      modalCatSel.innerHTML = '';
-      state.categories.forEach(function (c) {
-        const opt = document.createElement('option');
-        opt.value = c.name;
-        opt.textContent = c.name;
-        modalCatSel.appendChild(opt);
-      });
-      if (prev && state.categories.some(function (c) { return c.name === prev; })) {
-        modalCatSel.value = prev;
-      }
-    }
-
-    if (modalLessonList) {
-      modalLessonList.innerHTML = '';
-      (state.lessons || []).forEach(function (l) {
-        const opt = document.createElement('option');
-        opt.value = l.name;
-        modalLessonList.appendChild(opt);
-      });
     }
 
     if (txtLessonSel) {
@@ -1570,7 +1534,7 @@
   function renderVocabulary() {
     const list = getFilteredVocabList();
     const now = Date.now();
-    const staffCanEdit = isStaff();
+    const staffCanDelete = isStaff();
     $('vocabCountBadge').textContent = list.length + ' ta so‘z';
 
     const tbody = $('vocabTableBody');
@@ -1611,22 +1575,19 @@
         '</td>' +
         '<td class="py-3.5 px-4">' +
           '<span class="px-2.5 py-0.5 rounded-full text-xs font-bold border ' + meta.badgeClass + '">' + escapeHtml(meta.label) + '</span>' +
-          '<div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">' + escapeHtml(nextText) + '</div>' +
+          '<div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1 tabular-nums">' + escapeHtml(nextText) + '</div>' +
         '</td>' +
         '<td class="py-3.5 px-5 text-right">' +
           '<div class="inline-flex items-center gap-1">' +
             '<button type="button" data-action="speak" class="p-2 rounded-xl hover:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300" title="Talaffuz"><i data-lucide="volume-2" class="w-4 h-4"></i></button>' +
-            (staffCanEdit
-              ? '<button type="button" data-action="edit" class="p-2 rounded-xl hover:bg-slate-200/70 dark:hover:bg-slate-700/60 text-slate-600 dark:text-slate-300" title="Tahrirlash"><i data-lucide="pencil" class="w-4 h-4"></i></button>' +
-                '<button type="button" data-action="delete" class="p-2 rounded-xl hover:bg-rose-500/15 text-rose-600 dark:text-rose-400" title="O‘chirish"><i data-lucide="trash-2" class="w-4 h-4"></i></button>'
+            (staffCanDelete
+              ? '<button type="button" data-action="delete" class="p-2 rounded-xl hover:bg-rose-500/15 text-rose-600 dark:text-rose-400" title="O‘chirish"><i data-lucide="trash-2" class="w-4 h-4"></i></button>'
               : '') +
           '</div>' +
         '</td>';
 
       tr.querySelector('[data-action="speak"]').addEventListener('click', function (e) { speakText(w.word, { triggerEl: e.currentTarget }); });
-      const desktopEditBtn = tr.querySelector('[data-action="edit"]');
       const desktopDelBtn = tr.querySelector('[data-action="delete"]');
-      if (desktopEditBtn) desktopEditBtn.addEventListener('click', function () { openWordModal(w); });
       if (desktopDelBtn) desktopDelBtn.addEventListener('click', function () { deleteWord(w); });
       tbody.appendChild(tr);
 
@@ -1652,17 +1613,14 @@
           '</div>' +
           '<div class="flex items-center gap-1 shrink-0">' +
             '<button type="button" data-action="speak" class="p-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-300"><i data-lucide="volume-2" class="w-4 h-4"></i></button>' +
-            (staffCanEdit
-              ? '<button type="button" data-action="edit" class="p-2 rounded-xl bg-slate-200/70 dark:bg-slate-800"><i data-lucide="pencil" class="w-4 h-4"></i></button>' +
-                '<button type="button" data-action="delete" class="p-2 rounded-xl bg-rose-500/10 text-rose-600"><i data-lucide="trash-2" class="w-4 h-4"></i></button>'
+            (staffCanDelete
+              ? '<button type="button" data-action="delete" class="p-2 rounded-xl bg-rose-500/10 text-rose-600"><i data-lucide="trash-2" class="w-4 h-4"></i></button>'
               : '') +
           '</div>' +
         '</div>';
 
       mCard.querySelector('[data-action="speak"]').addEventListener('click', function (e) { speakText(w.word, { triggerEl: e.currentTarget }); });
-      const mobEditBtn = mCard.querySelector('[data-action="edit"]');
       const mobDelBtn = mCard.querySelector('[data-action="delete"]');
-      if (mobEditBtn) mobEditBtn.addEventListener('click', function () { openWordModal(w); });
       if (mobDelBtn) mobDelBtn.addEventListener('click', function () { deleteWord(w); });
       mobileWrap.appendChild(mCard);
     });
@@ -1670,109 +1628,7 @@
     refreshIcons();
   }
 
-  /* ==================== MODALS (WORD, CATEGORY, CONFIRM, SHORTCUTS) ==================== */
-
-  function openWordModal(wordObj) {
-    if (!isStaff()) {
-      showToast('So‘z qo‘shish yoki tahrirlash faqat Teacher/IT Manager uchun!', 'warning');
-      return;
-    }
-    syncDeckSelects();
-    const isEdit = Boolean(wordObj && wordObj.id);
-    const defaultLessonName = (state.lessons && state.lessons[0] && state.lessons[0].name) || '1-dars: Academic Foundations';
-    $('wordModalTitle').textContent = isEdit ? 'So‘zni tahrirlash' : 'Yangi so‘z qo‘shish';
-    $('wordIdInput').value = isEdit ? wordObj.id : '';
-    $('wordTextInput').value = isEdit ? wordObj.word : '';
-    $('wordPhoneticInput').value = isEdit ? (wordObj.phonetic || '') : '';
-    $('wordPosInput').value = isEdit ? (wordObj.partOfSpeech || 'noun') : 'noun';
-    if ($('wordLessonInput')) {
-      $('wordLessonInput').value = isEdit ? (wordObj.lesson || defaultLessonName) : (activeLesson !== 'ALL' ? activeLesson : defaultLessonName);
-    }
-    $('wordCategoryInput').value = isEdit ? wordObj.category : (activeDeck !== 'ALL' ? activeDeck : 'IELTS');
-    $('wordLevelInput').value = isEdit ? wordObj.level : 'B2';
-    $('wordTranslationInput').value = isEdit ? wordObj.translation : '';
-    $('wordDefinitionInput').value = isEdit ? (wordObj.definition || '') : '';
-    const ex = isEdit && Array.isArray(wordObj.examples) ? wordObj.examples : [];
-    $('wordExample1Input').value = ex[0] || '';
-    $('wordExample2Input').value = ex[1] || '';
-    $('wordSynonymsInput').value = isEdit && Array.isArray(wordObj.synonyms) ? wordObj.synonyms.join(', ') : '';
-    $('wordAntonymsInput').value = isEdit && Array.isArray(wordObj.antonyms) ? wordObj.antonyms.join(', ') : '';
-    $('wordMnemonicInput').value = isEdit ? (wordObj.mnemonic || '') : '';
-
-    $('wordModal').classList.remove('hidden');
-    $('wordTextInput').focus();
-    refreshIcons();
-  }
-
-  function closeWordModal() {
-    $('wordModal').classList.add('hidden');
-  }
-
-  function ensureLessonExists(lessonName) {
-    const clean = String(lessonName || '').trim();
-    if (!clean) return;
-    if (!Array.isArray(state.lessons)) state.lessons = [];
-    const exists = state.lessons.some(function (l) { return l.name.toLowerCase() === clean.toLowerCase(); });
-    if (!exists) {
-      state.lessons.push({
-        id: 'lesson-' + (state.lessons.length + 1) + '-' + Math.random().toString(36).slice(2, 5),
-        name: clean,
-        description: '',
-        order: state.lessons.length + 1
-      });
-    }
-  }
-
-  function handleWordFormSubmit(e) {
-    e.preventDefault();
-    if (!isStaff()) return;
-    const id = $('wordIdInput').value.trim();
-    const wordText = $('wordTextInput').value.trim();
-    const translation = $('wordTranslationInput').value.trim();
-
-    if (!wordText || !translation) {
-      showToast('So‘z va o‘zbekcha tarjima majburiy!', 'warning');
-      return;
-    }
-
-    const now = Date.now();
-    const examples = [$('wordExample1Input').value.trim(), $('wordExample2Input').value.trim()].filter(Boolean);
-    const lessonName = ($('wordLessonInput') ? $('wordLessonInput').value.trim() : '') ||
-      (state.lessons && state.lessons[0] && state.lessons[0].name) || '1-dars: Academic Foundations';
-    ensureLessonExists(lessonName);
-
-    const payload = {
-      word: wordText,
-      phonetic: $('wordPhoneticInput').value.trim(),
-      partOfSpeech: $('wordPosInput').value,
-      lesson: lessonName,
-      category: $('wordCategoryInput').value,
-      level: $('wordLevelInput').value,
-      translation: translation,
-      definition: $('wordDefinitionInput').value.trim(),
-      examples: examples,
-      synonyms: $('wordSynonymsInput').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean),
-      antonyms: $('wordAntonymsInput').value.split(',').map(function (s) { return s.trim(); }).filter(Boolean),
-      mnemonic: $('wordMnemonicInput').value.trim()
-    };
-
-    if (id) {
-      state.words = state.words.map(function (w) {
-        if (w.id !== id) return w;
-        return Object.assign({}, w, payload, { updatedAt: now });
-      });
-      showToast('"' + wordText + '" yangilandi!', 'success');
-    } else {
-      const created = Storage.normalizeWordRecord(payload, now);
-      state.words.unshift(created);
-      showToast('"' + wordText + '" lug‘atga qo‘shildi!', 'success');
-    }
-
-    persistCurriculum(id ? 'WORD_EDIT' : 'WORD_ADD', wordText + ' (' + lessonName + ')');
-    closeWordModal();
-    syncDeckSelects();
-    refreshActiveView();
-  }
+  /* ==================== MODALS & TXT EXPORT ==================== */
 
   function deleteWord(wordObj) {
     if (!isStaff()) return;
@@ -1784,68 +1640,6 @@
         persistCurriculum('WORD_DELETE', wordObj.word);
         showToast('"' + wordObj.word + '" o‘chirildi.', 'info');
         refreshActiveView();
-      }
-    );
-  }
-
-  function openCategoryModal() {
-    if (!isStaff()) {
-      showToast('Kategoriya yaratish faqat Teacher/IT Manager uchun!', 'warning');
-      return;
-    }
-    $('categoryNameInput').value = '';
-    $('categoryModal').classList.remove('hidden');
-    $('categoryNameInput').focus();
-    refreshIcons();
-  }
-
-  function closeCategoryModal() {
-    $('categoryModal').classList.add('hidden');
-  }
-
-  function handleCategoryFormSubmit(e) {
-    e.preventDefault();
-    if (!isStaff()) return;
-    const name = $('categoryNameInput').value.trim();
-    if (!name) return;
-
-    const exists = state.categories.some(function (c) {
-      return c.name.toLowerCase() === name.toLowerCase();
-    });
-    if (exists) {
-      showToast('Bu nomdagi kategoriya allaqachon mavjud!', 'warning');
-      return;
-    }
-
-    state.categories.push({
-      id: name,
-      name: name,
-      color: $('categoryColorSelect').value,
-      icon: $('categoryIconSelect').value,
-      builtIn: false
-    });
-    persistCurriculum('CATEGORY_ADD', name);
-    closeCategoryModal();
-    syncDeckSelects();
-    renderDashboard();
-    showToast('"' + name + '" kategoriyasi yaratildi!', 'success');
-  }
-
-  function deleteCategory(catName) {
-    if (!isStaff()) return;
-    openConfirm(
-      'Kategoriyani o‘chirish',
-      '"' + catName + '" kategoriyasini o‘chirsangiz, undagi so‘zlar "General English" bo‘limiga o‘tkaziladi.',
-      function () {
-        state.categories = state.categories.filter(function (c) { return c.name !== catName; });
-        state.words = state.words.map(function (w) {
-          return w.category === catName ? Object.assign({}, w, { category: 'General English' }) : w;
-        });
-        if (activeDeck === catName) activeDeck = 'ALL';
-        persistCurriculum('CATEGORY_DELETE', catName);
-        syncDeckSelects();
-        refreshActiveView();
-        showToast('"' + catName + '" kategoriyasi o‘chirildi.', 'info');
       }
     );
   }
@@ -1867,13 +1661,17 @@
     if (currentView === 'dashboard') renderDashboard();
     if (currentView === 'study') startCurrentStudyMode();
     if (currentView === 'vocabulary') renderVocabulary();
-    if (currentView === 'admin') renderAdminPanel();
+    if (currentView === 'txt-import') {
+      syncDeckSelects();
+      renderTxtAiStatus();
+      renderAiConfigForm();
+    }
+    if (currentView === 'students') renderAdminStudentsList();
+    if (currentView === 'security') renderSecurityTab();
     if (selectedMonitorStudentId && $('studentDetailModal') && !$('studentDetailModal').classList.contains('hidden')) {
       openStudentDetailModal(selectedMonitorStudentId, true);
     }
   }
-
-  /* ==================== IMPORT / EXPORT ==================== */
 
   function downloadFile(filename, content, mimeType) {
     const blob = new Blob([content], { type: mimeType });
@@ -1887,63 +1685,6 @@
     URL.revokeObjectURL(url);
   }
 
-  function handleExportJSON() {
-    const json = Storage.exportToJSON(state);
-    downloadFile('swe-english-extra-vocabulary.json', json, 'application/json;charset=utf-8');
-    showToast('Lug‘at JSON formatida yuklab olindi!', 'success');
-  }
-
-  function handleExportCSV() {
-    const csv = '\uFEFF' + Storage.exportToCSV(state.words);
-    downloadFile('swe-english-extra-vocabulary.csv', csv, 'text/csv;charset=utf-8');
-    showToast('Lug‘at CSV (Excel) formatida yuklab olindi!', 'success');
-  }
-
-  function handleImportFile(event) {
-    const file = event.target.files && event.target.files[0];
-    event.target.value = '';
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function () {
-      try {
-        const text = String(reader.result || '');
-        const lowerName = file.name.toLowerCase();
-        let items = [];
-        let importedCats = [];
-        let importedLessons = [];
-
-        if (lowerName.endsWith('.json') || text.trim().startsWith('{') || text.trim().startsWith('[')) {
-          const parsed = JSON.parse(text);
-          if (Array.isArray(parsed)) {
-            items = parsed;
-          } else if (parsed && Array.isArray(parsed.words)) {
-            items = parsed.words;
-            if (Array.isArray(parsed.categories)) importedCats = parsed.categories;
-            if (Array.isArray(parsed.lessons)) importedLessons = parsed.lessons;
-          } else {
-            throw new Error('Noto‘g‘ri JSON tuzilmasi');
-          }
-        } else {
-          items = Storage.parseCSV(text);
-        }
-
-        const result = Storage.mergeImportedWords(state, items, importedCats, Date.now(), importedLessons);
-        state = result.state;
-        persistCurriculum('IMPORT_FILE', '+' + result.summary.added + ' yangi, ' + result.summary.updated + ' yangilandi');
-        syncDeckSelects();
-        refreshActiveView();
-        showToast(
-          'Import yakunlandi: +' + result.summary.added + ' yangi, ' + result.summary.updated + ' yangilandi.',
-          'success'
-        );
-      } catch (err) {
-        showToast('Faylni o‘qishda xatolik: JSON yoki CSV formatini tekshiring.', 'error');
-      }
-    };
-    reader.readAsText(file, 'utf-8');
-  }
-
   function handleExportTXT(mode) {
     const content = AiTxt.exportToTXT(state.words, state.lessons, mode);
     const filename = mode === 'simple'
@@ -1951,25 +1692,6 @@
       : 'swe-english-extra-all-lessons.txt';
     downloadFile(filename, content, 'text/plain;charset=utf-8');
     showToast('Barcha darslik lug‘atlari .TXT faylga yuklab olindi!', 'success');
-  }
-
-  function handleRestoreDefaults() {
-    if (!isStaff()) return;
-    const result = Storage.mergeImportedWords(
-      state,
-      DefaultData.DEFAULT_WORDS,
-      DefaultData.DEFAULT_CATEGORIES,
-      Date.now(),
-      DefaultData.DEFAULT_LESSONS
-    );
-    state = result.state;
-    persistCurriculum('RESTORE_DEFAULTS', '+' + result.summary.added + ' qo‘shildi, ' + result.summary.updated + ' yangilandi');
-    syncDeckSelects();
-    refreshActiveView();
-    showToast(
-      'B2/C1 standart lug‘at tekshirildi: +' + result.summary.added + ' ta qo‘shildi, ' + result.summary.updated + ' ta yangilandi.',
-      'success'
-    );
   }
 
   /* ==================== AUTH GATE, ROLES & LIVE SYNC ==================== */
@@ -1995,37 +1717,40 @@
 
   function applyRoleUI() {
     const staff = isStaff();
+    const canSecurity = Auth.canManageSecurity(currentRole);
     const meta = Auth.ROLE_META[currentRole] || Auth.ROLE_META.student;
 
+    document.querySelectorAll('.student-only-ui').forEach(function (el) {
+      el.classList.toggle('hidden', staff);
+    });
     document.querySelectorAll('.staff-only-ui').forEach(function (el) {
       el.classList.toggle('hidden', !staff);
     });
-    if ($('fcEditBtn')) {
-      $('fcEditBtn').classList.toggle('hidden', !staff);
-    }
+    document.querySelectorAll('.it-only-ui').forEach(function (el) {
+      el.classList.toggle('hidden', !canSecurity);
+    });
 
     const userBadgeBtn = $('userBadgeBtn');
     const userBadgeLabel = $('userBadgeLabel');
+    const initialsEl = $('userAvatarInitials');
+    const displayLabel = isStudentSession()
+      ? (currentSession.fullName + ' (@' + currentSession.username + ')')
+      : meta.label;
+
     if (userBadgeLabel) {
-      userBadgeLabel.textContent = isStudentSession()
-        ? (currentSession.fullName + ' (@' + currentSession.username + ')')
-        : meta.label;
+      userBadgeLabel.textContent = displayLabel;
+    }
+    if (initialsEl) {
+      const source = isStudentSession() ? (currentSession.fullName || currentSession.username || 'ST') : meta.label;
+      const parts = String(source).trim().split(/\s+/);
+      const letters = parts.length >= 2
+        ? (parts[0][0] + parts[1][0])
+        : String(source).slice(0, 2);
+      initialsEl.textContent = letters.toUpperCase();
     }
     if (userBadgeBtn) {
-      userBadgeBtn.className = 'btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold ' +
+      userBadgeBtn.className = 'btn-tactile whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold ' +
         (meta.badgeClass || 'glass-panel');
-    }
-
-    const adminBadge = $('adminRoleBadge');
-    const adminDesc = $('adminRoleDesc');
-    if (adminBadge) {
-      adminBadge.textContent = meta.label;
-      adminBadge.className = 'px-3 py-1 rounded-full text-xs font-extrabold ' + meta.badgeClass;
-    }
-    if (adminDesc) {
-      adminDesc.textContent = currentRole === 'it_manager'
-        ? 'IT Manager huquqi: O‘quvchilar, darsliklar, TXT+AI (DeepSeek) import, API Key hamda parollarni boshqarish faol.'
-        : 'Teacher huquqi: O‘quvchilarni jonli kuzatish, o‘quvchi akkauntlari, darsliklar va TXT+AI import faol.';
     }
 
     refreshIcons();
@@ -2111,7 +1836,9 @@
           students: state.students,
           role: role,
           username: username,
-          password: password
+          password: password,
+          enforceRateLimit: true,
+          rateLimitStore: typeof localStorage !== 'undefined' ? localStorage : null
         });
         if (!authRes.ok) {
           throw new Error(authRes.error || 'Login yoki parol noto‘g‘ri!');
@@ -2174,7 +1901,6 @@
 
     currentSession = Auth.setSession(null);
     currentRole = 'guest';
-    pendingAdminTab = null;
     closeAllModals();
     applyAuthGateUI();
     showToast('Tizimdan muvaffaqiyatli chiqdingiz.', 'info');
@@ -2454,11 +2180,46 @@
     if ($('studentDetailModal')) $('studentDetailModal').classList.add('hidden');
   }
 
+  function updatePasswordMeter(password, barId, labelId) {
+    const bar = $(barId);
+    const label = $(labelId);
+    if (!bar || !label) return;
+
+    const pw = String(password || '');
+    if (!pw) {
+      bar.style.width = '0%';
+      bar.className = 'pw-meter-fill bg-slate-300';
+      label.textContent = 'Kamida 8 belgi';
+      label.className = 'text-[10px] font-bold text-slate-400 whitespace-nowrap';
+      return;
+    }
+
+    const res = Auth.validatePasswordStrength(pw);
+    const widths = { 1: '25%', 2: '50%', 3: '78%', 4: '100%' };
+    const colors = {
+      1: 'bg-rose-500',
+      2: 'bg-amber-500',
+      3: 'bg-sky-500',
+      4: 'bg-emerald-500'
+    };
+    const textColors = {
+      1: 'text-rose-500',
+      2: 'text-amber-500',
+      3: 'text-sky-600 dark:text-sky-400',
+      4: 'text-emerald-600 dark:text-emerald-400'
+    };
+    bar.style.width = widths[res.score] || '25%';
+    bar.className = 'pw-meter-fill ' + (colors[res.score] || 'bg-rose-500');
+    label.textContent = res.label;
+    label.className = 'text-[10px] font-bold whitespace-nowrap ' + (textColors[res.score] || 'text-rose-500');
+  }
+
   function openStudentResetPwModal(student) {
     if (!student || !Auth.canManageStudents(currentRole)) return;
     $('stuResetIdInput').value = student.id;
     $('stuResetTargetLabel').textContent = student.fullName + ' (@' + student.username + ')';
     $('stuResetNewPwInput').value = '';
+    updatePasswordMeter('', 'stuResetPwMeterBar', 'stuResetPwMeterLabel');
     $('studentResetPwModal').classList.remove('hidden');
     $('stuResetNewPwInput').focus();
   }
@@ -2466,47 +2227,10 @@
   function closeStudentResetPwModal() {
     if ($('studentResetPwModal')) $('studentResetPwModal').classList.add('hidden');
     if ($('stuResetNewPwInput')) $('stuResetNewPwInput').value = '';
+    updatePasswordMeter('', 'stuResetPwMeterBar', 'stuResetPwMeterLabel');
   }
 
-  /* ==================== ADMIN STUDIO ==================== */
-
-  function setAdminTab(tabName) {
-    const allowed = ['txt-ai', 'lessons', 'students', 'ai-config', 'security'];
-    currentAdminTab = allowed.indexOf(tabName) !== -1 ? tabName : 'txt-ai';
-
-    document.querySelectorAll('[data-admin-tab]').forEach(function (btn) {
-      const active = btn.getAttribute('data-admin-tab') === currentAdminTab;
-      btn.className = 'admin-tab-btn px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all ' +
-        (active
-          ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm'
-          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white');
-    });
-
-    allowed.forEach(function (t) {
-      const panel = $('admin-tab-' + t);
-      if (panel) panel.classList.toggle('hidden', t !== currentAdminTab);
-    });
-
-    if (currentAdminTab === 'txt-ai') renderTxtAiStatus();
-    if (currentAdminTab === 'lessons') renderAdminLessonsList();
-    if (currentAdminTab === 'students') renderAdminStudentsList();
-    if (currentAdminTab === 'ai-config') renderAiConfigForm();
-    if (currentAdminTab === 'security') renderSecurityTab();
-    refreshIcons();
-  }
-
-  function renderAdminPanel() {
-    if (!isStaff()) {
-      switchView('dashboard');
-      return;
-    }
-    if (pendingAdminTab) {
-      currentAdminTab = pendingAdminTab;
-      pendingAdminTab = null;
-    }
-    applyRoleUI();
-    setAdminTab(currentAdminTab);
-  }
+  /* ==================== STAFF MANAGEMENT (STUDENTS, TXT+AI, SECURITY) ==================== */
 
   function renderAdminStudentsList() {
     const listEl = $('adminStudentsList');
@@ -2588,6 +2312,7 @@
       }
 
       $('studentCreateForm').reset();
+      updatePasswordMeter('', 'stuPwMeterBar', 'stuPwMeterLabel');
       renderAdminStudentsList();
       showToast('Yangi o‘quvchi yaratildi: @' + Auth.normalizeUsername(payload.username), 'success');
     } catch (err) {
@@ -2639,20 +2364,42 @@
     }
   }
 
-  /* ----- Admin Tab 1: TXT + AI Bulk Importer ----- */
+  /* ----- TXT + AI Bulk Importer ----- */
+
+  function hasSavedAiKey(cfg) {
+    const c = cfg || state.aiConfig || {};
+    return Boolean((c.apiKey && String(c.apiKey).trim()) || (Sync && Sync.isServerMode() && c.hasApiKey));
+  }
 
   function renderTxtAiStatus() {
     const el = $('txtAiStatusIndicator');
-    if (!el) return;
+    const secBadge = $('aiKeySecurityBadge');
     const cfg = state.aiConfig || {};
-    if (cfg.apiKey && String(cfg.apiKey).trim()) {
-      const defaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[cfg.provider]) || {};
-      const label = defaults.label || cfg.provider || 'AI';
-      el.textContent = 'Tayyor (' + label + ' · ' + (cfg.model || defaults.model || 'deepseek-chat') + ')';
-      el.className = 'font-bold text-emerald-600 dark:text-emerald-400';
-    } else {
-      el.textContent = 'API Key kiritilmagan (AI & DeepSeek API bo‘limida kiriting)';
-      el.className = 'font-bold text-amber-600 dark:text-amber-400';
+    const ready = hasSavedAiKey(cfg);
+
+    if (el) {
+      if (ready) {
+        const defaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[cfg.provider]) || {};
+        const label = defaults.label || cfg.provider || 'AI';
+        el.textContent = 'Tayyor (' + label + ' · ' + (cfg.model || defaults.model || 'deepseek-chat') + ')';
+        el.className = 'font-bold text-emerald-600 dark:text-emerald-400';
+      } else {
+        el.textContent = 'API Key kiritilmagan (yuqoridagi "DeepSeek API Sozlamasi" tugmasidan kiriting)';
+        el.className = 'font-bold text-amber-600 dark:text-amber-400';
+      }
+    }
+
+    if (secBadge) {
+      if (Sync && Sync.isServerMode() && cfg.hasApiKey) {
+        secBadge.textContent = 'Server proxy · Kalit himoyalangan (' + (cfg.apiKeyMasked || 'sk-••••') + ')';
+        secBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+      } else if (cfg.apiKey && String(cfg.apiKey).trim()) {
+        secBadge.textContent = 'Faol · Tayyor';
+        secBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+      } else {
+        secBadge.textContent = 'Kalit kiritilmagan';
+        secBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+      }
     }
   }
 
@@ -2668,12 +2415,18 @@
     return sel.value;
   }
 
-  function handleTxtFilesSelected(event) {
-    const files = Array.from(event.target.files || []);
-    event.target.value = '';
-    if (files.length === 0) return;
+  function loadTxtFiles(fileList) {
+    const files = Array.from(fileList || []).filter(function (f) {
+      return !f.name || /\.txt$/i.test(f.name) || (f.type && f.type.indexOf('text') === 0);
+    });
+    if (files.length === 0) {
+      showToast('Faqat .txt formatidagi matn fayllarini yuklang!', 'warning');
+      return;
+    }
 
-    $('txtSelectedFilesLabel').textContent = files.map(function (f) { return f.name; }).join(', ');
+    if ($('txtSelectedFilesLabel')) {
+      $('txtSelectedFilesLabel').textContent = files.map(function (f) { return f.name; }).join(', ');
+    }
 
     Promise.all(files.map(function (file) {
       return new Promise(function (resolve, reject) {
@@ -2701,6 +2454,13 @@
     }).catch(function (err) {
       showToast('TXT faylni o‘qishda xatolik: ' + err.message, 'error');
     });
+  }
+
+  function handleTxtFilesSelected(event) {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (files.length === 0) return;
+    loadTxtFiles(files);
   }
 
   function buildQuickParsedPreview(rawText) {
@@ -2757,9 +2517,10 @@
     }
 
     const cfg = state.aiConfig || {};
-    if (!cfg.apiKey || !String(cfg.apiKey).trim()) {
-      showToast('AI bilan boyitish uchun avval "AI & API Key" bo‘limida kalit kiriting!', 'warning');
-      setAdminTab('ai-config');
+    if (!hasSavedAiKey(cfg)) {
+      showToast('AI bilan boyitish uchun avval "DeepSeek API Sozlamasi" bo‘limida API kalit kiriting!', 'warning');
+      if ($('aiSettingsDrawer')) $('aiSettingsDrawer').classList.remove('hidden');
+      if ($('aiApiKeyInput')) $('aiApiKeyInput').focus();
       return;
     }
 
@@ -2910,138 +2671,36 @@
     showToast('Bazaga saqlandi: +' + result.summary.added + ' yangi, ' + result.summary.updated + ' yangilandi' + skippedNote, 'success');
   }
 
-  /* ----- Admin Tab 2: Lessons CRUD ----- */
-
-  function renderAdminLessonsList() {
-    const listEl = $('adminLessonsList');
-    if (!listEl) return;
-    listEl.innerHTML = '';
-
-    const lessons = Array.isArray(state.lessons) ? state.lessons : [];
-    if (lessons.length === 0) {
-      listEl.innerHTML = '<div class="glass-panel rounded-3xl p-6 text-sm text-slate-500">Hali birorta darslik yaratilmagan.</div>';
-      return;
-    }
-
-    const now = Date.now();
-    lessons.forEach(function (lesson, idx) {
-      const words = state.words.filter(function (w) { return w.lesson === lesson.name; });
-      const dueCount = SRS.getDueCards(words, now).length;
-      const masteredCount = words.filter(function (w) { return w.mastered || w.status === 'mastered'; }).length;
-
-      const card = document.createElement('div');
-      card.className = 'glass-panel rounded-3xl p-5 flex flex-col justify-between gap-3';
-      card.innerHTML =
-        '<div class="flex items-start justify-between gap-3">' +
-          '<div class="min-w-0">' +
-            '<span class="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Darslik #' + (idx + 1) + '</span>' +
-            '<h3 class="font-extrabold text-base truncate">' + escapeHtml(lesson.name) + '</h3>' +
-            '<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">' + escapeHtml(lesson.description || 'Tavsif kiritilmagan') + '</p>' +
-          '</div>' +
-          '<div class="flex items-center gap-1.5 shrink-0">' +
-            '<button type="button" data-study-lesson="' + escapeHtml(lesson.name) + '" class="px-3 py-1.5 rounded-xl bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-bold hover:bg-indigo-500/25">Mashq</button>' +
-            '<button type="button" data-delete-lesson="' + escapeHtml(lesson.id) + '" class="p-2 rounded-xl text-rose-500 hover:bg-rose-500/15" title="Darslikni o‘chirish"><i data-lucide="trash-2" class="w-4 h-4"></i></button>' +
-          '</div>' +
-        '</div>' +
-        '<div class="flex flex-wrap items-center gap-2 text-xs font-semibold pt-2 border-t border-slate-200/60 dark:border-slate-800/70">' +
-          '<span class="px-2.5 py-1 rounded-full bg-slate-200/70 dark:bg-slate-800">' + words.length + ' ta so‘z</span>' +
-          '<span class="px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300">' + dueCount + ' due</span>' +
-          '<span class="px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">' + masteredCount + ' mastered</span>' +
-        '</div>';
-
-      card.querySelector('[data-study-lesson]').addEventListener('click', function () {
-        activeLesson = lesson.name;
-        activeDeck = 'ALL';
-        studyScope = dueCount > 0 ? 'due' : 'all';
-        currentStudyMode = 'flashcards';
-        switchView('study');
-      });
-      card.querySelector('[data-delete-lesson]').addEventListener('click', function () {
-        deleteLesson(lesson);
-      });
-
-      listEl.appendChild(card);
-    });
-
-    refreshIcons();
-  }
-
-  function handleLessonFormSubmit(e) {
-    e.preventDefault();
-    const name = $('lessonNameInput').value.trim();
-    const desc = $('lessonDescInput').value.trim();
-    if (!name) return;
-
-    const exists = (state.lessons || []).some(function (l) {
-      return l.name.toLowerCase() === name.toLowerCase();
-    });
-    if (exists) {
-      showToast('Bu nomdagi darslik allaqachon mavjud!', 'warning');
-      return;
-    }
-
-    if (!Array.isArray(state.lessons)) state.lessons = [];
-    state.lessons.push({
-      id: 'lesson-' + (state.lessons.length + 1) + '-' + Math.random().toString(36).slice(2, 5),
-      name: name,
-      description: desc,
-      order: state.lessons.length + 1
-    });
-
-    persistCurriculum('LESSON_ADD', 'Yangi darslik qo‘shildi: ' + name);
-    syncDeckSelects();
-    $('lessonNameInput').value = '';
-    $('lessonDescInput').value = '';
-    renderAdminLessonsList();
-    showToast('"' + name + '" darsligi yaratildi!', 'success');
-  }
-
-  function deleteLesson(lesson) {
-    if ((state.lessons || []).length <= 1) {
-      showToast('Kamida 1 ta darslik qolishi shart!', 'warning');
-      return;
-    }
-
-    openConfirm(
-      'Darslikni o‘chirish',
-      '"' + lesson.name + '" darsligini o‘chirsangiz, undagi so‘zlar 1-darslikka o‘tkaziladi.',
-      function () {
-        const remaining = state.lessons.filter(function (l) { return l.id !== lesson.id; });
-        const fallbackName = (remaining[0] && remaining[0].name) || '1-dars: Academic Foundations';
-        state.lessons = remaining;
-        state.words = state.words.map(function (w) {
-          return w.lesson === lesson.name ? Object.assign({}, w, { lesson: fallbackName }) : w;
-        });
-        if (activeLesson === lesson.name) activeLesson = 'ALL';
-        persistCurriculum('LESSON_DELETE', lesson.name + ' o‘chirildi -> ' + fallbackName);
-        syncDeckSelects();
-        renderAdminLessonsList();
-        showToast('"' + lesson.name + '" darsligi o‘chirildi.', 'info');
-      }
-    );
-  }
-
-  /* ----- Admin Tab 3: AI & API Key Settings ----- */
+  /* ----- AI & API Key Settings (inside #aiSettingsDrawer) ----- */
 
   function renderAiConfigForm() {
     const cfg = state.aiConfig || Storage.createDefaultAiConfig();
     const provider = cfg.provider || 'deepseek';
     const defaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[provider]) || { model: 'deepseek-chat' };
-    $('aiProviderSelect').value = provider;
-    $('aiModelInput').value = cfg.model || defaults.model;
-    $('aiCustomUrlInput').value = cfg.customUrl || '';
-    $('aiApiKeyInput').value = cfg.apiKey || '';
-    $('aiCustomUrlWrap').classList.toggle('hidden', provider !== 'custom');
+    if ($('aiProviderSelect')) $('aiProviderSelect').value = provider;
+    if ($('aiModelInput')) $('aiModelInput').value = cfg.model || defaults.model;
+    if ($('aiCustomUrlInput')) $('aiCustomUrlInput').value = cfg.customUrl || '';
+    if ($('aiApiKeyInput')) {
+      $('aiApiKeyInput').value = cfg.apiKey || '';
+      $('aiApiKeyInput').placeholder = (Sync && Sync.isServerMode() && cfg.hasApiKey)
+        ? ('Saqlangan: ' + (cfg.apiKeyMasked || 'sk-••••') + ' (o‘zgartirish uchun yangisini yozing)')
+        : 'sk-...';
+    }
+    if ($('aiCustomUrlWrap')) $('aiCustomUrlWrap').classList.toggle('hidden', provider !== 'custom');
   }
 
   function collectAiConfigFromForm() {
     const provider = $('aiProviderSelect').value || 'deepseek';
     const defaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[provider]) || { model: 'deepseek-chat' };
+    const prev = state.aiConfig || {};
+    const enteredKey = $('aiApiKeyInput').value.trim();
     return {
       provider: provider,
       model: $('aiModelInput').value.trim() || defaults.model,
       customUrl: $('aiCustomUrlInput').value.trim(),
-      apiKey: $('aiApiKeyInput').value.trim()
+      apiKey: enteredKey,
+      hasApiKey: Boolean(enteredKey || (Sync && Sync.isServerMode() && prev.hasApiKey)),
+      apiKeyMasked: (!enteredKey && prev.apiKeyMasked) ? prev.apiKeyMasked : ''
     };
   }
 
@@ -3050,28 +2709,58 @@
       try {
         const res = await Sync.pushAiConfigRemote(cfg);
         if (res && res.state) mergeRemoteState(res.state);
+        return true;
       } catch (err) {
         showToast((err && err.message) || 'AI sozlamasini serverga saqlashda xatolik.', 'error');
+        return false;
       }
     }
+    return true;
   }
 
   async function handleAiConfigSubmit(e) {
     e.preventDefault();
-    state.aiConfig = collectAiConfigFromForm();
-    recordAudit('AI_CONFIG', state.aiConfig.provider + ' (' + state.aiConfig.model + ') saqlandi');
-    persist('ai-config');
-    await syncAiConfigToServer(state.aiConfig);
+    const nextCfg = collectAiConfigFromForm();
+    if (nextCfg.provider === 'custom' || nextCfg.customUrl) {
+      try {
+        AiTxt.validateAiEndpoint(nextCfg.customUrl);
+      } catch (urlErr) {
+        showToast(urlErr.message, 'error');
+        return;
+      }
+    }
+
+    const synced = await syncAiConfigToServer(nextCfg);
+    if (!synced) return;
+
+    if (!(Sync && Sync.isServerMode())) {
+      state.aiConfig = nextCfg;
+      recordAudit('AI_CONFIG', nextCfg.provider + ' (' + nextCfg.model + ') saqlandi');
+      persist('ai-config');
+    } else {
+      Storage.saveState(state);
+    }
+
+    renderAiConfigForm();
     renderTxtAiStatus();
-    showToast('AI sozlamalari va API Key saqlandi!', 'success');
+    showToast('AI sozlamalari va API Key xavfsiz saqlandi!', 'success');
   }
 
   async function handleTestAi() {
     const tempCfg = collectAiConfigFromForm();
-    if (!tempCfg.apiKey) {
+    if (!hasSavedAiKey(tempCfg)) {
       showToast('Tekshirish uchun API Key kiriting!', 'warning');
       return;
     }
+    if (tempCfg.provider === 'custom' || tempCfg.customUrl) {
+      try {
+        AiTxt.validateAiEndpoint(tempCfg.customUrl);
+      } catch (urlErr) {
+        showToast(urlErr.message, 'error');
+        return;
+      }
+    }
+
     const btn = $('testAiBtn');
     const orig = btn.textContent;
     btn.disabled = true;
@@ -3079,9 +2768,12 @@
     try {
       const ok = await AiTxt.testAiConnection(tempCfg);
       if (ok) {
-        state.aiConfig = tempCfg;
-        persist('ai-config');
         await syncAiConfigToServer(tempCfg);
+        if (!(Sync && Sync.isServerMode())) {
+          state.aiConfig = tempCfg;
+          persist('ai-config');
+        }
+        renderAiConfigForm();
         renderTxtAiStatus();
         showToast('AI ulanishi muvaffaqiyatli tasdiqlandi!', 'success');
       } else {
@@ -3096,19 +2788,31 @@
   }
 
   async function handleClearAiKey() {
-    state.aiConfig = Object.assign({}, state.aiConfig || Storage.createDefaultAiConfig(), { apiKey: '' });
-    $('aiApiKeyInput').value = '';
-    recordAudit('AI_KEY_CLEAR', 'API Key brauzerdan o‘chirildi');
-    persist('ai-config');
-    await syncAiConfigToServer(state.aiConfig);
+    const baseCfg = collectAiConfigFromForm();
+    const clearPayload = Object.assign({}, baseCfg, { apiKey: '', clearKey: true });
+    await syncAiConfigToServer(clearPayload);
+
+    state.aiConfig = Object.assign({}, state.aiConfig || Storage.createDefaultAiConfig(), {
+      apiKey: '',
+      hasApiKey: false,
+      apiKeyMasked: ''
+    });
+    if ($('aiApiKeyInput')) $('aiApiKeyInput').value = '';
+    if (!(Sync && Sync.isServerMode())) {
+      recordAudit('AI_KEY_CLEAR', 'API Key xavfsiz o‘chirildi');
+      persist('ai-config');
+    }
+    renderAiConfigForm();
     renderTxtAiStatus();
     showToast('API Key xavfsiz o‘chirildi.', 'info');
   }
 
   async function handleEnrichIncompleteWords() {
     const cfg = state.aiConfig || {};
-    if (!cfg.apiKey || !String(cfg.apiKey).trim()) {
+    if (!hasSavedAiKey(cfg)) {
       showToast('Avval yuqoridagi shaklda API Key saqlang!', 'warning');
+      if ($('aiSettingsDrawer')) $('aiSettingsDrawer').classList.remove('hidden');
+      if ($('aiApiKeyInput')) $('aiApiKeyInput').focus();
       return;
     }
 
@@ -3169,12 +2873,12 @@
     }
   }
 
-  /* ----- Admin Tab 4: IT Manager Security & Audit Log ----- */
+  /* ----- IT Manager Security & Audit Log ----- */
 
   function renderSecurityTab() {
     const canSecurity = Auth.canManageSecurity(currentRole);
-    $('securityLockedNotice').classList.toggle('hidden', canSecurity);
-    $('securityPanelBody').classList.toggle('hidden', !canSecurity);
+    if ($('securityLockedNotice')) $('securityLockedNotice').classList.toggle('hidden', canSecurity);
+    if ($('securityPanelBody')) $('securityPanelBody').classList.toggle('hidden', !canSecurity);
     if (canSecurity) {
       renderAuditLog();
     }
@@ -3196,12 +2900,33 @@
           '<span class="font-extrabold text-indigo-600 dark:text-indigo-300">[' + escapeHtml(roleMeta.label) + '] ' + escapeHtml(entry.action) + '</span>' +
           '<p class="text-slate-600 dark:text-slate-300 break-words">' + escapeHtml(entry.detail) + '</p>' +
         '</div>' +
-        '<span class="shrink-0 text-[11px] text-slate-400">' + escapeHtml(dateStr) + '</span>' +
+        '<span class="shrink-0 text-[11px] text-slate-400 tabular-nums">' + escapeHtml(dateStr) + '</span>' +
       '</div>';
     }).join('');
   }
 
-  async function handleChangePassword(targetRole, newInpId, confirmInpId) {
+  async function handleClearRateLimits() {
+    if (!Auth.canManageSecurity(currentRole)) {
+      showToast('Faqat IT Manager blokirovkalarni tozalay oladi!', 'error');
+      return;
+    }
+    try {
+      if (Sync && Sync.isServerMode()) {
+        const res = await Sync.pushSecurityRemote({ action: 'clearRateLimits' });
+        if (res && res.state) mergeRemoteState(res.state);
+      } else {
+        recordAudit('RATE_LIMIT_CLEAR', 'Login blokirovka cheklovlari tozalandi');
+        persist('security');
+      }
+      try { localStorage.removeItem('swe_auth_rate_limit_v1'); } catch (_) {}
+      renderAuditLog();
+      showToast('Barcha vaqtinchalik login blokirovkalari ochildi!', 'success');
+    } catch (err) {
+      showToast((err && err.message) || 'Blokirovkalarni tozalashda xatolik.', 'error');
+    }
+  }
+
+  async function handleChangePassword(targetRole, newInpId, confirmInpId, meterBarId, meterLabelId) {
     if (!Auth.canManageSecurity(currentRole)) {
       showToast('Faqat IT Manager parollarni o‘zgartira oladi!', 'error');
       return;
@@ -3229,6 +2954,7 @@
       }
       $(newInpId).value = '';
       $(confirmInpId).value = '';
+      if (meterBarId && meterLabelId) updatePasswordMeter('', meterBarId, meterLabelId);
       renderAuditLog();
       showToast(Auth.ROLE_META[targetRole].label + ' paroli muvaffaqiyatli yangilandi!', 'success');
     } catch (err) {
@@ -3270,7 +2996,8 @@
         activeDeck = 'ALL';
         activeLesson = 'ALL';
         syncDeckSelects();
-        renderAdminPanel();
+        renderSecurityTab();
+        refreshActiveView();
         showToast('Baza standart holatga qaytarildi!', 'info');
       }
     );
@@ -3279,19 +3006,17 @@
   /* ==================== KEYBOARD SHORTCUTS ==================== */
 
   function isAnyModalOpen() {
-    return !['wordModal', 'categoryModal', 'shortcutsModal', 'confirmModal', 'studentDetailModal', 'studentResetPwModal'].every(function (id) {
+    return !['shortcutsModal', 'confirmModal', 'studentDetailModal', 'studentResetPwModal'].every(function (id) {
       const el = $(id);
       return !el || el.classList.contains('hidden');
     });
   }
 
   function closeAllModals() {
-    closeWordModal();
-    closeCategoryModal();
     closeConfirm();
     closeStudentDetailModal();
     closeStudentResetPwModal();
-    $('shortcutsModal').classList.add('hidden');
+    if ($('shortcutsModal')) $('shortcutsModal').classList.add('hidden');
   }
 
   function handleGlobalKeydown(e) {
@@ -3379,6 +3104,14 @@
 
   /* ==================== INITIALIZATION & EVENT WIRING ==================== */
 
+  function bindPasswordMeter(inputId, barId, labelId) {
+    const inp = $(inputId);
+    if (!inp) return;
+    inp.addEventListener('input', function () {
+      updatePasswordMeter(inp.value, barId, labelId);
+    });
+  }
+
   function bindEvents() {
     // Theme & Accent
     $('themeToggleBtn').addEventListener('click', toggleTheme);
@@ -3404,7 +3137,12 @@
       $('loginForm').addEventListener('submit', handleLoginSubmit);
     }
 
-    // Navigation
+    // Navigation & Brand Home
+    if ($('brandHomeBtn')) {
+      $('brandHomeBtn').addEventListener('click', function () {
+        switchView(isStaff() ? 'monitor' : 'dashboard');
+      });
+    }
     document.querySelectorAll('[data-nav-view]').forEach(function (btn) {
       btn.addEventListener('click', function () {
         switchView(btn.getAttribute('data-nav-view'));
@@ -3419,23 +3157,15 @@
       currentStudyMode = 'flashcards';
       switchView('study');
     });
-    $('dashTxtAiBtn').addEventListener('click', function () {
-      pendingAdminTab = 'txt-ai';
-      if (isStaff()) currentAdminTab = 'txt-ai';
-      switchView('admin');
-    });
-    $('dashManageLessonsBtn').addEventListener('click', function () {
-      pendingAdminTab = 'lessons';
-      if (isStaff()) currentAdminTab = 'lessons';
-      switchView('admin');
-    });
-    $('openAddCategoryBtn').addEventListener('click', openCategoryModal);
-    $('openAddWordHeaderBtn').addEventListener('click', function () { openWordModal(null); });
 
     // User badge & Logout
     if ($('userBadgeBtn')) {
       $('userBadgeBtn').addEventListener('click', function () {
-        if (isStaff()) switchView('admin');
+        if (Auth.canManageSecurity(currentRole)) {
+          switchView('security');
+        } else if (isStaff()) {
+          switchView('txt-import');
+        }
       });
     }
     if ($('headerLogoutBtn')) {
@@ -3461,14 +3191,12 @@
     }
     if ($('monitorAddStudentBtn')) {
       $('monitorAddStudentBtn').addEventListener('click', function () {
-        pendingAdminTab = 'students';
-        switchView('admin');
+        switchView('students');
       });
     }
     if ($('monitorTxtAiBtn')) {
       $('monitorTxtAiBtn').addEventListener('click', function () {
-        pendingAdminTab = 'txt-ai';
-        switchView('admin');
+        switchView('txt-import');
       });
     }
     if ($('monitorSearchInput')) $('monitorSearchInput').addEventListener('input', renderMonitorView);
@@ -3550,11 +3278,6 @@
       const card = fcSession.queue[fcSession.index];
       if (card) speakText(card.word, { triggerEl: e.currentTarget });
     });
-    $('fcEditBtn').addEventListener('click', function (e) {
-      e.stopPropagation();
-      const card = fcSession.queue[fcSession.index];
-      if (card) openWordModal(card);
-    });
 
     document.querySelectorAll('[data-srs-rate]').forEach(function (btn) {
       btn.addEventListener('click', function () {
@@ -3564,7 +3287,6 @@
 
     $('fcPracticeAllBtn').addEventListener('click', function () {
       if (fcSession.waitingWordId) {
-        // Immediate retry for waiting word
         fcSession.waitingRetryUntil = null;
         const word = getSessionWords().find(function (w) { return w.id === fcSession.waitingWordId; });
         fcSession.waitingWordId = null;
@@ -3635,39 +3357,54 @@
     });
     $('listenRestartBtn').addEventListener('click', initListeningSession);
 
-    // Vocabulary CRUD & Filters
+    // Vocabulary Filters & TXT-only Teacher Action
     $('vocabSearchInput').addEventListener('input', renderVocabulary);
     $('vocabLessonFilter').addEventListener('change', renderVocabulary);
     $('vocabCategoryFilter').addEventListener('change', renderVocabulary);
     $('vocabLevelFilter').addEventListener('change', renderVocabulary);
     $('vocabStatusFilter').addEventListener('change', renderVocabulary);
-    $('vocabAddWordBtn').addEventListener('click', function () { openWordModal(null); });
-    $('vocabExportTxtBtn').addEventListener('click', function () { handleExportTXT('detailed'); });
-    $('vocabExportJsonBtn').addEventListener('click', handleExportJSON);
-    $('vocabExportCsvBtn').addEventListener('click', handleExportCSV);
-    $('vocabImportBtn').addEventListener('click', function () { $('vocabImportInput').click(); });
-    $('vocabImportInput').addEventListener('change', handleImportFile);
-    $('vocabOpenTxtAiBtn').addEventListener('click', function () {
-      pendingAdminTab = 'txt-ai';
-      if (isStaff()) currentAdminTab = 'txt-ai';
-      switchView('admin');
-    });
-    $('vocabRestoreDefaultsBtn').addEventListener('click', handleRestoreDefaults);
-
-    // Admin Studio Tabs & Controls
-    if ($('adminLogoutBtn')) $('adminLogoutBtn').addEventListener('click', handleLogout);
-    document.querySelectorAll('[data-admin-tab]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        setAdminTab(btn.getAttribute('data-admin-tab'));
+    if ($('vocabExportTxtBtn')) {
+      $('vocabExportTxtBtn').addEventListener('click', function () { handleExportTXT('detailed'); });
+    }
+    if ($('vocabOpenTxtAiBtn')) {
+      $('vocabOpenTxtAiBtn').addEventListener('click', function () {
+        switchView('txt-import');
       });
-    });
+    }
 
-    // Admin Tab: Students Create
+    // Students View
     if ($('studentCreateForm')) {
       $('studentCreateForm').addEventListener('submit', handleStudentCreateSubmit);
     }
+    bindPasswordMeter('stuPasswordInput', 'stuPwMeterBar', 'stuPwMeterLabel');
+    bindPasswordMeter('stuResetNewPwInput', 'stuResetPwMeterBar', 'stuResetPwMeterLabel');
 
-    // Admin Tab 1: TXT + AI
+    // TXT + AI View & Collapsible DeepSeek Drawer
+    if ($('toggleAiSettingsBtn')) {
+      $('toggleAiSettingsBtn').addEventListener('click', function () {
+        if ($('aiSettingsDrawer')) {
+          $('aiSettingsDrawer').classList.toggle('hidden');
+          refreshIcons();
+        }
+      });
+    }
+    if ($('txtDropzone')) {
+      const dz = $('txtDropzone');
+      dz.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        dz.classList.add('is-dragover');
+      });
+      dz.addEventListener('dragleave', function () {
+        dz.classList.remove('is-dragover');
+      });
+      dz.addEventListener('drop', function (e) {
+        e.preventDefault();
+        dz.classList.remove('is-dragover');
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+          loadTxtFiles(e.dataTransfer.files);
+        }
+      });
+    }
     $('txtLoadSampleBtn').addEventListener('click', function () {
       $('txtRawInput').value = AiTxt.SAMPLE_TXT;
       $('txtSelectedFilesLabel').textContent = 'Namuna matn yuklandi';
@@ -3687,10 +3424,7 @@
     });
     $('txtSaveAllBtn').addEventListener('click', saveTxtPreviewItems);
 
-    // Admin Tab 2: Lessons CRUD
-    $('lessonForm').addEventListener('submit', handleLessonFormSubmit);
-
-    // Admin Tab 3: AI Config (DeepSeek / Gemini / OpenAI / Custom)
+    // AI Config Drawer Controls
     $('aiProviderSelect').addEventListener('change', function (e) {
       const provider = e.target.value;
       $('aiCustomUrlWrap').classList.toggle('hidden', provider !== 'custom');
@@ -3711,28 +3445,23 @@
     $('clearAiKeyBtn').addEventListener('click', handleClearAiKey);
     $('enrichIncompleteBtn').addEventListener('click', function () { handleEnrichIncompleteWords(); });
 
-    // Admin Tab 4: Security & Passwords
+    // Security View (IT Manager)
+    if ($('clearRateLimitsBtn')) {
+      $('clearRateLimitsBtn').addEventListener('click', handleClearRateLimits);
+    }
+    bindPasswordMeter('newTeacherPwInput', 'teacherPwMeterBar', 'teacherPwMeterLabel');
+    bindPasswordMeter('newItPwInput', 'itPwMeterBar', 'itPwMeterLabel');
     $('changeTeacherPwForm').addEventListener('submit', function (e) {
       e.preventDefault();
-      handleChangePassword('teacher', 'newTeacherPwInput', 'confirmTeacherPwInput');
+      handleChangePassword('teacher', 'newTeacherPwInput', 'confirmTeacherPwInput', 'teacherPwMeterBar', 'teacherPwMeterLabel');
     });
     $('changeItPwForm').addEventListener('submit', function (e) {
       e.preventDefault();
-      handleChangePassword('it_manager', 'newItPwInput', 'confirmItPwInput');
+      handleChangePassword('it_manager', 'newItPwInput', 'confirmItPwInput', 'itPwMeterBar', 'itPwMeterLabel');
     });
     $('adminResetDbBtn').addEventListener('click', handleResetDatabase);
 
-    // Modals
-    $('wordForm').addEventListener('submit', handleWordFormSubmit);
-    $('closeWordModalBtn').addEventListener('click', closeWordModal);
-    $('cancelWordModalBtn').addEventListener('click', closeWordModal);
-    $('wordModal').addEventListener('click', function (e) { if (e.target === $('wordModal')) closeWordModal(); });
-
-    $('categoryForm').addEventListener('submit', handleCategoryFormSubmit);
-    $('closeCategoryModalBtn').addEventListener('click', closeCategoryModal);
-    $('cancelCategoryModalBtn').addEventListener('click', closeCategoryModal);
-    $('categoryModal').addEventListener('click', function (e) { if (e.target === $('categoryModal')) closeCategoryModal(); });
-
+    // Confirm & Shortcuts Modals
     $('shortcutsBtn').addEventListener('click', function () {
       $('shortcutsModal').classList.remove('hidden');
       refreshIcons();
@@ -3782,10 +3511,14 @@
       } else if (currentView === 'vocabulary' && (reason === 'curriculum' || reason === 'local')) {
         syncDeckSelects();
         renderVocabulary();
-      } else if (currentView === 'admin') {
-        if (currentAdminTab === 'students') renderAdminStudentsList();
-        if (currentAdminTab === 'security') renderAuditLog();
-        if (currentAdminTab === 'lessons' && reason === 'curriculum') renderAdminLessonsList();
+      } else if (currentView === 'txt-import') {
+        syncDeckSelects();
+        renderTxtAiStatus();
+        renderAiConfigForm();
+      } else if (currentView === 'students') {
+        renderAdminStudentsList();
+      } else if (currentView === 'security') {
+        renderSecurityTab();
       }
     }, 150);
   }
