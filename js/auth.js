@@ -589,11 +589,30 @@
     });
   }
 
+  function deleteStudentAccount(students, actorRole, studentId) {
+    if (!canManageStudents(actorRole)) {
+      throw new Error('O‘quvchini o‘chirish uchun Teacher yoki IT Manager huquqi kerak.');
+    }
+    const list = Array.isArray(students) ? students : [];
+    const target = list.find(function (s) {
+      return s.id === studentId || normalizeUsername(s.username) === normalizeUsername(studentId);
+    });
+    if (!target) {
+      throw new Error('O‘quvchi topilmadi.');
+    }
+    const remaining = list.filter(function (s) { return s.id !== target.id; });
+    return { students: remaining, deleted: target };
+  }
+
   function isAdminRole(role) {
     return role === 'teacher' || role === 'it_manager';
   }
 
   function canManageSecurity(role) {
+    return role === 'it_manager';
+  }
+
+  function canManageAiConfig(role) {
     return role === 'it_manager';
   }
 
@@ -718,8 +737,10 @@
     createStudentAccount: createStudentAccount,
     resetStudentPassword: resetStudentPassword,
     toggleStudentActive: toggleStudentActive,
+    deleteStudentAccount: deleteStudentAccount,
     isAdminRole: isAdminRole,
     canManageSecurity: canManageSecurity,
+    canManageAiConfig: canManageAiConfig,
     canManageLessons: canManageLessons,
     canBulkTxtAi: canBulkTxtAi,
     canMonitorStudents: canMonitorStudents,

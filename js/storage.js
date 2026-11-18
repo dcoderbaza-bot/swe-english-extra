@@ -520,7 +520,7 @@
       : defaults.categories;
 
     const normalizedWords = parsed.words.map(function (w) { return normalizeWordRecord(w, ts); });
-    const lessonsList = Array.isArray(parsed.lessons) && parsed.lessons.length > 0
+    const lessonsList = Array.isArray(parsed.lessons)
       ? parsed.lessons.slice()
       : defaults.lessons.slice();
 

@@ -822,6 +822,10 @@
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
+            <button type="button" id="vocabDeleteSelectedLessonBtn" class="staff-only-ui hidden btn-tactile px-4 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 text-xs sm:text-sm font-bold flex items-center gap-1.5" title="Tanlangan darslik va undagi barcha so‘zlarni o‘chirish">
+              <i data-lucide="trash-2" class="w-4 h-4"></i>
+              Dars lug‘atini o‘chirish
+            </button>
             <button type="button" id="vocabExportTxtBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs sm:text-sm font-bold flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300" title="Barcha darslik lug‘atlarini .txt faylga eksport qilish">
               <i data-lucide="download" class="w-4 h-4"></i>
               .TXT Yuklab olish
@@ -858,6 +862,15 @@
             <option value="review">Takrorlanmoqda</option>
             <option value="mastered">Mastered</option>
           </select>
+        </div>
+
+        <!-- Staff-only Lesson Vocabularies Quick Management (Filter & Delete Lesson + Words with Confirmation) -->
+        <div id="vocabLessonsBar" class="staff-only-ui hidden pt-3 border-t border-slate-200/70 dark:border-slate-800 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Darsliklar bo‘yicha boshqaruv</span>
+            <span class="text-[11px] text-slate-400">Dars lug‘atini o‘chirishdan oldin tasdiqlash so‘raladi</span>
+          </div>
+          <div id="vocabLessonPills" class="flex flex-wrap gap-2"></div>
         </div>
       </div>
 
@@ -1026,9 +1039,13 @@
           </div>
 
           <div class="flex flex-wrap items-center gap-2 shrink-0">
-            <button type="button" id="toggleAiSettingsBtn" class="btn-tactile px-4 py-2.5 rounded-2xl glass-panel text-xs sm:text-sm font-bold flex items-center gap-2">
-              <i data-lucide="key-round" class="w-4 h-4 text-indigo-500"></i>
-              <span id="txtAiStatusIndicator">DeepSeek API Sozlamasi</span>
+            <div id="txtAiStatusPill" class="px-3.5 py-2.5 rounded-2xl glass-panel text-xs font-bold flex items-center gap-2">
+              <i data-lucide="sparkles" class="w-4 h-4 text-indigo-500"></i>
+              <span id="txtAiStatusIndicator">AI holati</span>
+            </div>
+            <button type="button" id="toggleAiSettingsBtn" class="it-only-ui hidden btn-tactile px-4 py-2.5 rounded-2xl glass-panel text-xs sm:text-sm font-bold flex items-center gap-2 text-indigo-700 dark:text-indigo-300">
+              <i data-lucide="key-round" class="w-4 h-4"></i>
+              <span>API Key Sozlamasi</span>
               <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
             </button>
             <button type="button" id="txtExportAllBtn" class="btn-tactile px-4 py-2.5 rounded-2xl glass-panel text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
@@ -1038,7 +1055,7 @@
           </div>
         </div>
 
-        <!-- Collapsible DeepSeek AI API Key Drawer -->
+        <!-- Collapsible DeepSeek AI API Key Drawer (IT Manager ONLY) -->
         <div id="aiSettingsDrawer" class="hidden pt-4 border-t border-slate-200/70 dark:border-slate-800 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -1281,10 +1298,16 @@
                 Real-Time server va mijoz tomonidagi faol himoya qatlamlari holati.
               </p>
             </div>
-            <button type="button" id="clearRateLimitsBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs font-bold text-indigo-600 dark:text-indigo-300 flex items-center gap-1.5">
-              <i data-lucide="unlock" class="w-3.5 h-3.5"></i>
-              Brute-Force Bloklarini Tozalash
-            </button>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" id="securityOpenAiDrawerBtn" class="btn-tactile px-4 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-xs font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+                <i data-lucide="key-round" class="w-3.5 h-3.5"></i>
+                DeepSeek / AI API Key Sozlamalari
+              </button>
+              <button type="button" id="clearRateLimitsBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs font-bold text-indigo-600 dark:text-indigo-300 flex items-center gap-1.5">
+                <i data-lucide="unlock" class="w-3.5 h-3.5"></i>
+                Brute-Force Bloklarini Tozalash
+              </button>
+            </div>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">

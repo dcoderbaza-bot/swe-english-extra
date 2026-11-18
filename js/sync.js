@@ -174,6 +174,7 @@
   }
 
   async function logoutRemote() {
+    stopServerStream();
     try {
       if (serverMode && getSessionToken()) {
         await apiRequest('/api/logout', 'POST', {});
@@ -181,7 +182,6 @@
     } catch (e) {
       // Proceed with local logout even if network fails
     } finally {
-      stopServerStream();
       setSessionToken('');
     }
   }

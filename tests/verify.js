@@ -835,12 +835,28 @@ async function runAsyncTests() {
       assert.equal(sseRes.status, 200);
       sseController.abort();
 
-      // 5. API Key SSRF guard + server masking + server AI proxy injection
-      const ssrfRes = await fetch(`${baseUrl}/api/ai-config`, {
+      // 5. IT Manager-only AI config + SSRF guard + server masking + Teacher uses AI proxy without seeing key
+      assert.equal(Auth.canManageAiConfig('it_manager'), true);
+      assert.equal(Auth.canManageAiConfig('teacher'), false);
+      assert.equal(Auth.canManageAiConfig('student'), false);
+
+      const teachForbiddenAiCfg = await fetch(`${baseUrl}/api/ai-config`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${teachLogin.token}`
+        },
+        body: JSON.stringify({
+          aiConfig: { provider: 'deepseek', model: 'deepseek-chat', apiKey: 'sk-teacher-attempt' }
+        })
+      });
+      assert.equal(teachForbiddenAiCfg.status, 403);
+
+      const ssrfRes = await fetch(`${baseUrl}/api/ai-config`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${itLogin.token}`
         },
         body: JSON.stringify({
           aiConfig: {
@@ -857,7 +873,7 @@ async function runAsyncTests() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${teachLogin.token}`
+          'Authorization': `Bearer ${itLogin.token}`
         },
         body: JSON.stringify({
           aiConfig: {
@@ -874,6 +890,13 @@ async function runAsyncTests() {
       assert.equal(savedKeyJson.state.aiConfig.hasApiKey, true);
       assert.equal(savedKeyJson.state.aiConfig.apiKeyMasked, 'sk-s••••9876');
 
+      // Teacher state reflects readiness (hasApiKey: true) WITHOUT exposing masked key
+      const teachStateAfterAi = await (await fetch(`${baseUrl}/api/state`, {
+        headers: { 'Authorization': `Bearer ${teachLogin.token}` }
+      })).json();
+      assert.equal(teachStateAfterAi.state.aiConfig.hasApiKey, true);
+      assert.equal(teachStateAfterAi.state.aiConfig.apiKeyMasked, '');
+
       // SSRF blocked at proxy level too
       const proxySsrfRes = await fetch(`${baseUrl}/api/ai-proxy`, {
         method: 'POST',
@@ -889,7 +912,7 @@ async function runAsyncTests() {
       });
       assert.equal(proxySsrfRes.status, 400);
 
-      // Proxy uses stored secret without browser having apiKey
+      // Proxy uses stored secret for Teacher without browser having apiKey
       const proxyRes = await fetch(`${baseUrl}/api/ai-proxy`, {
         method: 'POST',
         headers: {
@@ -910,12 +933,12 @@ async function runAsyncTests() {
       assert.equal(lastProxiedCall.init.redirect, 'error');
       assert.equal(lastProxiedCall.init.headers.Authorization, 'Bearer sk-secret-deepseek-9876');
 
-      // Clearing key clears hasApiKey
+      // IT Manager clearing key clears hasApiKey
       const clearKeyRes = await fetch(`${baseUrl}/api/ai-config`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${teachLogin.token}`
+          'Authorization': `Bearer ${itLogin.token}`
         },
         body: JSON.stringify({
           aiConfig: {
@@ -930,7 +953,7 @@ async function runAsyncTests() {
       assert.equal(clearKeyRes.status, 200);
       assert.equal(clearedKeyJson.state.aiConfig.hasApiKey, false);
 
-      // Student cannot call /api/ai-proxy
+      // Student login, /api/ai-proxy block (403), then deleteStudentAccount cleanup + immediate 401 token invalidation
       const stuRes = await fetch(`${baseUrl}/api/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -946,6 +969,39 @@ async function runAsyncTests() {
         body: JSON.stringify({ body: { messages: [] } })
       });
       assert.equal(stuProxyRes.status, 403);
+
+      const delStuRes = await fetch(`${baseUrl}/api/students`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${teachLogin.token}`
+        },
+        body: JSON.stringify({ action: 'delete', studentId: stuJson.session.userId })
+      });
+      const delStuJson = await delStuRes.json();
+      assert.equal(delStuRes.status, 200);
+      assert.equal(delStuJson.state.students.some((s) => s.id === stuJson.session.userId), false);
+      assert.equal(delStuJson.state.studentProgress[stuJson.session.userId], undefined);
+      assert.ok(delStuJson.state.auditLog.some((e) => e.action === 'STUDENT_DELETE'));
+
+      // Deleted student's active token must immediately fail on state, review, and telemetry
+      const deletedStuStateRes = await fetch(`${baseUrl}/api/state`, {
+        headers: { 'Authorization': `Bearer ${stuJson.token}` }
+      });
+      assert.equal(deletedStuStateRes.status, 401);
+      const deletedStuReviewRes = await fetch(`${baseUrl}/api/review`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${stuJson.token}`
+        },
+        body: JSON.stringify({ wordId: 'w-endeavor', ratingKey: 'easy' })
+      });
+      assert.equal(deletedStuReviewRes.status, 401);
+
+      // Storage preserves intentionally emptied lessons array after deleting lessons
+      const emptyLessonsNormalized = Storage.normalizeState({ version: 3, words: [], lessons: [] }, Date.now());
+      assert.deepEqual(emptyLessonsNormalized.lessons, []);
 
       // Logout revokes token jti immediately
       const logoutRes = await fetch(`${baseUrl}/api/logout`, {

@@ -151,9 +151,10 @@ function sanitizeDbForSession(db, session) {
     };
   }
 
-  // Teacher & IT Manager receive sanitized student records (no hashes) and masked API key metadata
+  // Teacher receives AI readiness status without API key/endpoint settings; IT Manager receives masked metadata
   const safeStudents = (db.students || []).map(Auth.sanitizeStudentForClient);
   const rawAi = db.aiConfig || {};
+  const canSeeAiSettings = Auth.canManageAiConfig(session.role);
   return {
     version: 3,
     words: db.words,
@@ -167,10 +168,10 @@ function sanitizeDbForSession(db, session) {
     aiConfig: {
       provider: rawAi.provider || 'deepseek',
       model: rawAi.model || 'deepseek-chat',
-      customUrl: rawAi.customUrl || '',
+      customUrl: canSeeAiSettings ? (rawAi.customUrl || '') : '',
       apiKey: '',
       hasApiKey: Boolean(rawAi.apiKey),
-      apiKeyMasked: maskApiKey(rawAi.apiKey)
+      apiKeyMasked: canSeeAiSettings ? maskApiKey(rawAi.apiKey) : ''
     },
     auth: { hashes: {}, updatedAt: (db.auth && db.auth.updatedAt) || null },
     auditLog: db.auditLog || []
@@ -581,6 +582,10 @@ function createAppServer(options) {
           sendJson(res, 401, { ok: false, error: 'Avtorizatsiya talab qilinadi.' });
           return;
         }
+        if (session.role === 'student' && !(db.students || []).some(function (s) { return s.id === session.userId && s.active !== false; })) {
+          sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti topilmadi yoki bloklangan.' });
+          return;
+        }
         const body = await readJsonBody(req);
         const result = Storage.applyWordReviewForSession(db, session, body.wordId, body.ratingKey, SRS, Date.now());
         db = result.state;
@@ -594,6 +599,10 @@ function createAppServer(options) {
         const session = getSessionFromRequest(req, parsedUrl);
         if (!session) {
           sendJson(res, 401, { ok: false, error: 'Avtorizatsiya talab qilinadi.' });
+          return;
+        }
+        if (session.role === 'student' && !(db.students || []).some(function (s) { return s.id === session.userId && s.active !== false; })) {
+          sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti topilmadi yoki bloklangan.' });
           return;
         }
         const body = await readJsonBody(req);
@@ -664,6 +673,27 @@ function createAppServer(options) {
           const toggledStu = (db.students || []).find(function (s) { return s.id === body.studentId; });
           if (toggledStu) clearServerRateLimitForAccount('student', toggledStu.username);
           db.auditLog = Auth.appendAuditLog(db.auditLog, session.role, 'STUDENT_STATUS', 'O‘quvchi holati o‘zgartirildi: ' + body.studentId, now);
+        } else if (body.action === 'delete') {
+          const delRes = Auth.deleteStudentAccount(db.students, session.role, body.studentId);
+          db.students = delRes.students;
+          if (db.studentProgress && delRes.deleted && delRes.deleted.id) {
+            delete db.studentProgress[delRes.deleted.id];
+          }
+          if (Array.isArray(db.studentActivityLog) && delRes.deleted && delRes.deleted.id) {
+            db.studentActivityLog = db.studentActivityLog.filter(function (ev) {
+              return ev.studentId !== delRes.deleted.id;
+            });
+          }
+          if (delRes.deleted && delRes.deleted.username) {
+            clearServerRateLimitForAccount('student', delRes.deleted.username);
+          }
+          db.auditLog = Auth.appendAuditLog(
+            db.auditLog,
+            session.role,
+            'STUDENT_DELETE',
+            'O‘quvchi o‘chirildi: ' + delRes.deleted.fullName + ' (@' + delRes.deleted.username + ')',
+            now
+          );
         } else {
           sendJson(res, 400, { ok: false, error: 'Noma’lum student amali.' });
           return;
@@ -677,8 +707,8 @@ function createAppServer(options) {
 
       if (pathname === '/api/ai-config' && req.method === 'POST') {
         const session = getSessionFromRequest(req, parsedUrl);
-        if (!session || !Auth.isAdminRole(session.role)) {
-          sendJson(res, 403, { ok: false, error: 'Faqat Teacher yoki IT Manager ruxsatiga ega.' });
+        if (!session || !Auth.canManageAiConfig(session.role)) {
+          sendJson(res, 403, { ok: false, error: 'API kalit sozlamalarini faqat IT Manager boshqaradi!' });
           return;
         }
         const body = await readJsonBody(req);
@@ -716,6 +746,7 @@ function createAppServer(options) {
           Date.now()
         );
         saveDb();
+        broadcastSse('ai-config');
         sendJson(res, 200, { ok: true, state: sanitizeDbForSession(db, session) });
         return;
       }
@@ -731,15 +762,17 @@ function createAppServer(options) {
           return;
         }
         const body = await readJsonBody(req, 4 * 1024 * 1024);
+        const rawEndpointInput = String(body.endpoint || '').trim() ||
+          ((db.aiConfig && db.aiConfig.provider === 'custom' && db.aiConfig.customUrl) ? String(db.aiConfig.customUrl).trim() : '');
         let safeEndpoint;
         try {
-          safeEndpoint = AiTxt.validateAiEndpoint(body.endpoint || '');
+          safeEndpoint = AiTxt.validateAiEndpoint(rawEndpointInput);
         } catch (urlErr) {
           sendJson(res, 400, { ok: false, error: urlErr.message });
           return;
         }
 
-        const submittedKey = String(body.apiKey || '').trim();
+        const submittedKey = Auth.canManageAiConfig(session.role) ? String(body.apiKey || '').trim() : '';
         const apiKey = (submittedKey && submittedKey.indexOf('••') === -1 ? submittedKey : '') ||
           String((db.aiConfig && db.aiConfig.apiKey) || '').trim();
 

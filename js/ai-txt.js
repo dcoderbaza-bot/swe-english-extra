@@ -477,14 +477,29 @@
       return text;
     }
 
+    const rawCustomUrl = String(cfg.customUrl || '').trim();
+    if (provider === 'custom' && !rawCustomUrl && !apiKey && hasServerKey) {
+      const customDefaultModel = (PROVIDER_DEFAULTS[provider] && PROVIDER_DEFAULTS[provider].defaultModel) || 'deepseek-chat';
+      const customPayload = {
+        model: String(cfg.model || customDefaultModel).trim(),
+        temperature: 0.2,
+        stream: false,
+        messages: [
+          { role: 'system', content: 'You are a helpful English-Uzbek lexicographer. Output strict JSON arrays only.' },
+          { role: 'user', content: promptText }
+        ]
+      };
+      return root.SWESync.proxyAiRequest('', '', customPayload, provider);
+    }
+
     // DeepSeek, OpenAI or Custom OpenAI-compatible
     let rawEndpoint = 'https://api.deepseek.com/chat/completions';
     if (provider === 'openai') {
       rawEndpoint = 'https://api.openai.com/v1/chat/completions';
     } else if (provider === 'custom') {
-      rawEndpoint = String(cfg.customUrl || '').trim();
+      rawEndpoint = rawCustomUrl;
     } else if (provider === 'deepseek') {
-      rawEndpoint = String(cfg.customUrl || '').trim() || 'https://api.deepseek.com/chat/completions';
+      rawEndpoint = rawCustomUrl || 'https://api.deepseek.com/chat/completions';
     }
 
     const endpoint = validateAiEndpoint(rawEndpoint);

@@ -1535,7 +1535,72 @@
     });
   }
 
+  function renderVocabLessonsBar() {
+    const bar = $('vocabLessonsBar');
+    const pillsWrap = $('vocabLessonPills');
+    const delSelectedBtn = $('vocabDeleteSelectedLessonBtn');
+    const lessonFilter = $('vocabLessonFilter');
+    const staffCanDelete = isStaff();
+
+    if (delSelectedBtn) {
+      const selectedLesson = (lessonFilter && lessonFilter.value) || 'ALL';
+      delSelectedBtn.classList.toggle('hidden', !staffCanDelete || selectedLesson === 'ALL');
+    }
+
+    if (!bar || !pillsWrap) return;
+    if (!staffCanDelete) {
+      bar.classList.add('hidden');
+      pillsWrap.innerHTML = '';
+      return;
+    }
+
+    const lessons = Array.isArray(state.lessons) ? state.lessons : [];
+    const currentFilter = (lessonFilter && lessonFilter.value) || 'ALL';
+    pillsWrap.innerHTML = '';
+
+    if (lessons.length === 0) {
+      pillsWrap.innerHTML = '<span class="text-xs text-slate-400">Hali darsliklar yo‘q (.TXT Kiritish bo‘limidan yuklang)</span>';
+      return;
+    }
+
+    lessons.forEach(function (lesson) {
+      const count = state.words.filter(function (w) {
+        return (w.lesson || '').toLowerCase() === (lesson.name || '').toLowerCase();
+      }).length;
+      const isSelected = currentFilter === lesson.name;
+
+      const chip = document.createElement('div');
+      chip.className = 'inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-full text-xs font-bold border transition-all ' +
+        (isSelected
+          ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm'
+          : 'bg-white/75 dark:bg-slate-900/75 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200');
+
+      chip.innerHTML =
+        '<button type="button" data-filter-lesson class="inline-flex items-center gap-1.5 hover:opacity-90">' +
+          '<span>' + escapeHtml(lesson.name) + '</span>' +
+          '<span class="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ' + (isSelected ? 'bg-white/20 text-white' : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300') + ' tabular-nums">' + count + '</span>' +
+        '</button>' +
+        '<button type="button" data-delete-lesson-chip class="p-1 rounded-full hover:bg-rose-500/20 ' + (isSelected ? 'text-rose-200 hover:text-white' : 'text-rose-500') + '" title="' + escapeHtml(lesson.name) + ' dars lug‘atini o‘chirish">' +
+          '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>' +
+        '</button>';
+
+      chip.querySelector('[data-filter-lesson]').addEventListener('click', function () {
+        if (lessonFilter) {
+          lessonFilter.value = isSelected ? 'ALL' : lesson.name;
+          renderVocabulary();
+        }
+      });
+      chip.querySelector('[data-delete-lesson-chip]').addEventListener('click', function (e) {
+        e.stopPropagation();
+        deleteLessonVocabulary(lesson.name);
+      });
+
+      pillsWrap.appendChild(chip);
+    });
+  }
+
   function renderVocabulary() {
+    renderVocabLessonsBar();
     const list = getFilteredVocabList();
     const now = Date.now();
     const staffCanDelete = isStaff();
@@ -1550,6 +1615,7 @@
 
     if (list.length === 0) {
       emptyEl.classList.remove('hidden');
+      refreshIcons();
       return;
     }
     emptyEl.classList.add('hidden');
@@ -1648,6 +1714,37 @@
     );
   }
 
+  function deleteLessonVocabulary(lessonName) {
+    if (!isStaff()) return;
+    const cleanName = String(lessonName || '').trim();
+    if (!cleanName || cleanName === 'ALL') return;
+    const targetLower = cleanName.toLowerCase();
+    const affectedWords = state.words.filter(function (w) {
+      return (w.lesson || '').toLowerCase() === targetLower;
+    });
+
+    openConfirm(
+      'Dars lug‘atini o‘chirish',
+      '"' + cleanName + '" darsligi va uning barcha ' + affectedWords.length + ' ta so‘zini butunlay o‘chirmoqchimisiz?',
+      function () {
+        state.words = state.words.filter(function (w) {
+          return (w.lesson || '').toLowerCase() !== targetLower;
+        });
+        state.lessons = (state.lessons || []).filter(function (l) {
+          return (l.name || '').toLowerCase() !== targetLower;
+        });
+        if (activeLesson && activeLesson.toLowerCase() === targetLower) activeLesson = 'ALL';
+        if ($('vocabLessonFilter') && $('vocabLessonFilter').value.toLowerCase() === targetLower) {
+          $('vocabLessonFilter').value = 'ALL';
+        }
+        persistCurriculum('LESSON_VOCAB_DELETE', cleanName + ' (' + affectedWords.length + ' ta so‘z o‘chirildi)');
+        syncDeckSelects();
+        refreshActiveView();
+        showToast('"' + cleanName + '" darsligi va ' + affectedWords.length + ' ta so‘z o‘chirildi.', 'info');
+      }
+    );
+  }
+
   function openConfirm(title, message, onConfirm) {
     $('confirmTitle').textContent = title;
     $('confirmMessage').textContent = message;
@@ -1733,6 +1830,10 @@
     document.querySelectorAll('.it-only-ui').forEach(function (el) {
       el.classList.toggle('hidden', !canSecurity);
     });
+    if (!Auth.canManageAiConfig(currentRole)) {
+      if ($('aiSettingsDrawer')) $('aiSettingsDrawer').classList.add('hidden');
+      if ($('aiApiKeyInput')) $('aiApiKeyInput').value = '';
+    }
 
     const userBadgeBtn = $('userBadgeBtn');
     const userBadgeLabel = $('userBadgeLabel');
@@ -2126,7 +2227,10 @@
 
   function openStudentDetailModal(studentId, isLiveRefresh) {
     const student = (state.students || []).find(function (s) { return s.id === studentId; });
-    if (!student) return;
+    if (!student) {
+      if (isLiveRefresh) closeStudentDetailModal();
+      return;
+    }
     selectedMonitorStudentId = student.id;
 
     const now = Date.now();
@@ -2281,7 +2385,10 @@
         '<div class="flex flex-wrap items-center gap-2 shrink-0">' +
           '<button type="button" data-stu-watch="' + escapeHtml(s.id) + '" class="btn-tactile px-3 py-1.5 rounded-xl bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-bold">Kuzatish</button>' +
           '<button type="button" data-stu-resetpw="' + escapeHtml(s.id) + '" class="btn-tactile px-3 py-1.5 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 text-xs font-bold">Parolni yangilash</button>' +
-          '<button type="button" data-stu-toggle="' + escapeHtml(s.id) + '" class="btn-tactile px-3 py-1.5 rounded-xl ' + (s.active === false ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/15 text-rose-700 dark:text-rose-300') + ' text-xs font-bold">' + (s.active === false ? 'Faollashtirish' : 'Bloklash') + '</button>' +
+          '<button type="button" data-stu-toggle="' + escapeHtml(s.id) + '" class="btn-tactile px-3 py-1.5 rounded-xl ' + (s.active === false ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/10 text-amber-700 dark:text-amber-300') + ' text-xs font-bold">' + (s.active === false ? 'Faollashtirish' : 'Bloklash') + '</button>' +
+          '<button type="button" data-stu-delete="' + escapeHtml(s.id) + '" class="btn-tactile px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 text-xs font-bold inline-flex items-center gap-1">' +
+            '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>O‘chirish' +
+          '</button>' +
         '</div>';
 
       row.querySelector('[data-stu-watch]').addEventListener('click', function () {
@@ -2293,6 +2400,9 @@
       });
       row.querySelector('[data-stu-toggle]').addEventListener('click', function () {
         handleToggleStudentActive(s);
+      });
+      row.querySelector('[data-stu-delete]').addEventListener('click', function () {
+        deleteStudent(s);
       });
 
       listEl.appendChild(row);
@@ -2384,6 +2494,45 @@
     }
   }
 
+  function deleteStudent(student) {
+    if (!student || !Auth.canManageStudents(currentRole)) return;
+    openConfirm(
+      'O‘quvchini o‘chirish',
+      '"' + student.fullName + '" (@' + student.username + ') akkaunti va uning barcha o‘zlashtirish statistikasi butunlay o‘chiriladi. Davom etasizmi?',
+      async function () {
+        try {
+          if (Sync && Sync.isServerMode()) {
+            const res = await Sync.pushStudentActionRemote({ action: 'delete', studentId: student.id });
+            mergeRemoteState(res.state);
+          } else {
+            const delRes = Auth.deleteStudentAccount(state.students, currentRole, student.id);
+            state.students = delRes.students;
+            if (state.studentProgress && delRes.deleted && delRes.deleted.id) {
+              delete state.studentProgress[delRes.deleted.id];
+            }
+            if (Array.isArray(state.studentActivityLog) && delRes.deleted && delRes.deleted.id) {
+              state.studentActivityLog = state.studentActivityLog.filter(function (ev) {
+                return ev.studentId !== delRes.deleted.id;
+              });
+            }
+            if (delRes.deleted && delRes.deleted.username) {
+              Auth.clearLoginFailures('student:' + Auth.normalizeUsername(delRes.deleted.username), typeof localStorage !== 'undefined' ? localStorage : null);
+            }
+            recordAudit('STUDENT_DELETE', student.fullName + ' (@' + student.username + ') o‘chirildi');
+            persist('students');
+          }
+          if (selectedMonitorStudentId === student.id) {
+            closeStudentDetailModal();
+          }
+          renderAdminStudentsList();
+          showToast('"' + student.fullName + '" o‘chirildi.', 'info');
+        } catch (err) {
+          showToast((err && err.message) || 'O‘quvchini o‘chirishda xatolik.', 'error');
+        }
+      }
+    );
+  }
+
   /* ----- TXT + AI Bulk Importer ----- */
 
   function hasSavedAiKey(cfg) {
@@ -2396,21 +2545,27 @@
     const secBadge = $('aiKeySecurityBadge');
     const cfg = state.aiConfig || {};
     const ready = hasSavedAiKey(cfg);
+    const canManageKey = Auth.canManageAiConfig(currentRole);
 
     if (el) {
       if (ready) {
         const defaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[cfg.provider]) || {};
         const label = defaults.label || cfg.provider || 'AI';
-        el.textContent = 'Tayyor (' + label + ' · ' + (cfg.model || defaults.model || 'deepseek-chat') + ')';
+        el.textContent = 'AI Tayyor (' + label + ' · ' + (cfg.model || defaults.model || 'deepseek-chat') + ')';
         el.className = 'font-bold text-emerald-600 dark:text-emerald-400';
       } else {
-        el.textContent = 'API Key kiritilmagan (yuqoridagi "DeepSeek API Sozlamasi" tugmasidan kiriting)';
+        el.textContent = canManageKey
+          ? 'API Key kiritilmagan ("API Key Sozlamasi"dan kiriting)'
+          : 'API Key kiritilmagan (IT Manager kiritishi kerak)';
         el.className = 'font-bold text-amber-600 dark:text-amber-400';
       }
     }
 
     if (secBadge) {
-      if (Sync && Sync.isServerMode() && cfg.hasApiKey) {
+      if (!canManageKey) {
+        secBadge.textContent = 'Faqat IT Manager uchun';
+        secBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+      } else if (Sync && Sync.isServerMode() && cfg.hasApiKey) {
         secBadge.textContent = 'Server proxy · Kalit himoyalangan (' + (cfg.apiKeyMasked || 'sk-••••') + ')';
         secBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
       } else if (cfg.apiKey && String(cfg.apiKey).trim()) {
@@ -2538,9 +2693,13 @@
 
     const cfg = state.aiConfig || {};
     if (!hasSavedAiKey(cfg)) {
-      showToast('AI bilan boyitish uchun avval "DeepSeek API Sozlamasi" bo‘limida API kalit kiriting!', 'warning');
-      if ($('aiSettingsDrawer')) $('aiSettingsDrawer').classList.remove('hidden');
-      if ($('aiApiKeyInput')) $('aiApiKeyInput').focus();
+      if (Auth.canManageAiConfig(currentRole)) {
+        showToast('AI bilan boyitish uchun avval "API Key Sozlamasi" bo‘limida kalit kiriting!', 'warning');
+        if ($('aiSettingsDrawer')) $('aiSettingsDrawer').classList.remove('hidden');
+        if ($('aiApiKeyInput')) $('aiApiKeyInput').focus();
+      } else {
+        showToast('AI API kaliti kiritilmagan! IT Manager sozlamalar bo‘limida kiritishi kerak.', 'warning');
+      }
       return;
     }
 
@@ -2694,6 +2853,11 @@
   /* ----- AI & API Key Settings (inside #aiSettingsDrawer) ----- */
 
   function renderAiConfigForm() {
+    if (!Auth.canManageAiConfig(currentRole)) {
+      if ($('aiSettingsDrawer')) $('aiSettingsDrawer').classList.add('hidden');
+      if ($('aiApiKeyInput')) $('aiApiKeyInput').value = '';
+      return;
+    }
     const cfg = state.aiConfig || Storage.createDefaultAiConfig();
     const provider = cfg.provider || 'deepseek';
     const defaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[provider]) || { model: 'deepseek-chat' };
@@ -2725,7 +2889,7 @@
   }
 
   async function syncAiConfigToServer(cfg) {
-    if (Sync && Sync.isServerMode() && isStaff()) {
+    if (Sync && Sync.isServerMode() && Auth.canManageAiConfig(currentRole)) {
       try {
         const res = await Sync.pushAiConfigRemote(cfg);
         if (res && res.state) mergeRemoteState(res.state);
@@ -2740,6 +2904,10 @@
 
   async function handleAiConfigSubmit(e) {
     e.preventDefault();
+    if (!Auth.canManageAiConfig(currentRole)) {
+      showToast('API kalit sozlamalarini faqat IT Manager boshqaradi!', 'error');
+      return;
+    }
     const nextCfg = collectAiConfigFromForm();
     if (nextCfg.provider === 'custom' || nextCfg.customUrl) {
       try {
@@ -2767,6 +2935,10 @@
   }
 
   async function handleTestAi() {
+    if (!Auth.canManageAiConfig(currentRole)) {
+      showToast('API kalit sozlamalarini faqat IT Manager boshqaradi!', 'error');
+      return;
+    }
     const tempCfg = collectAiConfigFromForm();
     if (!hasSavedAiKey(tempCfg)) {
       showToast('Tekshirish uchun API Key kiriting!', 'warning');
@@ -2808,6 +2980,10 @@
   }
 
   async function handleClearAiKey() {
+    if (!Auth.canManageAiConfig(currentRole)) {
+      showToast('API kalit sozlamalarini faqat IT Manager boshqaradi!', 'error');
+      return;
+    }
     const baseCfg = collectAiConfigFromForm();
     const clearPayload = Object.assign({}, baseCfg, { apiKey: '', clearKey: true });
     await syncAiConfigToServer(clearPayload);
@@ -2828,6 +3004,10 @@
   }
 
   async function handleEnrichIncompleteWords() {
+    if (!Auth.canManageAiConfig(currentRole)) {
+      showToast('Ushbu amal faqat IT Manager uchun!', 'error');
+      return;
+    }
     const cfg = state.aiConfig || {};
     if (!hasSavedAiKey(cfg)) {
       showToast('Avval yuqoridagi shaklda API Key saqlang!', 'warning');
@@ -3408,6 +3588,14 @@
     if ($('vocabExportTxtBtn')) {
       $('vocabExportTxtBtn').addEventListener('click', function () { handleExportTXT('detailed'); });
     }
+    if ($('vocabDeleteSelectedLessonBtn')) {
+      $('vocabDeleteSelectedLessonBtn').addEventListener('click', function () {
+        const selectedLesson = ($('vocabLessonFilter') && $('vocabLessonFilter').value) || 'ALL';
+        if (selectedLesson !== 'ALL') {
+          deleteLessonVocabulary(selectedLesson);
+        }
+      });
+    }
     if ($('vocabOpenTxtAiBtn')) {
       $('vocabOpenTxtAiBtn').addEventListener('click', function () {
         switchView('txt-import');
@@ -3421,9 +3609,10 @@
     bindPasswordMeter('stuPasswordInput', 'stuPwMeterBar', 'stuPwMeterLabel');
     bindPasswordMeter('stuResetNewPwInput', 'stuResetPwMeterBar', 'stuResetPwMeterLabel');
 
-    // TXT + AI View & Collapsible DeepSeek Drawer
+    // TXT + AI View & Collapsible DeepSeek Drawer (IT Manager ONLY)
     if ($('toggleAiSettingsBtn')) {
       $('toggleAiSettingsBtn').addEventListener('click', function () {
+        if (!Auth.canManageAiConfig(currentRole)) return;
         if ($('aiSettingsDrawer')) {
           $('aiSettingsDrawer').classList.toggle('hidden');
           refreshIcons();
@@ -3488,6 +3677,14 @@
     $('enrichIncompleteBtn').addEventListener('click', function () { handleEnrichIncompleteWords(); });
 
     // Security View (IT Manager)
+    if ($('securityOpenAiDrawerBtn')) {
+      $('securityOpenAiDrawerBtn').addEventListener('click', function () {
+        if (!Auth.canManageAiConfig(currentRole)) return;
+        switchView('txt-import');
+        if ($('aiSettingsDrawer')) $('aiSettingsDrawer').classList.remove('hidden');
+        if ($('aiApiKeyInput')) $('aiApiKeyInput').focus();
+      });
+    }
     if ($('clearRateLimitsBtn')) {
       $('clearRateLimitsBtn').addEventListener('click', handleClearRateLimits);
     }
