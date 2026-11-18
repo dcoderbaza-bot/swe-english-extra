@@ -7,6 +7,7 @@
 
 const http = require('node:http');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
@@ -39,8 +40,7 @@ const BASE_SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'no-referrer',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
-  'Cross-Origin-Opener-Policy': 'same-origin'
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()'
 };
 
 const HTML_CSP = [
@@ -49,19 +49,38 @@ const HTML_CSP = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob:",
-  "connect-src 'self' https:",
+  "connect-src 'self' https: http:",
   "object-src 'none'",
   "base-uri 'self'",
   "frame-ancestors 'none'"
 ].join('; ');
 
-function getSecurityHeaders(isHtml) {
-  if (!isHtml) {
-    return Object.assign({}, BASE_SECURITY_HEADERS);
+function getCorsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400'
+  };
+}
+
+function isTrustworthyRequest(req) {
+  if (!req || !req.headers) return true;
+  const proto = String(req.headers['x-forwarded-proto'] || '').toLowerCase();
+  if (proto === 'https') return true;
+  const host = String(req.headers.host || '').split(':')[0].toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+}
+
+function getSecurityHeaders(isHtml, trustworthyOrigin) {
+  const headers = Object.assign({}, BASE_SECURITY_HEADERS);
+  if (trustworthyOrigin !== false) {
+    headers['Cross-Origin-Opener-Policy'] = 'same-origin';
   }
-  return Object.assign({}, BASE_SECURITY_HEADERS, {
-    'Content-Security-Policy': HTML_CSP
-  });
+  if (isHtml) {
+    headers['Content-Security-Policy'] = HTML_CSP;
+  }
+  return headers;
 }
 
 function maskApiKey(rawKey) {
@@ -210,7 +229,7 @@ function sendJson(res, statusCode, payload, extraHeaders) {
   res.writeHead(statusCode, Object.assign({
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store'
-  }, getSecurityHeaders(false), extraHeaders || {}));
+  }, getCorsHeaders(), getSecurityHeaders(false), extraHeaders || {}));
   res.end(body);
 }
 
@@ -248,7 +267,12 @@ function createAppServer(options) {
   }
 
   function getClientIp(req) {
-    return (req && req.socket && req.socket.remoteAddress) ? String(req.socket.remoteAddress) : '127.0.0.1';
+    if ((opts.trustProxy || process.env.TRUST_PROXY === '1') && req && req.headers && req.headers['x-forwarded-for']) {
+      const fwd = String(req.headers['x-forwarded-for']).split(',')[0].trim();
+      if (fwd) return fwd.replace(/^::ffff:/, '');
+    }
+    const raw = (req && req.socket && req.socket.remoteAddress) ? String(req.socket.remoteAddress) : '127.0.0.1';
+    return raw.replace(/^::ffff:/, '');
   }
 
   function getLoginBucketKey(req, role, username) {
@@ -359,13 +383,14 @@ function createAppServer(options) {
     return verifySessionToken(token, sessionSecret, revokedTokens, Date.now());
   }
 
-  function serveStaticFile(reqPath, res) {
+  function serveStaticFile(reqPath, req, res) {
     const cleanRel = reqPath === '/' ? 'index.html' : reqPath.replace(/^\/+/, '');
     const resolved = path.resolve(rootDir, cleanRel);
+    const secHeaders = getSecurityHeaders(false, isTrustworthyRequest(req));
 
     // Block path traversal outside rootDir and block sensitive runtime data, tests, or server code
     if (resolved !== rootDir && !resolved.startsWith(rootDir + path.sep)) {
-      res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, getSecurityHeaders(false)));
+      res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, secHeaders));
       res.end('Forbidden');
       return;
     }
@@ -380,14 +405,14 @@ function createAppServer(options) {
       relFromRoot.startsWith('tests/') ||
       relFromRoot.startsWith('.git')
     ) {
-      res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, getSecurityHeaders(false)));
+      res.writeHead(403, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, secHeaders));
       res.end('Forbidden');
       return;
     }
 
     fs.stat(resolved, function (err, stat) {
       if (err || !stat.isFile()) {
-        res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, getSecurityHeaders(false)));
+        res.writeHead(404, Object.assign({ 'Content-Type': 'text/plain; charset=utf-8' }, secHeaders));
         res.end('Not found');
         return;
       }
@@ -395,16 +420,22 @@ function createAppServer(options) {
       res.writeHead(200, Object.assign({
         'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
         'Cache-Control': 'no-cache'
-      }, getSecurityHeaders(ext === '.html')));
+      }, getSecurityHeaders(ext === '.html', isTrustworthyRequest(req))));
       fs.createReadStream(resolved).pipe(res);
     });
   }
 
   const server = http.createServer(async function (req, res) {
-    const parsedUrl = new URL(req.url || '/', 'http://127.0.0.1');
+    const parsedUrl = new URL(req.url || '/', 'http://' + ((req && req.headers && req.headers.host) || '127.0.0.1'));
     const pathname = parsedUrl.pathname;
 
     try {
+      if (pathname.startsWith('/api/') && req.method === 'OPTIONS') {
+        res.writeHead(204, Object.assign({}, getCorsHeaders(), getSecurityHeaders(false)));
+        res.end();
+        return;
+      }
+
       if (pathname === '/api/health' && req.method === 'GET') {
         sendJson(res, 200, { ok: true, mode: 'server', version: 4, timestamp: Date.now() });
         return;
@@ -429,7 +460,7 @@ function createAppServer(options) {
           'Content-Type': 'text/event-stream; charset=utf-8',
           'Cache-Control': 'no-store',
           'Connection': 'keep-alive'
-        }, getSecurityHeaders(false)));
+        }, getCorsHeaders(), getSecurityHeaders(false)));
         res.write('event: connected\ndata: {"ok":true}\n\n');
         sseClients.add(res);
         const keepAlive = setInterval(function () {
@@ -934,7 +965,7 @@ function createAppServer(options) {
         return;
       }
 
-      serveStaticFile(pathname, res);
+      serveStaticFile(pathname, req, res);
     } catch (err) {
       sendJson(res, 500, { ok: false, error: (err && err.message) || 'Server ichki xatosi' });
     }
@@ -953,10 +984,23 @@ function createAppServer(options) {
 
 if (require.main === module) {
   const port = Number(process.env.PORT) || 4175;
-  const host = process.env.HOST || '127.0.0.1';
+  const host = process.env.HOST || '0.0.0.0';
   const server = createAppServer({ rootDir: __dirname });
   server.listen(port, host, function () {
-    console.log('SWE ENGLISH EXTRA Real-Time Server running at http://' + host + ':' + port);
+    console.log('SWE ENGLISH EXTRA Real-Time Server running (all IPs enabled):');
+    console.log('  Local:   http://127.0.0.1:' + port);
+    if (host === '0.0.0.0' || host === '::') {
+      const nets = os.networkInterfaces();
+      Object.keys(nets).forEach(function (ifName) {
+        (nets[ifName] || []).forEach(function (info) {
+          if (info && info.family === 'IPv4' && !info.internal) {
+            console.log('  Network: http://' + info.address + ':' + port);
+          }
+        });
+      });
+    } else {
+      console.log('  Bound:   http://' + host + ':' + port);
+    }
     console.log('Data file: ' + path.join(__dirname, 'data', 'db.json'));
   });
 }

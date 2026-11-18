@@ -9,11 +9,77 @@
 
   const SYNC_CHANNEL_NAME = 'swe_english_extra_sync_v3';
   const TOKEN_KEY = 'swe_english_extra_token_v3';
+  const SERVER_URL_KEY = 'swe_english_extra_server_url_v1';
 
   let serverMode = false;
+  let activeServerBaseUrl = '';
   let eventSource = null;
   let broadcastChannel = null;
   let updateListeners = [];
+
+  function getBrowserLocalStorage() {
+    try {
+      return (typeof window !== 'undefined' && window.localStorage) ? window.localStorage : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function normalizeServerBaseUrl(rawUrl) {
+    const trimmed = String(rawUrl || '').trim().replace(/\/+$/, '');
+    if (!trimmed) return '';
+    const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : ('http://' + trimmed);
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+      return parsed.origin;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function getServerBaseUrl() {
+    if (activeServerBaseUrl) return activeServerBaseUrl;
+    const store = getBrowserLocalStorage();
+    if (!store) return '';
+    try {
+      return normalizeServerBaseUrl(store.getItem(SERVER_URL_KEY) || '');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function setServerBaseUrl(rawUrl) {
+    const clean = normalizeServerBaseUrl(rawUrl);
+    activeServerBaseUrl = clean;
+    const store = getBrowserLocalStorage();
+    if (store) {
+      try {
+        if (!clean) store.removeItem(SERVER_URL_KEY);
+        else store.setItem(SERVER_URL_KEY, clean);
+      } catch (e) {
+        // Ignore storage errors
+      }
+    }
+    return clean;
+  }
+
+  function initServerBaseFromQuery() {
+    if (typeof window === 'undefined' || !window.location || !window.location.search) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('server')) {
+        const paramVal = params.get('server') || '';
+        setServerBaseUrl(paramVal);
+      }
+    } catch (e) {
+      // Ignore query parse error
+    }
+  }
+
+  function resolveApiUrl(apiPath) {
+    return activeServerBaseUrl ? (activeServerBaseUrl + apiPath) : apiPath;
+  }
 
   function getSessionToken() {
     try {
@@ -95,7 +161,7 @@
     if (!serverMode || typeof EventSource === 'undefined' || !token) return;
     stopServerStream();
     try {
-      eventSource = new EventSource('/api/stream?token=' + encodeURIComponent(token));
+      eventSource = new EventSource(resolveApiUrl('/api/stream?token=' + encodeURIComponent(token)));
       eventSource.addEventListener('update', function (ev) {
         let payload = {};
         try { payload = JSON.parse(ev.data || '{}'); } catch (e) { payload = {}; }
@@ -109,36 +175,51 @@
     }
   }
 
-  async function detectServer() {
-    if (typeof window === 'undefined' || !window.location || window.location.protocol === 'file:' || typeof fetch !== 'function') {
-      serverMode = false;
-      return false;
-    }
-
+  async function probeServerHealth(baseOrigin) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller ? setTimeout(function () { controller.abort(); }, 1500) : null;
+    const timer = controller ? setTimeout(function () { controller.abort(); }, 3500) : null;
     try {
-      const res = await fetch('/api/health', {
+      const url = (baseOrigin ? baseOrigin : '') + '/api/health';
+      const res = await fetch(url, {
         method: 'GET',
         cache: 'no-store',
         signal: controller ? controller.signal : undefined
       });
       if (timer) clearTimeout(timer);
-      if (!res.ok) {
-        serverMode = false;
-        return false;
-      }
+      if (!res.ok) return false;
       const data = await res.json().catch(function () { return null; });
-      serverMode = Boolean(data && data.ok && data.mode === 'server');
-      if (serverMode && getSessionToken()) {
-        startServerStream();
-      }
-      return serverMode;
+      return Boolean(data && data.ok && data.mode === 'server');
     } catch (e) {
       if (timer) clearTimeout(timer);
+      return false;
+    }
+  }
+
+  async function detectServer() {
+    if (typeof window === 'undefined' || !window.location || typeof fetch !== 'function') {
       serverMode = false;
       return false;
     }
+
+    initServerBaseFromQuery();
+    const savedBase = getServerBaseUrl();
+
+    if (savedBase && await probeServerHealth(savedBase)) {
+      activeServerBaseUrl = savedBase;
+      serverMode = true;
+      if (getSessionToken()) startServerStream();
+      return true;
+    }
+
+    if (window.location.protocol !== 'file:' && await probeServerHealth('')) {
+      activeServerBaseUrl = '';
+      serverMode = true;
+      if (getSessionToken()) startServerStream();
+      return true;
+    }
+
+    serverMode = false;
+    return false;
   }
 
   async function apiRequest(url, method, body) {
@@ -146,7 +227,7 @@
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = 'Bearer ' + token;
 
-    const res = await fetch(url, {
+    const res = await fetch(resolveApiUrl(url), {
       method: method || 'GET',
       cache: 'no-store',
       headers: headers,
@@ -231,6 +312,9 @@
   const api = {
     SYNC_CHANNEL_NAME: SYNC_CHANNEL_NAME,
     isServerMode: isServerMode,
+    normalizeServerBaseUrl: normalizeServerBaseUrl,
+    getServerBaseUrl: getServerBaseUrl,
+    setServerBaseUrl: setServerBaseUrl,
     getSessionToken: getSessionToken,
     setSessionToken: setSessionToken,
     detectServer: detectServer,

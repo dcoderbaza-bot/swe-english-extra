@@ -140,3 +140,18 @@
 - `node --check`: [server.js](file:///c:/Users/dcode/Documents/Chiziqli/swe-english-extra/server.js) va barcha 11 ta `js/*.js` fayllar xatosiz o‘tdi.
 - `node tests/verify.js`: **14/14** test to‘plami muvaffaqiyatli o‘tdi (o‘zbekcha tarjima tekshiruvi, 2-warning -> 3rd strike `cheating_locked`, `403` himoya, reloadda saqlanish va Teacher retake ruxsati integratsiya testlari bilan).
 - Jonli brauzer E2E QA (`http://127.0.0.1:4176/`, 0 ta konsol/sahifa/HTTP xatosi): `student1` da test boshlash, klaviaturadan javob kiritish, `Ctrl+V` va `contextmenu` orqali 2 ta ogohlantirish + 3-chi urinishda `CHEATING` bloki, reloaddan keyin blok saqlanishi, Teacher `#monitorCheatingBanner` / `#studentDetailModal` da tahlil ko‘rinishi, `#confirmModal` (`z-[80]`) orqali qayta ruxsat berish va o‘quvchida test qayta ochilishi to‘liq tasdiqlandi.
+
+---
+
+## 8. 7-bosqich yangilanishlari (Istalgan IP dan ulanish va boshqa qurilmalarda parol sinxronizatsiyasi)
+
+### Tuzatilgan muammolar
+- **Istalgan IP va tarmoqda ishlash (`server.js`):** Server standart `HOST` qiymati `'127.0.0.1'` dan `'0.0.0.0'` ga o‘tkazildi (`PORT` `4175`), ishga tushishda barcha lokal va LAN IPv4 manzillari (`Network: http://<IP>:<port>`) chop etiladi; `/api/*` uchun `CORS` + `OPTIONS` preflight, `HTML_CSP` da `http:` + `https:` `connect-src`, `::ffff:` IP normallashuvi hamda LAN HTTP da COOP sarlavhasini o‘chirish qo‘shildi.
+- **Boshqa qurilmalarda parol va server ulanishi (`js/sync.js`, `js/auth.js`, `index.html`, `js/app.js`):**
+  - `Sync` moduliga `setServerBaseUrl` / `?server=http://...` va `#toggleServerUrlBtn` ("Server IP") ulash oynasi qo‘shildi, server tekshiruv timeouti `3500ms` gacha oshirildi va Local rejimdagi xatolik xabarida boshqa qurilma uchun aniq ko‘rsatma berildi.
+  - Kirish maydonlariga `autocapitalize="none" autocorrect="off" spellcheck="false"` va `Auth.authenticate` ga mobil nusxalashdagi chetki bo‘sh joyga (`password.trim()` fallback) moslashuv qo‘shildi.
+
+### 7-bosqich tekshiruv natijalari
+- `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
+- `node tests/verify.js`: **15/15** test to‘plami muvaffaqiyatli o‘tdi (`0.0.0.0` bind, CORS `OPTIONS`, cross-origin `localhost`/`127.0.0.1`/LAN IP login va mobil bo‘sh joy toleransi testlari bilan).
+- Jonli brauzer QA (`http://127.0.0.1:4177`, `http://192.168.1.15:4177`, `http://localhost:4177`): IT Manager parolni yangilagandan so‘ng boshqa IP (`192.168.1.15:4177`) orqali Teacher kirishi va `localhost` dan `Server IP` ulash orqali `student1` kirishi tasdiqlandi.

@@ -51,12 +51,27 @@
         </button>
       </div>
 
-      <div class="flex items-center justify-between px-3.5 py-2 rounded-2xl bg-slate-200/60 dark:bg-slate-900/70 text-xs font-semibold">
-        <span class="text-slate-600 dark:text-slate-300">Sinxronizatsiya:</span>
-        <span id="loginSyncBadge" class="inline-flex items-center gap-1.5 font-extrabold text-amber-600 dark:text-amber-300">
-          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-          Tekshirilmoqda...
-        </span>
+      <div class="space-y-2">
+        <div class="flex items-center justify-between gap-2 px-3.5 py-2 rounded-2xl bg-slate-200/60 dark:bg-slate-900/70 text-xs font-semibold">
+          <span class="text-slate-600 dark:text-slate-300">Sinxronizatsiya:</span>
+          <div class="flex items-center gap-1.5">
+            <span id="loginSyncBadge" class="inline-flex items-center gap-1.5 font-extrabold text-amber-600 dark:text-amber-300">
+              <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+              Tekshirilmoqda...
+            </span>
+            <button type="button" id="toggleServerUrlBtn" class="px-2 py-0.5 rounded-lg bg-slate-300/60 dark:bg-slate-800 hover:bg-indigo-500/20 text-[10px] font-extrabold text-slate-700 dark:text-slate-300" title="Server IP manzilini ulash">
+              Server IP
+            </button>
+          </div>
+        </div>
+        <form id="loginServerConnectForm" class="hidden p-3 rounded-2xl bg-slate-100/90 dark:bg-slate-900/85 border border-slate-200/80 dark:border-slate-800 space-y-2">
+          <label for="loginServerUrlInput" class="block text-[11px] font-bold text-slate-600 dark:text-slate-300">Node Server manzili (boshqa qurilma / IP uchun):</label>
+          <div class="flex items-center gap-1.5">
+            <input id="loginServerUrlInput" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="masalan: http://192.168.1.10:4175" class="flex-1 min-w-0 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono-ipa" />
+            <button type="submit" id="loginServerSaveBtn" class="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shrink-0">Ulash</button>
+            <button type="button" id="loginServerClearBtn" class="px-2 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold shrink-0" title="Avtomatik holatga qaytarish">Avto</button>
+          </div>
+        </form>
       </div>
 
       <form id="loginForm" class="space-y-4">
@@ -74,13 +89,13 @@
 
         <div id="loginUsernameWrap">
           <label for="loginUsernameInput" class="block text-xs font-bold mb-1">O‘quvchi logini *</label>
-          <input id="loginUsernameInput" type="text" autocomplete="username" placeholder="masalan: student1, ali, madina" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
+          <input id="loginUsernameInput" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="masalan: student1, ali, madina" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
         </div>
 
         <div>
           <label id="loginPasswordLabel" for="loginPasswordInput" class="block text-xs font-bold mb-1">Parol *</label>
           <div class="flex items-center gap-2">
-            <input id="loginPasswordInput" required type="password" autocomplete="current-password" placeholder="Parolni kiriting..." class="flex-1 px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+            <input id="loginPasswordInput" required type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Parolni kiriting..." class="flex-1 px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
             <button type="button" id="toggleLoginPwBtn" class="px-3 py-2.5 rounded-xl glass-panel text-xs font-bold" aria-label="Parolni ko‘rsatish">
               <i data-lucide="eye" class="w-4 h-4"></i>
             </button>
@@ -1430,7 +1445,7 @@
           </div>
           <div>
             <label for="stuUsernameInput" class="block text-xs font-bold mb-1">Login (Username) *</label>
-            <input id="stuUsernameInput" required type="text" placeholder="aziza01" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
+            <input id="stuUsernameInput" required type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="aziza01" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-mono-ipa" />
           </div>
           <div>
             <label for="stuGroupInput" class="block text-xs font-bold mb-1">Guruh / Sinf</label>
@@ -1438,7 +1453,7 @@
           </div>
           <div class="space-y-1.5">
             <label for="stuPasswordInput" class="block text-xs font-bold">Parol (min 8 belgi + raqam) *</label>
-            <input id="stuPasswordInput" required minlength="8" type="password" placeholder="Masalan: Aziza#2026" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+            <input id="stuPasswordInput" required minlength="8" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Masalan: Aziza#2026" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
             <div class="flex items-center gap-2">
               <div class="pw-meter-track flex-1"><div id="stuPwMeterBar" class="pw-meter-fill bg-slate-300" style="width: 0%"></div></div>
               <span id="stuPwMeterLabel" class="text-[10px] font-bold text-slate-400 whitespace-nowrap">Kamida 8 belgi</span>
@@ -1709,7 +1724,7 @@
         <input type="hidden" id="stuResetIdInput" />
         <div>
           <label for="stuResetNewPwInput" class="block text-xs font-bold mb-1">Yangi parol (min 8 belgi + raqam/belgi) *</label>
-          <input id="stuResetNewPwInput" required minlength="8" type="password" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+          <input id="stuResetNewPwInput" required minlength="8" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
           <div class="flex items-center gap-2 mt-1.5">
             <div class="pw-meter-track flex-1"><div id="stuResetPwMeterBar" class="pw-meter-fill bg-slate-300" style="width: 0%"></div></div>
             <span id="stuResetPwMeterLabel" class="text-[10px] font-bold text-slate-400">Min 8 belgi</span>

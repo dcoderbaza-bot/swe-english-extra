@@ -2493,7 +2493,10 @@
 
   function applySyncBadgeUI() {
     const isSrv = Boolean(Sync && Sync.isServerMode());
-    const fullTitle = isSrv ? 'Real-time Server Sync (SSE)' : 'Local Multi-Tab Sync';
+    const extUrl = (Sync && typeof Sync.getServerBaseUrl === 'function') ? Sync.getServerBaseUrl() : '';
+    const fullTitle = isSrv
+      ? ('Real-time Server Sync (SSE)' + (extUrl ? ': ' + extUrl : ''))
+      : 'Local Multi-Tab Sync (faqat shu qurilma brauzerida)';
     const compactLabel = isSrv ? 'Live Sync' : 'Local Sync';
     const cls = isSrv
       ? 'inline-flex whitespace-nowrap shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-400/30'
@@ -2508,6 +2511,10 @@
       const text = badge.id === 'loginSyncBadge' ? (isSrv ? 'Live Server Sync' : 'Local Multi-Tab') : compactLabel;
       badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full ' + (isSrv ? 'bg-emerald-500 animate-pulse' : 'bg-indigo-500') + '"></span><span>' + escapeHtml(text) + '</span>';
     });
+
+    if ($('loginServerUrlInput') && extUrl && !$('loginServerUrlInput').value) {
+      $('loginServerUrlInput').value = extUrl;
+    }
   }
 
   function applyRoleUI() {
@@ -2631,7 +2638,8 @@
 
     if (submitBtn) submitBtn.disabled = true;
     try {
-      if (Sync && !Sync.isServerMode() && typeof window !== 'undefined' && window.location && window.location.protocol !== 'file:') {
+      const hasCustomServer = Boolean(Sync && typeof Sync.getServerBaseUrl === 'function' && Sync.getServerBaseUrl());
+      if (Sync && !Sync.isServerMode() && (hasCustomServer || (typeof window !== 'undefined' && window.location && window.location.protocol !== 'file:'))) {
         await Sync.detectServer();
         applySyncBadgeUI();
       }
@@ -2652,7 +2660,8 @@
           rateLimitStore: typeof localStorage !== 'undefined' ? localStorage : null
         });
         if (!authRes.ok) {
-          throw new Error(authRes.error || 'Login yoki parol noto‘g‘ri!');
+          const hint = ' (Hozir Local rejimda: boshqa qurilma parollari uchun Node server IP orqali kiring yoki "Server IP" dan ulang.)';
+          throw new Error((authRes.error || 'Login yoki parol noto‘g‘ri!') + (authRes.rateLimited ? '' : hint));
         }
         nextSession = Auth.setSession(authRes.session);
         currentSession = nextSession;
@@ -4249,6 +4258,53 @@
     });
     if ($('loginForm')) {
       $('loginForm').addEventListener('submit', handleLoginSubmit);
+    }
+    if ($('toggleServerUrlBtn')) {
+      $('toggleServerUrlBtn').addEventListener('click', function () {
+        const form = $('loginServerConnectForm');
+        if (!form) return;
+        form.classList.toggle('hidden');
+        if (!form.classList.contains('hidden') && $('loginServerUrlInput')) {
+          $('loginServerUrlInput').value = (Sync && Sync.getServerBaseUrl()) || '';
+          $('loginServerUrlInput').focus();
+        }
+      });
+    }
+    if ($('loginServerConnectForm')) {
+      $('loginServerConnectForm').addEventListener('submit', async function (e) {
+        e.preventDefault();
+        if (!Sync) return;
+        const rawUrl = $('loginServerUrlInput') ? $('loginServerUrlInput').value : '';
+        const prevUrl = Sync.getServerBaseUrl();
+        const normalized = Sync.setServerBaseUrl(rawUrl);
+        if (rawUrl.trim() && !normalized) {
+          Sync.setServerBaseUrl(prevUrl);
+          showToast('Server manzili noto‘g‘ri. Masalan: http://192.168.1.10:4175', 'error');
+          return;
+        }
+        const ok = await Sync.detectServer();
+        applySyncBadgeUI();
+        if (ok) {
+          $('loginServerConnectForm').classList.add('hidden');
+          showToast('Serverga ulandi: ' + (normalized || window.location.origin), 'success');
+        } else {
+          Sync.setServerBaseUrl(prevUrl);
+          await Sync.detectServer();
+          applySyncBadgeUI();
+          showToast('Ko‘rsatilgan Server IP javob bermadi. Firewall yoki portni tekshiring.', 'error');
+        }
+      });
+    }
+    if ($('loginServerClearBtn')) {
+      $('loginServerClearBtn').addEventListener('click', async function () {
+        if (!Sync) return;
+        Sync.setServerBaseUrl('');
+        if ($('loginServerUrlInput')) $('loginServerUrlInput').value = '';
+        await Sync.detectServer();
+        applySyncBadgeUI();
+        if ($('loginServerConnectForm')) $('loginServerConnectForm').classList.add('hidden');
+        showToast('Avtomatik server tekshiruvi tiklandi.', 'info');
+      });
     }
 
     // Navigation & Brand Home

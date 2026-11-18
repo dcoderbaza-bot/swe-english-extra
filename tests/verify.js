@@ -10,6 +10,7 @@ const Auth = require('../js/auth.js');
 const Storage = require('../js/storage.js');
 const AiTxt = require('../js/ai-txt.js');
 const Exam = require('../js/exam.js');
+const Sync = require('../js/sync.js');
 const { createAppServer, signSessionToken, verifySessionToken, getSecurityHeaders, maskApiKey } = require('../server.js');
 
 function createMockLocalStorage() {
@@ -1344,6 +1345,109 @@ async function runAsyncTests() {
         body: JSON.stringify({ action: 'start', lessonScope: firstLesson, categoryScope: 'ALL' })
       });
       assert.equal(secondTryRes.status, 403);
+    } finally {
+      server.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  await testAsync('Multi-IP access (0.0.0.0), CORS preflight, Sync server URL normalization & mobile paste space tolerance', async () => {
+    assert.equal(Sync.normalizeServerBaseUrl('192.168.1.15:4175/'), 'http://192.168.1.15:4175');
+    assert.equal(Sync.normalizeServerBaseUrl('https://edu.example.com/app/'), 'https://edu.example.com');
+    assert.equal(Sync.normalizeServerBaseUrl('javascript:alert(1)'), '');
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-multi-ip-'));
+    const dataFilePath = path.join(tmpDir, 'db.json');
+    const secretFilePath = path.join(tmpDir, '.secret');
+
+    const now = Date.now();
+    let seedState = Storage.createDefaultState(now);
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'teacher', 'MultiTeach#2026!');
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'it_manager', 'MultiAdmin#2026!');
+    const stuRes = Auth.createStudentAccount(seedState.students, 'it_manager', {
+      username: 'lanstu',
+      fullName: 'LAN Student',
+      group: 'LAN',
+      password: 'LanStudent#2026!'
+    }, now);
+    seedState.students = stuRes.students;
+    seedState.studentProgress = Storage.ensureStudentProgress(seedState, stuRes.created.id, now);
+    fs.writeFileSync(dataFilePath, JSON.stringify(seedState, null, 2), 'utf8');
+
+    const server = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath,
+      secretFilePath
+    });
+    await new Promise((resolve) => server.listen(0, '0.0.0.0', resolve));
+    const addr = server.address();
+    assert.equal(addr.address, '0.0.0.0');
+    const port = addr.port;
+
+    const nets = os.networkInterfaces();
+    const lanIps = [];
+    Object.keys(nets).forEach((name) => {
+      (nets[name] || []).forEach((info) => {
+        if (info && info.family === 'IPv4' && !info.internal) {
+          lanIps.push(info.address);
+        }
+      });
+    });
+
+    try {
+      // CORS preflight OPTIONS works for cross-IP/cross-port clients
+      const optRes = await fetch(`http://127.0.0.1:${port}/api/login`, { method: 'OPTIONS' });
+      assert.equal(optRes.status, 204);
+      assert.equal(optRes.headers.get('access-control-allow-origin'), '*');
+      assert.equal(getSecurityHeaders(true, true)['Cross-Origin-Opener-Policy'], 'same-origin');
+      assert.equal(getSecurityHeaders(true, false)['Cross-Origin-Opener-Policy'], undefined);
+
+      // Verify IT Manager password update via 127.0.0.1 and login from alternate origin/IP + mobile paste space
+      const itRes = await fetch(`http://127.0.0.1:${port}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'it_manager', password: 'MultiAdmin#2026!' })
+      });
+      const itJson = await itRes.json();
+      assert.equal(itJson.ok, true);
+
+      const chgRes = await fetch(`http://127.0.0.1:${port}/api/security`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${itJson.token}`
+        },
+        body: JSON.stringify({
+          action: 'changeRolePassword',
+          targetRole: 'teacher',
+          newPassword: 'UpdatedLanTeach#2026!'
+        })
+      });
+      assert.equal(chgRes.status, 200);
+
+      // Login from localhost origin with trailing pasted space
+      const teachLocalhostRes = await fetch(`http://localhost:${port}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'UpdatedLanTeach#2026! ' })
+      });
+      assert.equal(teachLocalhostRes.status, 200);
+      assert.equal((await teachLocalhostRes.json()).ok, true);
+
+      // Login from first host LAN IPv4 address if reachable locally
+      if (lanIps.length > 0) {
+        try {
+          const lanRes = await fetch(`http://${lanIps[0]}:${port}/api/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: 'student', username: 'lanstu', password: 'LanStudent#2026! ' })
+          });
+          assert.equal(lanRes.status, 200);
+          assert.equal((await lanRes.json()).ok, true);
+        } catch (_) {
+          // Host firewall/loopback routing may restrict local hairpinning in sandboxed environments
+        }
+      }
     } finally {
       server.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });

@@ -89,19 +89,19 @@ swe-english-extra/
 │   ├── speech.js         # Web Speech API (US/UK) ovozli tizim
 │   └── app.js            # UI kontroller, saralangan rol menyulari, drag-and-drop .TXT, anti-cheat proctoring va jonli monitoring
 ├── tests/
-│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik, minimal-API va yopiq imtihon testlari (14 ta suite)
+│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik, minimal-API va yopiq imtihon testlari (15 ta suite)
 ├── README.md             # Loyiha hujjati
 ├── ARCHITECTURE.md       # Texnik arxitektura va ma'lumotlar modeli
 └── WORK_LOG.md           # Bajarilgan ishlar va tekshiruv hisoboti
 ```
 
 ## Ishga tushirish va Tekshirish
-1. **Real-Time ko‘p qurilmali rejim (Tavsiya etiladi):**
+1. **Real-Time ko‘p qurilmali rejim (Istalgan IP va qurilma uchun — Tavsiya etiladi):**
    ```bash
    node server.js
    ```
-   So‘ngra brauzerda `http://127.0.0.1:4175` manzilini oching (o‘quvchi va o‘qituvchi alohida brauzer/qurilmadan kirib real vaqtda ishlay oladi).
-2. **Yoki** `index.html` faylini to‘g‘ridan-to‘g‘ri brauzerda oching (`Local Multi-Tab` rejimida ishlaydi).
+   Server standart holatda **`0.0.0.0:4175`** da (barcha tarmoq interfeyslarida) ishga tushadi va konsolda lokal (`http://127.0.0.1:4175`) hamda boshqa qurilmalar uchun tarmoq manzillarini (`Network: http://<KOMPYUTER-IP>:4175`) chiqaradi. Boshqa telefon/noutbukdan aynan o‘sha `Network` IP manzilini oching yoki kirish ekranidagi **"Server IP"** tugmasi (`?server=http://...`) orqali serverga ulaning — shunda yangilangan parollar va o‘quvchilar barcha qurilmalarda sinxron ishlaydi.
+2. **Yoki** `index.html` faylini to‘g‘ridan-to‘g‘ri brauzerda oching (`Local Multi-Tab` rejimida ishlaydi — parollar faqat o‘sha brauzer/qurilma xotirasida saqlanadi).
 3. Avtomatlashtirilgan testlarni ishga tushirish:
    ```bash
    node tests/verify.js

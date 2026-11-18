@@ -405,12 +405,18 @@
     return typeof hashStr === 'string' && hashStr.indexOf('swe3:') === 0;
   }
 
+  function verifyPasswordWithTrimFallback(scopeTag, secret, storedHash) {
+    if (verifyPasswordHash(scopeTag, secret, storedHash)) return true;
+    const trimmed = String(secret || '').trim();
+    return Boolean(trimmed && trimmed !== secret && verifyPasswordHash(scopeTag, trimmed, storedHash));
+  }
+
   function verifyRolePassword(authState, role, password) {
     if (role !== 'it_manager' && role !== 'teacher') return false;
     if (!password || typeof password !== 'string') return false;
     const hashes = (authState && authState.hashes) ? authState.hashes : DEFAULT_AUTH_HASHES;
     const expected = hashes[role] || DEFAULT_AUTH_HASHES[role];
-    return verifyPasswordHash('role:' + role, password, expected);
+    return verifyPasswordWithTrimFallback('role:' + role, password, expected);
   }
 
   function authenticate(params) {
@@ -474,7 +480,7 @@
       if (found.active === false) {
         return { ok: false, error: 'Ushbu o‘quvchi akkaunti vaqtincha bloklangan.' };
       }
-      if (!verifyPasswordHash('student:' + normalizeUsername(found.username), password, found.passwordHash)) {
+      if (!verifyPasswordWithTrimFallback('student:' + normalizeUsername(found.username), password, found.passwordHash)) {
         if (rlStore || opts.enforceRateLimit) recordLoginFailure(rlBucket, now, rlStore);
         return { ok: false, error: 'O‘quvchi login yoki paroli noto‘g‘ri!' };
       }
