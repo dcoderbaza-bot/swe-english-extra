@@ -14,9 +14,9 @@ Ilova build bosqichisiz (zero-bundler) ham **Local Multi-Tab (`file:///`)**, ham
 | `js/tailwind-config.js` | CSP-mos Tailwind shrift va dark-mode konfiguratsiyasi |
 | `js/default-data.js` | 5 ta standart kategoriya, 3 ta boshlang‘ich darslik va 15 ta B2/C1 darajadagi akademik/IELTS so‘zlar bazasi |
 | `js/srs.js` | Intervalli takrorlash (SRS) holatlari, navbat saralash, due tekshiruvi |
-| `js/auth.js` | `swe3:4000:<salt>:<sha256>` ko‘p raundli tuzlangan autentifikatsiya (boshlang‘ich xeshlar bilan moslik), kuchli parol tekshiruvi (`validatePasswordStrength`), brute-force cheklovi (`checkLoginRateLimit` / `recordLoginFailure`), O‘quvchi CRUD va `auditLog` |
+| `js/auth.js` | `swe3:4000:<salt>:<sha256>` ko‘p raundli tuzlangan autentifikatsiya (boshlang‘ich xeshlar bilan moslik), kuchli parol tekshiruvi (`validatePasswordStrength`), brute-force cheklovi, `canManageAiConfig` (faqat IT Manager), O‘quvchi CRUD + `deleteStudentAccount` va `auditLog` |
 | `js/storage.js` | v3 ma’lumot modeli (v1/v2->v3 migratsiya), ajratilgan per-student SRS & telemetriya, `hasApiKey` / `apiKeyMasked` normalizatsiyasi va CWE-1236 formula-in’yeksiya himoyali CSV/JSON utilitalari |
-| `js/ai-txt.js` | Ko‘p formatli `.TXT` parser, batafsil/oddiy `.TXT` exporter, `validateAiEndpoint` HTTPS-only + private IP SSRF himoyasi hamda **DeepSeek AI**, Gemini, OpenAI, Custom AI boyitish (`<think>` tozalash va `/api/ai-proxy` orqali maxfiy kalit yubormasdan so‘rov) |
+| `js/ai-txt.js` | Ko‘p formatli `.TXT` parser, batafsil/oddiy `.TXT` exporter, `validateAiEndpoint` HTTPS-only + SSRF himoyasi hamda minimal-API boyitish (`planAiEnrichment`, DB + `swe_english_ai_cache_v1` kesh, deduplikatsiya, 40-so‘zli paket, ixcham `w/p/pos/tr/d/ex/syn/ant/m/cat/lvl` JSON) |
 | `js/sync.js` | Gibrid sinxronizatsiya (`?token=...` orqali himoyalangan SSE `/api/stream`, `429 Retry-After` uzatish / Local `BroadcastChannel`) |
 | `js/speech.js` | `window.speechSynthesis` orqali `en-US` va `en-GB` ovozlarini tanlash va ijro etish |
 | `js/app.js` | Saralangan rol menyulari (`O‘quvchi`: 3 tab, `Teacher`: `.TXT`-only 4 tab, `IT Manager`: 5 tab), Drag-and-Drop `.TXT Kiritish`, yig‘iluvchi AI drawer, jonli parol kuch o‘lchagichlari va real-time kuzatuv |

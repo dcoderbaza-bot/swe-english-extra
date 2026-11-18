@@ -270,6 +270,154 @@
     return text;
   }
 
+  const AI_CACHE_KEY = 'swe_english_ai_cache_v1';
+  const MAX_CACHE_ENTRIES = 1500;
+  const DEFAULT_BATCH_SIZE = 40;
+
+  function isRichWordRecord(rec) {
+    if (!rec || typeof rec !== 'object') return false;
+    const word = cleanWordToken(rec.word);
+    const tr = String(rec.translation || '').trim();
+    const ph = String(rec.phonetic || '').trim();
+    const def = String(rec.definition || '').trim();
+    const ex = Array.isArray(rec.examples) ? rec.examples.filter(Boolean) : [];
+    return Boolean(word && tr && ph && def && ex.length >= 2);
+  }
+
+  function getBrowserLocalStorage() {
+    try {
+      return (typeof window !== 'undefined' && window && window.localStorage) ? window.localStorage : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function loadLexiconCache(storageBackend) {
+    const store = storageBackend || getBrowserLocalStorage();
+    if (!store) return {};
+    try {
+      const raw = store.getItem(AI_CACHE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function saveLexiconCache(cacheObj, storageBackend) {
+    const store = storageBackend || getBrowserLocalStorage();
+    if (!store || !cacheObj || typeof cacheObj !== 'object') return false;
+    try {
+      const keys = Object.keys(cacheObj);
+      if (keys.length > MAX_CACHE_ENTRIES) {
+        keys.sort(function (a, b) {
+          return Number((cacheObj[a] && cacheObj[a].cachedAt) || 0) - Number((cacheObj[b] && cacheObj[b].cachedAt) || 0);
+        });
+        const removeCount = keys.length - MAX_CACHE_ENTRIES;
+        for (let i = 0; i < removeCount; i++) {
+          delete cacheObj[keys[i]];
+        }
+      }
+      store.setItem(AI_CACHE_KEY, JSON.stringify(cacheObj));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function buildReusableItemFromRecord(rec, srcEntry, forcedCategory, forcedLesson) {
+    const lesson = forcedLesson || String((srcEntry && srcEntry.lesson) || rec.lesson || '1-dars: Academic Foundations').trim();
+    const category = forcedCategory || String(rec.category || 'IELTS').trim();
+    const srcTranslation = srcEntry ? String(srcEntry.translation || '').trim() : '';
+    const srcPhonetic = srcEntry ? String(srcEntry.phonetic || '').trim() : '';
+    return {
+      word: cleanWordToken(rec.word || (srcEntry && srcEntry.word) || ''),
+      phonetic: srcPhonetic || String(rec.phonetic || '').trim(),
+      partOfSpeech: String(rec.partOfSpeech || 'word').trim(),
+      translation: srcTranslation || String(rec.translation || '').trim(),
+      definition: String(rec.definition || '').trim(),
+      examples: Array.isArray(rec.examples) ? rec.examples.slice(0, 2) : [],
+      synonyms: Array.isArray(rec.synonyms) ? rec.synonyms.slice(0, 4) : [],
+      antonyms: Array.isArray(rec.antonyms) ? rec.antonyms.slice(0, 4) : [],
+      mnemonic: String(rec.mnemonic || '').trim(),
+      category: category,
+      lesson: lesson,
+      level: String(rec.level || 'B2').trim().toUpperCase()
+    };
+  }
+
+  function planAiEnrichment(entries, options) {
+    const opts = options || {};
+    const list = Array.isArray(entries) ? entries : [];
+    const forcedCategory = opts.forcedCategory && opts.forcedCategory !== 'AUTO' ? opts.forcedCategory : null;
+    const forcedLesson = opts.forcedLesson && opts.forcedLesson !== 'AUTO' ? opts.forcedLesson : null;
+
+    const dbByWord = new Map();
+    if (Array.isArray(opts.existingWords)) {
+      opts.existingWords.forEach(function (w) {
+        if (!isRichWordRecord(w)) return;
+        const key = cleanWordToken(w.word).toLowerCase();
+        if (key && !dbByWord.has(key)) dbByWord.set(key, w);
+      });
+    }
+
+    const useCache = opts.useCache !== false;
+    const cacheObj = opts.cache || (useCache ? loadLexiconCache() : {});
+    const resolvedByIndex = new Array(list.length);
+    const missingEntries = [];
+    const missingByKey = new Map();
+
+    let reusedFromDb = 0;
+    let reusedFromCache = 0;
+    let deduplicated = 0;
+
+    list.forEach(function (src, idx) {
+      const key = cleanWordToken(src && src.word).toLowerCase();
+      if (!key) return;
+
+      if (dbByWord.has(key)) {
+        reusedFromDb++;
+        resolvedByIndex[idx] = buildReusableItemFromRecord(dbByWord.get(key), src, forcedCategory, forcedLesson);
+        return;
+      }
+
+      if (useCache && cacheObj[key] && isRichWordRecord(cacheObj[key])) {
+        reusedFromCache++;
+        resolvedByIndex[idx] = buildReusableItemFromRecord(cacheObj[key], src, forcedCategory, forcedLesson);
+        return;
+      }
+
+      if (isRichWordRecord(src)) {
+        reusedFromCache++;
+        resolvedByIndex[idx] = buildReusableItemFromRecord(src, src, forcedCategory, forcedLesson);
+        return;
+      }
+
+      if (missingByKey.has(key)) {
+        deduplicated++;
+        missingByKey.get(key).indices.push(idx);
+        return;
+      }
+
+      const group = { key: key, entry: src, indices: [idx] };
+      missingByKey.set(key, group);
+      missingEntries.push(group);
+    });
+
+    return {
+      total: list.length,
+      reusedFromDb: reusedFromDb,
+      reusedFromCache: reusedFromCache,
+      deduplicated: deduplicated,
+      missingEntries: missingEntries,
+      resolvedByIndex: resolvedByIndex,
+      cacheObj: cacheObj,
+      useCache: useCache,
+      hasExternalCache: Boolean(opts.cache)
+    };
+  }
+
   function normalizeAiEnrichedItems(aiItems, fallbackEntries, options) {
     const opts = options || {};
     const forcedCategory = opts.forcedCategory && opts.forcedCategory !== 'AUTO' ? opts.forcedCategory : null;
@@ -280,36 +428,44 @@
     const bySourceIndex = Array.isArray(aiItems) ? aiItems : [];
 
     return fallbackEntries.map(function (src, idx) {
+      const srcWordLower = cleanWordToken(src.word).toLowerCase();
       const ai = bySourceIndex[idx] || bySourceIndex.find(function (item) {
-        return item && item.word && String(item.word).trim().toLowerCase() === src.word.toLowerCase();
+        if (!item) return false;
+        const w = String(item.w || item.word || '').trim().toLowerCase();
+        return w && w === srcWordLower;
       }) || {};
 
-      const finalWord = cleanWordToken(ai.word || src.word);
-      const levelRaw = String(ai.level || 'B2').trim().toUpperCase();
+      const finalWord = cleanWordToken(ai.w || ai.word || src.word);
+      const levelRaw = String(ai.lvl || ai.level || 'B2').trim().toUpperCase();
       const level = allowedLevels.indexOf(levelRaw) !== -1 ? levelRaw : 'B2';
 
-      let category = forcedCategory || String(ai.category || 'IELTS').trim();
+      let category = forcedCategory || String(ai.cat || ai.category || 'IELTS').trim();
       if (!forcedCategory && allowedCategories.indexOf(category) === -1 && !(opts.existingCategories || []).includes(category)) {
         category = 'IELTS';
       }
 
-      const lesson = forcedLesson || String(ai.lesson || src.lesson || '1-dars: Academic Foundations').trim();
-      const rawExamples = Array.isArray(ai.examples) ? ai.examples : [ai.example1, ai.example2];
+      const lesson = forcedLesson || String(src.lesson || ai.lesson || '1-dars: Academic Foundations').trim();
+      const rawExamples = Array.isArray(ai.ex || ai.examples)
+        ? (ai.ex || ai.examples)
+        : [ai.example1, ai.example2];
       const examples = rawExamples
         .map(function (ex) { return ensureBoldWordInExample(ex, finalWord); })
         .filter(Boolean)
         .slice(0, 2);
 
+      const rawSyn = Array.isArray(ai.syn) ? ai.syn : (Array.isArray(ai.synonyms) ? ai.synonyms : []);
+      const rawAnt = Array.isArray(ai.ant) ? ai.ant : (Array.isArray(ai.antonyms) ? ai.antonyms : []);
+
       return {
         word: finalWord,
-        phonetic: String(ai.phonetic || src.phonetic || '').trim(),
-        partOfSpeech: String(ai.partOfSpeech || 'word').trim(),
-        translation: String(ai.translation || src.translation || '').trim(),
-        definition: String(ai.definition || '').trim(),
+        phonetic: String(ai.p || ai.phonetic || src.phonetic || '').trim(),
+        partOfSpeech: String(ai.pos || ai.partOfSpeech || 'word').trim(),
+        translation: String(ai.tr || ai.translation || src.translation || '').trim(),
+        definition: String(ai.d || ai.definition || '').trim(),
         examples: examples,
-        synonyms: Array.isArray(ai.synonyms) ? ai.synonyms.map(String).map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 4) : [],
-        antonyms: Array.isArray(ai.antonyms) ? ai.antonyms.map(String).map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 4) : [],
-        mnemonic: String(ai.mnemonic || '').trim(),
+        synonyms: rawSyn.map(String).map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 4),
+        antonyms: rawAnt.map(String).map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 4),
+        mnemonic: String(ai.m || ai.mnemonic || '').trim(),
         category: category,
         lesson: lesson,
         level: level
@@ -319,40 +475,25 @@
 
   function buildEnrichPrompt(batchEntries, options) {
     const opts = options || {};
+    const forcedCategory = opts.forcedCategory && opts.forcedCategory !== 'AUTO' ? opts.forcedCategory : null;
     const categories = (opts.existingCategories && opts.existingCategories.length)
       ? opts.existingCategories.join(', ')
       : 'IELTS, General English, Business, Phrasal Verbs, Idioms';
 
-    const compactInput = batchEntries.map(function (e, i) {
-      return {
-        index: i,
-        raw: e.rawLine,
-        word: e.word,
-        translationHint: e.translation,
-        lesson: e.lesson
-      };
+    // Ultra-compact wire input to minimize input tokens (no index/lesson duplication)
+    const compactInput = batchEntries.map(function (e) {
+      const hint = String(e.translation || '').trim();
+      return hint ? (e.word + '|' + hint) : e.word;
     });
 
+    const catRule = forcedCategory
+      ? ''
+      : ',"cat":best of [' + categories + ']';
+
     return [
-      'You are an expert English-Uzbek lexicographer and IELTS instructor.',
-      'Clean, fix spelling/typos, and enrich EVERY vocabulary entry below into structured JSON.',
-      'Return ONLY a valid JSON array with exact same length and order as the input.',
-      'For each item return an object with these exact keys:',
-      '- "word": corrected English word or phrase',
-      '- "phonetic": British/International IPA transcription in slashes like "/ɪnˈdev.ər/"',
-      '- "partOfSpeech": e.g. "noun", "verb", "adjective", "adverb", "phrasal verb", "idiom"',
-      '- "translation": clear, accurate Uzbek translation (use Latin Uzbek alphabet with o‘, g‘, sh, ch)',
-      '- "definition": concise natural English definition',
-      '- "examples": array of exactly 2 realistic context sentences where the target word/phrase is wrapped in **bold** markers like **word**',
-      '- "synonyms": array of 2-4 English synonyms',
-      '- "antonyms": array of 1-3 English antonyms (or empty array if none)',
-      '- "mnemonic": short memorable Uzbek/English association tip to remember the word',
-      '- "category": best fit from [' + categories + ']',
-      '- "lesson": preserve input lesson name',
-      '- "level": CEFR level ("A1", "A2", "B1", "B2", "C1", or "C2")',
-      '',
-      'Input entries JSON:',
-      JSON.stringify(compactInput)
+      'Return ONLY a JSON array matching input count & order. Fix spelling if needed. Keep Uzbek values in Latin Uzbek (o‘,g‘,sh,ch).',
+      'Keys per item: "w":word,"p":IPA "/.../","pos":partOfSpeech,"tr":Uzbek translation,"d":concise English def,"ex":[2 short sentences with **w**],"syn":[2 synonyms],"ant":[1 antonym],"m":short mnemonic,"lvl":A1-C2' + catRule + '.',
+      'Input:' + JSON.stringify(compactInput)
     ].join('\n');
   }
 
@@ -559,42 +700,88 @@
     const list = Array.isArray(entries) ? entries : [];
     if (list.length === 0) return [];
 
-    const batchSize = Number(opts.batchSize) > 0 ? Number(opts.batchSize) : 15;
-    const totalBatches = Math.ceil(list.length / batchSize);
-    const enrichedAll = [];
+    const plan = planAiEnrichment(list, opts);
+    const forcedCategory = opts.forcedCategory && opts.forcedCategory !== 'AUTO' ? opts.forcedCategory : null;
+    const forcedLesson = opts.forcedLesson && opts.forcedLesson !== 'AUTO' ? opts.forcedLesson : null;
+    const batchSize = Number(opts.batchSize) > 0 ? Number(opts.batchSize) : DEFAULT_BATCH_SIZE;
+    const uniqueMissing = plan.missingEntries.map(function (g) { return g.entry; });
+    const totalBatches = Math.ceil(uniqueMissing.length / batchSize);
+    let apiCallsMade = 0;
 
-    for (let b = 0; b < totalBatches; b++) {
-      const slice = list.slice(b * batchSize, (b + 1) * batchSize);
-      if (typeof opts.onProgress === 'function') {
-        opts.onProgress({
-          currentBatch: b + 1,
-          totalBatches: totalBatches,
-          processedCount: b * batchSize,
-          totalCount: list.length
+    if (uniqueMissing.length > 0) {
+      let cacheDirty = false;
+      for (let b = 0; b < totalBatches; b++) {
+        const slice = uniqueMissing.slice(b * batchSize, (b + 1) * batchSize);
+        if (typeof opts.onProgress === 'function') {
+          opts.onProgress({
+            currentBatch: b + 1,
+            totalBatches: totalBatches,
+            processedCount: b * batchSize,
+            totalCount: uniqueMissing.length
+          });
+        }
+
+        const prompt = buildEnrichPrompt(slice, opts);
+        apiCallsMade++;
+        const rawResponse = await callAiProvider(prompt, aiConfig, opts.fetchImpl);
+        const parsedJson = extractJsonFromAiResponse(rawResponse);
+        const normalizedSlice = normalizeAiEnrichedItems(parsedJson, slice, opts);
+
+        normalizedSlice.forEach(function (item, sliceIdx) {
+          const group = plan.missingEntries[b * batchSize + sliceIdx];
+          if (!group) return;
+
+          if (plan.useCache && item && item.word && item.translation) {
+            const storeRecord = Object.assign({}, item, { cachedAt: Date.now() });
+            plan.cacheObj[group.key] = storeRecord;
+            const itemKey = cleanWordToken(item.word).toLowerCase();
+            if (itemKey && itemKey !== group.key) {
+              plan.cacheObj[itemKey] = storeRecord;
+            }
+            cacheDirty = true;
+          }
+
+          group.indices.forEach(function (origIdx) {
+            const origSrc = list[origIdx];
+            plan.resolvedByIndex[origIdx] = Object.assign({}, item, {
+              lesson: forcedLesson || String((origSrc && origSrc.lesson) || item.lesson || '1-dars: Academic Foundations').trim(),
+              category: forcedCategory || item.category
+            });
+          });
         });
       }
 
-      const prompt = buildEnrichPrompt(slice, opts);
-      const rawResponse = await callAiProvider(prompt, aiConfig, opts.fetchImpl);
-      const parsedJson = extractJsonFromAiResponse(rawResponse);
-      const normalized = normalizeAiEnrichedItems(parsedJson, slice, opts);
-      normalized.forEach(function (item) { enrichedAll.push(item); });
+      if (cacheDirty && plan.useCache && !plan.hasExternalCache) {
+        saveLexiconCache(plan.cacheObj);
+      }
     }
 
     if (typeof opts.onProgress === 'function') {
       opts.onProgress({
         currentBatch: totalBatches,
         totalBatches: totalBatches,
-        processedCount: list.length,
-        totalCount: list.length
+        processedCount: uniqueMissing.length,
+        totalCount: uniqueMissing.length
       });
     }
 
-    return enrichedAll;
+    if (typeof opts.onStats === 'function') {
+      opts.onStats({
+        total: list.length,
+        reusedFromDb: plan.reusedFromDb,
+        reusedFromCache: plan.reusedFromCache,
+        deduplicated: plan.deduplicated,
+        sentToAi: uniqueMissing.length,
+        apiCalls: apiCallsMade
+      });
+    }
+
+    return plan.resolvedByIndex.filter(Boolean);
   }
 
   async function testAiConnection(aiConfig, fetchImpl) {
-    const prompt = 'Return a JSON array with 1 item translating "resilient" into Uzbek with keys "word" and "translation".';
+    // Minimal 1-token verification ping instead of generating multi-sentence definitions
+    const prompt = 'Reply ONLY JSON: [{"word":"ok","translation":"tayyor"}]';
     const raw = await callAiProvider(prompt, aiConfig, fetchImpl);
     const parsed = extractJsonFromAiResponse(raw);
     return Array.isArray(parsed) && parsed.length > 0;
@@ -602,9 +789,15 @@
 
   const api = {
     PROVIDER_DEFAULTS: PROVIDER_DEFAULTS,
+    AI_CACHE_KEY: AI_CACHE_KEY,
+    DEFAULT_BATCH_SIZE: DEFAULT_BATCH_SIZE,
     SAMPLE_TXT: SAMPLE_TXT,
     isPrivateOrLocalHostname: isPrivateOrLocalHostname,
     validateAiEndpoint: validateAiEndpoint,
+    isRichWordRecord: isRichWordRecord,
+    loadLexiconCache: loadLexiconCache,
+    saveLexiconCache: saveLexiconCache,
+    planAiEnrichment: planAiEnrichment,
     parseRawTxtVocabulary: parseRawTxtVocabulary,
     exportToTXT: exportToTXT,
     extractJsonFromAiResponse: extractJsonFromAiResponse,

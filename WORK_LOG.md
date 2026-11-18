@@ -94,3 +94,27 @@
   - Brute-force 5x xato paroldan keyin `429` blokirovka, IT Manager `Xavfsizlik` bo‘limidan `clearRateLimits` bilan blokni ochish va `AUTH_LOCKOUT` audit jurnali tekshirildi.
   - Teacher akkauntida 4 ta saralangan menyu, qo‘lda so‘z/JSON/CSV tugmalari yo‘qligi, faqat `.TXT` yuklash/boyitish/eksport va `15 -> 22` so‘z o‘sishi tasdiqlandi.
   - O‘quvchi (`student1`) da faqat 3 ta menyu, 3D Flashcard old/orqa tomonlarining Dark/Light rejimda ghostingsiz silliq aylanishi va SRS `Oson (7 kun)` baholash to‘liq tasdiqlandi.
+
+---
+
+## 6. 5-bosqich yangilanishlari (Parol tiklash ishonchliligi, O‘chirish tasdiqlari, IT-only API Key va Minimal AI Sarfi)
+
+### Asosiy yaxshilanishlar
+- **O‘qituvchi parolini yangilash ishonchliligi (`js/auth.js`, `js/app.js`, `js/sync.js`, `server.js`, `index.html`):**
+  - `changeRolePassword`, `resetStudentPassword` va `toggleStudentActive` amallari server va lokal rejimda o‘sha akkauntning brute-force blokirovkasini avtomatik tozalaydi.
+  - Server rejimida `mergeRemoteState` mahalliy `state.auth.hashes` ni standart (`DEFAULT_AUTH_HASHES`) ga qaytarib yubormasligi va parol yangilanganda mahalliy fallback ham yangilanishi ta’minlandi; `Sync.detectServer()` timeouti `1500ms` ga oshirilib login paytida qayta tekshiriladi.
+  - Kirish formasida faol rol tugmasi gradient bilan ajratildi, tugma va parol yorlig‘i tanlangan rolga moslanadi (`Teacher paroli *` / `Teacher sifatida kirish`), xato xabarlari aniqlandi (`Teacher paroli noto‘g‘ri!` vs `IT Manager paroli noto‘g‘ri!`) va `Xavfsizlik` parol maydonlariga `autocomplete="new-password"` + ko‘rish (👁️) tugmalari qo‘shildi.
+- **Tasdiqlash dialogi bilan O‘quvchi va Dars lug‘atlarini o‘chirish:**
+  - `Auth.deleteStudentAccount`, `POST /api/students` (`action: 'delete'`) va `O‘quvchilar` ro‘yxatidagi `O‘chirish` tugmasi `#confirmModal` tasdig‘i orqali o‘quvchi akkaunti, progressi va faoliyat yozuvlarini o‘chiradi hamda aktiv tokenni darhol bekor qiladi (`401`).
+  - `Lug‘atlar` bo‘limiga `#vocabLessonsBar` (`#vocabLessonPills`) va `#vocabDeleteSelectedLessonBtn` qo‘shildi; butun darslik va uning barcha so‘zlarini o‘chirish (`deleteLessonVocabulary`) avval `#confirmModal` orqali tasdiqlanadi.
+- **API Key sozlamalari faqat IT Manager’da ko‘rinishi:**
+  - `Auth.canManageAiConfig` (`role === 'it_manager'`) joriy etildi: `POST /api/ai-config` Teacher uchun `403`, `sanitizeDbForSession` esa Teacher uchun `apiKeyMasked` va `customUrl` ni yashiradi; `#toggleAiSettingsBtn` va `#aiSettingsDrawer` UI da faqat IT Manager uchun ko‘rsatiladi (`Xavfsizlik` dan to‘g‘ridan-to‘g‘ri havola bilan).
+- **API so‘rovlari va tokenlarni minimallashtirish (`js/ai-txt.js`, `server.js`, `js/app.js`):**
+  - `planAiEnrichment`: `.txt` dagi so‘zlarni avval mavjud baza (`state.words`) va brauzer leksika keshi (`swe_english_ai_cache_v1`, max 1500 so‘z) orqali tekshiradi, dublikatlarni birlashtiradi (`0 API` so‘rovi).
+  - Paket hajmi `15` dan `40` ta so‘zgacha oshirildi (`DEFAULT_BATCH_SIZE = 40`); `buildEnrichPrompt` ixcham input (`word|hint`) va qisqa JSON kalitlariga (`w/p/pos/tr/d/ex/syn/ant/m/cat/lvl`) o‘tkazildi (`lesson` umuman yuborilmaydi).
+  - `testAiConnection` minimal 1-qatorlik JSON pingga qisqartirildi; `server.js` `/api/ai-proxy` da 24 soatlik `aiProxyCache` (150 ta yozuv) va parallel `aiInFlight` birlashtirish joriy etildi.
+
+### 5-bosqich tekshiruv natijalari
+- `node --check`: [server.js](file:///c:/Users/dcode/Documents/Chiziqli/swe-english-extra/server.js) va barcha 10 ta `js/*.js` fayllar xatosiz o‘tdi.
+- `node tests/verify.js`: **13/13** test to‘plami muvaffaqiyatli o‘tdi (Teacher lockout->reset login, IT-only AI config, student delete token invalidation, `/api/ai-proxy` cache va DB/cache/dedup `0 API` testlari bilan).
+- Jonli brauzer QA (`http://127.0.0.1:4176/`, 0 konsol/CSP/sahifa xatosi): Teacher’da `API Key Sozlamasi` yashirilgani, `@madina` va `3-dars: Business & Expressions` tasdiqlash bilan o‘chirilgani hamda bazadagi so‘zlar API kalitsiz `0 ta AI so‘rovi!` bilan boyitilgani tasdiqlandi.

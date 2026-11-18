@@ -227,6 +227,10 @@ function createAppServer(options) {
   const sseClients = new Set();
   const revokedTokens = new Map();
   const rateLimitMap = new Map();
+  const aiProxyCache = new Map();
+  const aiInFlight = new Map();
+  const AI_PROXY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+  const AI_PROXY_CACHE_MAX = 150;
 
   function pruneSecurityMaps(nowMs) {
     const ts = typeof nowMs === 'number' ? nowMs : Date.now();
@@ -790,30 +794,63 @@ function createAppServer(options) {
           headers['Authorization'] = 'Bearer ' + apiKey;
         }
 
-        const aiRes = await fetcher(safeEndpoint, {
-          method: 'POST',
-          headers: headers,
-          redirect: 'error',
-          body: JSON.stringify(body.payload || {})
-        });
-        const aiData = await aiRes.json().catch(function () { return {}; });
-        if (!aiRes.ok) {
-          const msg = (aiData && aiData.error && aiData.error.message) || ('HTTP ' + aiRes.status);
-          sendJson(res, aiRes.status, { ok: false, error: 'AI API xatosi: ' + msg });
+        const nowMs = Date.now();
+        const proxyCacheKey = crypto.createHash('sha256')
+          .update(provider + '|' + safeEndpoint + '|' + JSON.stringify(body.payload || {}))
+          .digest('hex');
+
+        const cachedEntry = aiProxyCache.get(proxyCacheKey);
+        if (cachedEntry && (nowMs - cachedEntry.ts) <= AI_PROXY_CACHE_TTL_MS && cachedEntry.content) {
+          sendJson(res, 200, { ok: true, content: cachedEntry.content, cached: true });
           return;
         }
-        let content = '';
-        if (isGemini) {
-          content = (aiData &&
-            aiData.candidates &&
-            aiData.candidates[0] &&
-            aiData.candidates[0].content &&
-            aiData.candidates[0].content.parts &&
-            aiData.candidates[0].content.parts.map(function (p) { return p.text || ''; }).join('')) || '';
-        } else {
-          content = (aiData && aiData.choices && aiData.choices[0] && aiData.choices[0].message && aiData.choices[0].message.content) || '';
+        if (cachedEntry) aiProxyCache.delete(proxyCacheKey);
+
+        let pendingPromise = aiInFlight.get(proxyCacheKey);
+        if (!pendingPromise) {
+          pendingPromise = (async function () {
+            const aiRes = await fetcher(safeEndpoint, {
+              method: 'POST',
+              headers: headers,
+              redirect: 'error',
+              body: JSON.stringify(body.payload || {})
+            });
+            const aiData = await aiRes.json().catch(function () { return {}; });
+            if (!aiRes.ok) {
+              const msg = (aiData && aiData.error && aiData.error.message) || ('HTTP ' + aiRes.status);
+              return { ok: false, status: aiRes.status, error: 'AI API xatosi: ' + msg };
+            }
+            let content = '';
+            if (isGemini) {
+              content = (aiData &&
+                aiData.candidates &&
+                aiData.candidates[0] &&
+                aiData.candidates[0].content &&
+                aiData.candidates[0].content.parts &&
+                aiData.candidates[0].content.parts.map(function (p) { return p.text || ''; }).join('')) || '';
+            } else {
+              content = (aiData && aiData.choices && aiData.choices[0] && aiData.choices[0].message && aiData.choices[0].message.content) || '';
+            }
+            if (content) {
+              if (aiProxyCache.size >= AI_PROXY_CACHE_MAX) {
+                const oldestKey = aiProxyCache.keys().next().value;
+                if (oldestKey) aiProxyCache.delete(oldestKey);
+              }
+              aiProxyCache.set(proxyCacheKey, { content: content, ts: Date.now() });
+            }
+            return { ok: true, content: content };
+          })().finally(function () {
+            aiInFlight.delete(proxyCacheKey);
+          });
+          aiInFlight.set(proxyCacheKey, pendingPromise);
         }
-        sendJson(res, 200, { ok: true, content: content });
+
+        const proxyOut = await pendingPromise;
+        if (!proxyOut.ok) {
+          sendJson(res, proxyOut.status || 502, { ok: false, error: proxyOut.error });
+          return;
+        }
+        sendJson(res, 200, { ok: true, content: proxyOut.content, cached: false });
         return;
       }
 

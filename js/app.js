@@ -2644,10 +2644,20 @@
     const forcedLesson = selVal !== 'AUTO' ? defaultLesson : null;
     const forcedCategory = $('txtTargetCategorySelect').value !== 'AUTO'
       ? $('txtTargetCategorySelect').value
-      : 'IELTS';
+      : 'AUTO';
 
     const parsed = AiTxt.parseRawTxtVocabulary(rawText, defaultLesson);
-    return parsed.entries.map(function (entry) {
+    const plan = AiTxt.planAiEnrichment(parsed.entries, {
+      existingWords: state.words,
+      forcedCategory: forcedCategory,
+      forcedLesson: forcedLesson || 'AUTO'
+    });
+
+    return parsed.entries.map(function (entry, idx) {
+      const reused = plan.resolvedByIndex[idx];
+      if (reused) {
+        return Object.assign({ selected: true }, reused);
+      }
       return {
         selected: true,
         word: entry.word,
@@ -2659,7 +2669,7 @@
         synonyms: [],
         antonyms: [],
         mnemonic: '',
-        category: forcedCategory,
+        category: forcedCategory !== 'AUTO' ? forcedCategory : 'IELTS',
         lesson: forcedLesson || entry.lesson || defaultLesson,
         level: 'B2'
       };
@@ -2685,9 +2695,35 @@
   }
 
   async function runTxtAiEnrich() {
+    if ($('txtAiEnrichBtn') && $('txtAiEnrichBtn').disabled) return;
     const rawText = $('txtRawInput').value.trim();
     if (!rawText) {
       showToast('Avval .txt fayl yuklang yoki matn kiriting!', 'warning');
+      return;
+    }
+
+    const defaultLesson = resolveTxtTargetLesson();
+    const parsed = AiTxt.parseRawTxtVocabulary(rawText, defaultLesson);
+    if (parsed.entries.length === 0) {
+      showToast('Matnda ajratiladigan so‘z topilmadi.', 'warning');
+      return;
+    }
+
+    const forcedLesson = $('txtTargetLessonSelect').value !== 'AUTO' ? defaultLesson : 'AUTO';
+    const forcedCategory = $('txtTargetCategorySelect').value || 'AUTO';
+    const plan = AiTxt.planAiEnrichment(parsed.entries, {
+      existingWords: state.words,
+      forcedCategory: forcedCategory,
+      forcedLesson: forcedLesson
+    });
+
+    // Zero API calls when every word is already in DB or lexicon cache!
+    if (plan.missingEntries.length === 0) {
+      txtPreviewItems = plan.resolvedByIndex.filter(Boolean).map(function (item) {
+        return Object.assign({ selected: true }, item);
+      });
+      renderTxtPreview();
+      showToast(txtPreviewItems.length + ' ta so‘z bazadan/keshdan olindi — 0 ta AI so‘rovi!', 'success');
       return;
     }
 
@@ -2703,35 +2739,30 @@
       return;
     }
 
-    const defaultLesson = resolveTxtTargetLesson();
-    const parsed = AiTxt.parseRawTxtVocabulary(rawText, defaultLesson);
-    if (parsed.entries.length === 0) {
-      showToast('Matnda ajratiladigan so‘z topilmadi.', 'warning');
-      return;
-    }
-
-    const forcedLesson = $('txtTargetLessonSelect').value !== 'AUTO' ? defaultLesson : 'AUTO';
-    const forcedCategory = $('txtTargetCategorySelect').value || 'AUTO';
     const progressWrap = $('txtAiProgressWrap');
     const progressText = $('txtAiProgressText');
     const progressPct = $('txtAiProgressPct');
     const progressBar = $('txtAiProgressBar');
 
     progressWrap.classList.remove('hidden');
-    progressText.textContent = 'AI so‘zlarni tekshirmoqda...';
+    progressText.textContent = 'AI faqat ' + plan.missingEntries.length + ' ta yangi so‘zni tekshirmoqda...';
     progressPct.textContent = '5%';
     progressBar.style.width = '5%';
     $('txtAiEnrichBtn').disabled = true;
     $('txtParseOnlyBtn').disabled = true;
 
+    let runStats = null;
     try {
       const enriched = await AiTxt.enrichEntriesWithAI(parsed.entries, cfg, {
-        batchSize: 15,
+        batchSize: AiTxt.DEFAULT_BATCH_SIZE || 40,
+        existingWords: state.words,
         existingCategories: state.categories.map(function (c) { return c.name; }),
         forcedCategory: forcedCategory,
         forcedLesson: forcedLesson,
+        onStats: function (st) { runStats = st; },
         onProgress: function (p) {
-          const pct = Math.max(8, Math.round((p.processedCount / Math.max(1, p.totalCount)) * 100));
+          const denom = Math.max(1, p.totalCount);
+          const pct = Math.max(8, Math.round((p.processedCount / denom) * 100));
           progressText.textContent = 'AI paket ' + p.currentBatch + ' / ' + p.totalBatches + ' qayta ishlanmoqda...';
           progressPct.textContent = pct + '%';
           progressBar.style.width = pct + '%';
@@ -2742,7 +2773,17 @@
         return Object.assign({ selected: true }, item);
       });
       renderTxtPreview();
-      showToast('AI ' + txtPreviewItems.length + ' ta so‘zni to‘liq boyitdi!', 'success');
+
+      if (runStats) {
+        const savedWords = runStats.reusedFromDb + runStats.reusedFromCache + runStats.deduplicated;
+        if (savedWords > 0) {
+          showToast(runStats.sentToAi + ' ta so‘zga ' + runStats.apiCalls + ' ta AI so‘rovi (' + savedWords + ' ta so‘z kesh/bazadan tejaldi)!', 'success');
+        } else {
+          showToast('AI ' + txtPreviewItems.length + ' ta so‘zni ' + runStats.apiCalls + ' ta so‘rovda boyitdi!', 'success');
+        }
+      } else {
+        showToast('AI ' + txtPreviewItems.length + ' ta so‘zni to‘liq boyitdi!', 'success');
+      }
     } catch (err) {
       showToast(err.message || 'AI so‘rovi bajarilmadi.', 'error');
     } finally {
@@ -3025,15 +3066,24 @@
       return;
     }
 
+    const entries = incomplete.map(function (w) {
+      return { rawLine: w.word + ' - ' + w.translation, word: w.word, translation: w.translation, lesson: w.lesson };
+    });
+    const plan = AiTxt.planAiEnrichment(entries, { existingWords: state.words });
+
     const btn = $('enrichIncompleteBtn');
     btn.disabled = true;
-    showToast(incomplete.length + ' ta to‘liq bo‘lmagan so‘z AI orqali boyitilmoqda...', 'info');
+    showToast(
+      plan.missingEntries.length === 0
+        ? (incomplete.length + ' ta so‘z keshdan to‘ldirilmoqda (0 ta AI so‘rovi)...')
+        : (plan.missingEntries.length + ' ta so‘z AI orqali boyitilmoqda...'),
+      'info'
+    );
 
     try {
-      const enriched = await AiTxt.enrichEntriesWithAI(incomplete.map(function (w) {
-        return { rawLine: w.word + ' - ' + w.translation, word: w.word, translation: w.translation, lesson: w.lesson };
-      }), cfg, {
-        batchSize: 15,
+      const enriched = await AiTxt.enrichEntriesWithAI(entries, cfg, {
+        batchSize: AiTxt.DEFAULT_BATCH_SIZE || 40,
+        existingWords: state.words,
         existingCategories: state.categories.map(function (c) { return c.name; }),
         forcedCategory: 'AUTO',
         forcedLesson: 'AUTO'

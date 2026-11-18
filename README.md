@@ -26,10 +26,13 @@
 - **Writing / Spelling (Yozma mashq):** O‘zbekcha tarjima va audio asosida inglizcha so‘zni harflab yozish (`Ko‘rsatma` yordami bilan).
 - **Listening Mode:** Faqat audio tinglash (normal va `0.75x` sekin tezlik, US/UK aksentlari) hamda `4 Variant` yoki `Eshitib yozish` rejimlari.
 
-### 4. Teacher uchun faqat `.TXT` Lug‘at Kiritish va AI Boyitish
-- **Faqat `.TXT` oqimi (Teacher & IT Manager):** O‘qituvchi lug‘atni **faqat `.txt` fayl** yuklash (yoki Drag-and-Drop dropzone / matn joylash) hamda eksport qilish orqali boshqaradi; murakkab qo‘lda so‘z/kategoriya qo‘shish va JSON/CSV tugmalari olib tashlanib interfeys soddalashtirildi.
+### 4. Teacher uchun faqat `.TXT` Lug‘at Kiritish va Minimal API AI Boyitish
+- **Faqat `.TXT` oqimi (Teacher & IT Manager):** O‘qituvchi lug‘atni **faqat `.txt` fayl** yuklash (yoki Drag-and-Drop dropzone / matn joylash) hamda eksport qilish orqali boshqaradi; `Lug‘atlar` bo‘limida esa so‘z yoki **butun darslik lug‘atini** tasdiqlash dialogi (`#confirmModal`) bilan o‘chirish mumkin.
 - **Umumiy `.TXT` Parser & Exporter:** Barcha darslik lug‘atlarini bitta `.txt` faylga (`To‘liq` yoki `Oddiy: So‘z - Tarjima`) eksport qilish hamda istalgan tartibdagi `.txt` fayllarni yuklash (`# 4-dars`, `=== Unit ===`, `word - tarjima`, yoki faqat inglizcha so‘zlar).
-- **AI Auto-Formatter (`DeepSeek API Sozlamasi`):** `.TXT Kiritish` sahifasining ichidagi ochiluvchi panelda **API Key** (**DeepSeek AI (`deepseek-chat`)**, **Google Gemini**, **OpenAI GPT**, yoki **Custom HTTPS** endpoint) kiritilganda, `.txt` ichidagi xato yozilgan so‘zlarni to‘g‘rilaydi, IPA transkripsiya, o‘zbekcha tarjima, izoh, 2 ta bold misol gap, sinonim/antonim va mnemonika yaratib beradi. Server rejimida API kalit brauzerdan yashiriladi (`hasApiKey`, `apiKeyMasked`) va `/api/ai-proxy` orqali yuboriladi.
+- **Minimal API sarfli AI Auto-Formatter (`5` qatlamli tejamkorlik):**
+  - **API Key sozlamalari faqat IT Manager uchun:** API kalitini kiritish/ko‘rish/test qilish/o‘chirish (`#toggleAiSettingsBtn` + `#aiSettingsDrawer` + `/api/ai-config`) faqat IT Manager’ga ruxsat etilgan; Teacher faqat tayyorlik holatini ko‘radi va server proxy orqali so‘z boyitishni ishlatadi.
+  - **0 API qidiruvi va kesh:** AI so‘rovidan oldin mavjud baza (`state.words`) va brauzer leksika keshi (`swe_english_ai_cache_v1`) tekshiriladi hamda bitta `.txt` dagi takror so‘zlar birlashtiriladi. Barcha so‘zlar baza/keshdan topilsa **0 ta API so‘rovi** ketadi.
+  - **Katta paket (`40` so‘z) + ixcham JSON sxema + server proxy keshi:** Qisqa kalitlar (`w,p,pos,tr,d,ex,syn,ant,m,cat,lvl`), `lesson` ni qaytadan yubormaslik va serverda `aiProxyCache` (24 soatlik + in-flight birlashtirish) orqali API xarajatlari minimal darajaga tushirilgan.
 - Boshlang‘ich holatda darhol sinab ko‘rish uchun **3 ta darslikda 15 ta B2/C1 akademik va IELTS so‘zlari** tayyor holda yuklanadi.
 
 ### 5. Saralangan Rol Menyulari, O‘quvchi Akkauntlari va Kiberxavfsizlik
@@ -84,7 +87,7 @@ swe-english-extra/
 │   ├── speech.js         # Web Speech API (US/UK) ovozli tizim
 │   └── app.js            # UI kontroller, saralangan rol menyulari, drag-and-drop .TXT va jonli monitoring
 ├── tests/
-│   └── verify.js         # Node.js avtomatlashtirilgan unit + kiberxavfsizlik va server integratsiya testlari (12 ta suite)
+│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik va minimal-API testlari (13 ta suite)
 ├── README.md             # Loyiha hujjati
 ├── ARCHITECTURE.md       # Texnik arxitektura va ma'lumotlar modeli
 └── WORK_LOG.md           # Bajarilgan ishlar va tekshiruv hisoboti

@@ -698,7 +698,9 @@ async function runAsyncTests() {
     fs.writeFileSync(dataFilePath, JSON.stringify(seedState, null, 2), 'utf8');
 
     let lastProxiedCall = null;
+    let proxyFetchCalls = 0;
     const mockProxyFetch = async (url, init) => {
+      proxyFetchCalls++;
       lastProxiedCall = { url, init };
       return {
         ok: true,
@@ -928,10 +930,31 @@ async function runAsyncTests() {
       const proxyJson = await proxyRes.json();
       assert.equal(proxyRes.status, 200);
       assert.equal(proxyJson.ok, true);
+      assert.equal(proxyJson.cached, false);
+      assert.equal(proxyFetchCalls, 1);
       assert.match(proxyJson.content, /lucid/);
       assert.equal(lastProxiedCall.url, 'https://api.deepseek.com/chat/completions');
       assert.equal(lastProxiedCall.init.redirect, 'error');
       assert.equal(lastProxiedCall.init.headers.Authorization, 'Bearer sk-secret-deepseek-9876');
+
+      // Second identical /api/ai-proxy request hits server cache with 0 upstream fetch calls
+      const cachedProxyRes = await fetch(`${baseUrl}/api/ai-proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${teachLogin.token}`
+        },
+        body: JSON.stringify({
+          provider: 'deepseek',
+          endpoint: 'https://api.deepseek.com/chat/completions',
+          payload: { model: 'deepseek-chat', messages: [{ role: 'user', content: 'hi' }] }
+        })
+      });
+      const cachedProxyJson = await cachedProxyRes.json();
+      assert.equal(cachedProxyRes.status, 200);
+      assert.equal(cachedProxyJson.cached, true);
+      assert.equal(cachedProxyJson.content, proxyJson.content);
+      assert.equal(proxyFetchCalls, 1);
 
       // IT Manager clearing key clears hasApiKey
       const clearKeyRes = await fetch(`${baseUrl}/api/ai-config`, {
@@ -1018,6 +1041,112 @@ async function runAsyncTests() {
       await new Promise((resolve) => server.close(resolve));
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  await testAsync('AiTxt API minimization: DB reuse, lexicon cache, in-batch deduplication, compact prompt & 40-word batching', async () => {
+    assert.equal(AiTxt.DEFAULT_BATCH_SIZE, 40);
+
+    // Compact prompt omits category when forced and omits lesson duplication
+    const compactPrompt = AiTxt.buildEnrichPrompt(
+      [{ word: 'lucid', translation: 'aniq', lesson: '10-dars' }],
+      { forcedCategory: 'IELTS' }
+    );
+    assert.equal(compactPrompt.includes('10-dars'), false);
+    assert.equal(compactPrompt.includes('"cat"'), false);
+    assert.ok(compactPrompt.includes('["lucid|aniq"]'));
+
+    const entries = [
+      { rawLine: 'endeavor', word: 'endeavor', translation: '', lesson: 'Lesson A', phonetic: '' },
+      { rawLine: 'cogent', word: 'cogent', translation: '', lesson: 'Lesson B', phonetic: '' },
+      { rawLine: 'serendipity - omadli tasodif', word: 'serendipity', translation: 'omadli tasodif', lesson: 'Lesson C', phonetic: '' },
+      { rawLine: 'serendipity', word: 'serendipity', translation: '', lesson: 'Lesson D', phonetic: '' }
+    ];
+
+    const cache = {
+      cogent: {
+        word: 'cogent',
+        phonetic: '/ˈkəʊ.dʒənt/',
+        partOfSpeech: 'adjective',
+        translation: 'ishonarli, asosli',
+        definition: 'Clear, logical, and convincing.',
+        examples: ['She gave a **cogent** argument.', 'The report lists **cogent** reasons.'],
+        synonyms: ['convincing'],
+        antonyms: ['weak'],
+        mnemonic: 'co-agent -> asosli dalil',
+        category: 'IELTS',
+        level: 'C1',
+        cachedAt: Date.now()
+      }
+    };
+
+    let fetchCalls = 0;
+    let capturedPrompt = '';
+    let statsObserved = null;
+    const smartFetch = async (url, init) => {
+      fetchCalls++;
+      const parsed = JSON.parse(init.body);
+      capturedPrompt = parsed.messages[1].content;
+      // AI returns compact wire keys ONLY for the 1 unique missing word ('serendipity')
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify([{
+                w: 'serendipity',
+                p: '/ˌser.ənˈdɪp.ə.ti/',
+                pos: 'noun',
+                tr: 'omadli tasodif',
+                d: 'Finding good things by chance.',
+                ex: ['Meeting her was pure **serendipity**.', 'Science grows via **serendipity**.'],
+                syn: ['fortune', 'luck'],
+                ant: ['misfortune'],
+                m: 'seren + dipity -> yoqimli kutilmagan topilma',
+                lvl: 'C1'
+              }])
+            }
+          }]
+        })
+      };
+    };
+
+    const res1 = await AiTxt.enrichEntriesWithAI(
+      entries,
+      { provider: 'deepseek', model: 'deepseek-chat', apiKey: 'sk-test' },
+      {
+        existingWords: Data.DEFAULT_WORDS,
+        cache: cache,
+        forcedCategory: 'IELTS',
+        onStats: (st) => { statsObserved = st; },
+        fetchImpl: smartFetch
+      }
+    );
+
+    assert.equal(fetchCalls, 1);
+    assert.equal(statsObserved.reusedFromDb, 1);
+    assert.equal(statsObserved.reusedFromCache, 1);
+    assert.equal(statsObserved.deduplicated, 1);
+    assert.equal(statsObserved.sentToAi, 1);
+    assert.equal(statsObserved.apiCalls, 1);
+    assert.equal(capturedPrompt.includes('endeavor'), false);
+    assert.equal(capturedPrompt.includes('cogent'), false);
+    assert.equal(res1.length, 4);
+    assert.equal(res1[0].lesson, 'Lesson A');
+    assert.equal(res1[1].lesson, 'Lesson B');
+    assert.equal(res1[2].lesson, 'Lesson C');
+    assert.equal(res1[3].lesson, 'Lesson D');
+    assert.equal(res1[3].phonetic, '/ˌser.ənˈdɪp.ə.ti/');
+    assert.ok(cache.serendipity);
+
+    // Repeat run on ALL 3 words must make ZERO API calls
+    const res2 = await AiTxt.enrichEntriesWithAI(
+      entries,
+      { provider: 'deepseek', model: 'deepseek-chat', apiKey: 'sk-test' },
+      { existingWords: Data.DEFAULT_WORDS, cache: cache, fetchImpl: smartFetch }
+    );
+    assert.equal(fetchCalls, 1, 'Repeat enrichment must hit DB/cache with 0 new API calls');
+    assert.equal(res2.length, 4);
   });
 
   console.log(`\nAll ${passed} test suites passed!`);
