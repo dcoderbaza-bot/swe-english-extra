@@ -50,11 +50,39 @@ const HTML_CSP = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "img-src 'self' data: blob:",
+  "media-src 'self' blob: data:",
   "connect-src 'self' https: http:",
   "object-src 'none'",
   "base-uri 'self'",
   "frame-ancestors 'none'"
 ].join('; ');
+
+function listReachableLanUrls(port) {
+  const nets = os.networkInterfaces();
+  const entries = [];
+  const portNum = Number(port) || 4175;
+  Object.keys(nets).forEach(function (ifName) {
+    (nets[ifName] || []).forEach(function (info) {
+      if (!info || info.family !== 'IPv4' || info.internal) return;
+      const addr = String(info.address || '');
+      if (!addr || addr.indexOf('169.254.') === 0) return;
+      const lowerName = String(ifName || '').toLowerCase();
+      const isVirtual = /vethernet|hyper-v|wsl|docker|virtualbox|vmware|loopback/.test(lowerName) ||
+        (addr.indexOf('172.') === 0 && lowerName.indexOf('wi-fi') === -1 && lowerName.indexOf('ethernet') === -1);
+      entries.push({
+        name: ifName,
+        ip: addr,
+        url: 'http://' + addr + ':' + portNum,
+        isVirtual: isVirtual
+      });
+    });
+  });
+  entries.sort(function (a, b) {
+    if (a.isVirtual !== b.isVirtual) return a.isVirtual ? 1 : -1;
+    return a.name.localeCompare(b.name);
+  });
+  return entries;
+}
 
 function getCorsHeaders() {
   return {
@@ -266,6 +294,7 @@ function createAppServer(options) {
   const sseClients = new Set();
   const revokedTokens = new Map();
   const rateLimitMap = new Map();
+  const registerLimitMap = new Map();
   const aiProxyCache = new Map();
   const aiInFlight = new Map();
   const AI_PROXY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -709,7 +738,75 @@ function createAppServer(options) {
       }
 
       if (pathname === '/api/health' && req.method === 'GET') {
-        sendJson(res, 200, { ok: true, mode: 'server', version: 4, timestamp: Date.now() });
+        const openSignup = !(db.settings && db.settings.allowOpenSignup === false);
+        sendJson(res, 200, { ok: true, mode: 'server', version: 4, allowOpenSignup: openSignup, timestamp: Date.now() });
+        return;
+      }
+
+      if (pathname === '/api/network-info' && req.method === 'GET') {
+        const session = getSessionFromRequest(req, parsedUrl);
+        if (!session || !Auth.isAdminRole(session.role)) {
+          sendJson(res, 403, { ok: false, error: 'Tarmoq havolalarini faqat Teacher yoki IT Manager ko‘ra oladi.' });
+          return;
+        }
+        const hostHeader = String((req && req.headers && req.headers.host) || '');
+        const portPart = hostHeader.indexOf(':') !== -1 ? Number(hostHeader.split(':').pop()) : (server.address() && server.address().port) || 4175;
+        const allowOpenSignup = !(db.settings && db.settings.allowOpenSignup === false);
+        sendJson(res, 200, {
+          ok: true,
+          port: portPart || 4175,
+          allowOpenSignup: allowOpenSignup,
+          urls: listReachableLanUrls(portPart || 4175)
+        });
+        return;
+      }
+
+      if (pathname === '/api/register' && req.method === 'POST') {
+        const allowOpenSignup = !(db.settings && db.settings.allowOpenSignup === false);
+        if (!allowOpenSignup) {
+          sendJson(res, 403, { ok: false, error: 'Ochiq ro‘yxatdan o‘tish vaqtincha yopilgan. O‘qituvchingizdan login va parol so‘rang.' });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const now = Date.now();
+        const clientIp = getClientIp(req);
+        const regRec = registerLimitMap.get(clientIp);
+        if (regRec && (now - regRec.firstAt) <= SERVER_ATTEMPT_WINDOW_MS && regRec.count >= 30) {
+          sendJson(res, 429, { ok: false, error: 'Ushbu tarmoqdan juda ko‘p ro‘yxatdan o‘tish bo‘ldi. Birozdan so‘ng qayta urining.' });
+          return;
+        }
+
+        let regRes;
+        try {
+          regRes = Auth.registerStudentSelf(db.students, body, now);
+        } catch (regErr) {
+          sendJson(res, 400, { ok: false, error: (regErr && regErr.message) || 'Ro‘yxatdan o‘tishda xatolik.' });
+          return;
+        }
+
+        if (!regRec || (now - regRec.firstAt) > SERVER_ATTEMPT_WINDOW_MS) {
+          registerLimitMap.set(clientIp, { count: 1, firstAt: now });
+        } else {
+          regRec.count++;
+        }
+
+        db.students = regRes.students;
+        db.studentProgress = Storage.ensureStudentProgress(db, regRes.created.id, now);
+        db = Storage.recordStudentEvent(db, regRes.session, {
+          type: 'REGISTER',
+          view: 'dashboard',
+          detail: 'Telefondan / mustaqil ro‘yxatdan o‘tib kirdi'
+        }, now);
+        saveDb();
+        broadcastSse('students');
+
+        const token = signSessionToken(regRes.session, sessionSecret, tokenTtlMs, now);
+        sendJson(res, 200, {
+          ok: true,
+          token: token,
+          session: regRes.session,
+          state: sanitizeDbForSession(db, regRes.session)
+        });
         return;
       }
 
@@ -1033,6 +1130,16 @@ function createAppServer(options) {
           const retakeRes = Exam.approveExamRetake(db, session.role, body.studentId, now);
           db = retakeRes.state;
           clearServerRateLimitForAccount('student', retakeRes.student.username);
+        } else if (body.action === 'setOpenSignup') {
+          const enabled = Boolean(body.allowOpenSignup);
+          db.settings = Object.assign({}, db.settings || {}, { allowOpenSignup: enabled });
+          db.auditLog = Auth.appendAuditLog(
+            db.auditLog,
+            session.role,
+            'OPEN_SIGNUP',
+            'O‘quvchilar uchun ochiq ro‘yxatdan o‘tish ' + (enabled ? 'YOQILDI' : 'YOPILDI'),
+            now
+          );
         } else {
           sendJson(res, 400, { ok: false, error: 'Noma’lum student amali.' });
           return;
@@ -1452,13 +1559,9 @@ if (require.main === module) {
     console.log('SWE ENGLISH EXTRA Real-Time Server running (all IPs enabled):');
     console.log('  Local:   http://127.0.0.1:' + port);
     if (host === '0.0.0.0' || host === '::') {
-      const nets = os.networkInterfaces();
-      Object.keys(nets).forEach(function (ifName) {
-        (nets[ifName] || []).forEach(function (info) {
-          if (info && info.family === 'IPv4' && !info.internal) {
-            console.log('  Network: http://' + info.address + ':' + port);
-          }
-        });
+      const urls = listReachableLanUrls(port);
+      urls.forEach(function (item) {
+        console.log('  ' + (item.isVirtual ? 'Virtual: ' : 'Phone/Wi-Fi (' + item.name + '): ') + item.url);
       });
     } else {
       console.log('  Bound:   http://' + host + ':' + port);

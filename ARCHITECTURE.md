@@ -99,6 +99,7 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
     }
   },
   "studentActivityLog": [],
+  "settings": { "theme": "light", "accent": "en-US", "allowOpenSignup": true },
   "aiConfig": {
     "provider": "deepseek",
     "model": "deepseek-chat",

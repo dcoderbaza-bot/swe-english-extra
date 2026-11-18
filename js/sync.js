@@ -12,6 +12,7 @@
   const SERVER_URL_KEY = 'swe_english_extra_server_url_v1';
 
   let serverMode = false;
+  let serverAllowOpenSignup = true;
   let activeServerBaseUrl = '';
   let eventSource = null;
   let broadcastChannel = null;
@@ -188,7 +189,11 @@
       if (timer) clearTimeout(timer);
       if (!res.ok) return false;
       const data = await res.json().catch(function () { return null; });
-      return Boolean(data && data.ok && data.mode === 'server');
+      if (data && data.ok && data.mode === 'server') {
+        serverAllowOpenSignup = data.allowOpenSignup !== false;
+        return true;
+      }
+      return false;
     } catch (e) {
       if (timer) clearTimeout(timer);
       return false;
@@ -245,13 +250,28 @@
     return data;
   }
 
-  async function loginRemote(credentials) {
-    const data = await apiRequest('/api/login', 'POST', credentials);
-    if (data.token) {
+  function activateSessionFromAuthResponse(data) {
+    if (data && data.token) {
       setSessionToken(data.token);
     }
     startServerStream();
     return data;
+  }
+
+  async function loginRemote(credentials) {
+    return activateSessionFromAuthResponse(await apiRequest('/api/login', 'POST', credentials));
+  }
+
+  async function registerStudentRemote(payload) {
+    return activateSessionFromAuthResponse(await apiRequest('/api/register', 'POST', payload));
+  }
+
+  async function fetchNetworkInfoRemote() {
+    return apiRequest('/api/network-info', 'GET');
+  }
+
+  function isOpenSignupAllowed() {
+    return serverAllowOpenSignup;
   }
 
   async function logoutRemote() {
@@ -351,6 +371,7 @@
   const api = {
     SYNC_CHANNEL_NAME: SYNC_CHANNEL_NAME,
     isServerMode: isServerMode,
+    isOpenSignupAllowed: isOpenSignupAllowed,
     normalizeServerBaseUrl: normalizeServerBaseUrl,
     getServerBaseUrl: getServerBaseUrl,
     setServerBaseUrl: setServerBaseUrl,
@@ -363,6 +384,8 @@
     stopServerStream: stopServerStream,
     onSyncUpdate: onSyncUpdate,
     loginRemote: loginRemote,
+    registerStudentRemote: registerStudentRemote,
+    fetchNetworkInfoRemote: fetchNetworkInfoRemote,
     logoutRemote: logoutRemote,
     fetchRemoteState: fetchRemoteState,
     pushReviewRemote: pushReviewRemote,

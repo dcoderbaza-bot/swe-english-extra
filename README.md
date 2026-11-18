@@ -88,19 +88,21 @@ swe-english-extra/
 │   ├── sync.js           # Gibrid sinxronizatsiya (tokenli SSE /api/stream + REST va BroadcastChannel)
 │   ├── speech.js         # API-Key Neural TTS (OpenAI/Gemini/ElevenLabs/Custom) + PCM->WAV + Web Speech zaxira tizimi
 │   └── app.js            # UI kontroller, saralangan rol menyulari, drag-and-drop .TXT, anti-cheat proctoring va jonli monitoring
+├── start-server.bat      # Windows uchun bir klik bilan 0.0.0.0:4175 serverni ishga tushirish skripti
 ├── tests/
-│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik, minimal-API, TTS, DeepSeek-talaffuz va yopiq imtihon testlari (17 ta suite)
+│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik, minimal-API, TTS, DeepSeek-talaffuz, ochiq ro‘yxatdan o‘tish va yopiq imtihon testlari (18 ta suite)
 ├── README.md             # Loyiha hujjati
 ├── ARCHITECTURE.md       # Texnik arxitektura va ma'lumotlar modeli
 └── WORK_LOG.md           # Bajarilgan ishlar va tekshiruv hisoboti
 ```
 
 ## Ishga tushirish va Tekshirish
-1. **Real-Time ko‘p qurilmali rejim (Istalgan IP va qurilma uchun — Tavsiya etiladi):**
+1. **Real-Time ko‘p qurilmali rejim (Istalgan telefon, IP va qurilma uchun — Tavsiya etiladi):**
    ```bash
    node server.js
    ```
-   Server standart holatda **`0.0.0.0:4175`** da (barcha tarmoq interfeyslarida) ishga tushadi va konsolda lokal (`http://127.0.0.1:4175`) hamda boshqa qurilmalar uchun tarmoq manzillarini (`Network: http://<KOMPYUTER-IP>:4175`) chiqaradi. Boshqa telefon/noutbukdan aynan o‘sha `Network` IP manzilini oching yoki kirish ekranidagi **"Server IP"** tugmasi (`?server=http://...`) orqali serverga ulaning — shunda yangilangan parollar va o‘quvchilar barcha qurilmalarda sinxron ishlaydi.
+   *(Yoki Windows’da [`start-server.bat`](start-server.bat) faylini ikki marta bosing.)*
+   Server standart holatda **`0.0.0.0:4175`** da ishga tushadi va konsolda lokal (`http://127.0.0.1:4175`) hamda telefonlar uchun Wi-Fi / Hotspot manzillarini (`Phone/Wi-Fi (Wi-Fi): http://<KOMPYUTER-IP>:4175`) chiqaradi. O‘quvchilar kompyuter bilan **bitta Wi-Fi (yoki Hotspot)** ga ulanib o‘sha `Phone/Wi-Fi` havolasini telefon brauzerida ochsin va **"Ro‘yxatdan o‘tish"** tugmasi orqali darhol o‘z login/parolini yaratib kirishi mumkin (Teacher `O‘quvchilar` bo‘limida bu havolalarni ko‘rishi va ochiq kirishni yoqib/yopishi mumkin). *(Eslatma: agar telefon boshqa mobil tarmoq / 4G da bo‘lsa, `192.168.x.x` lokal IP ishlamaydi — bir xil Wi-Fi/Hotspot yoki ommaviy HTTPS tunnel/hosting kerak bo‘ladi.)*
 2. **Yoki** `index.html` faylini to‘g‘ridan-to‘g‘ri brauzerda oching (`Local Multi-Tab` rejimida ishlaydi — parollar faqat o‘sha brauzer/qurilma xotirasida saqlanadi).
 3. Avtomatlashtirilgan testlarni ishga tushirish:
    ```bash

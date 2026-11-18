@@ -523,10 +523,7 @@
     };
   }
 
-  function createStudentAccount(students, actorRole, payload, now) {
-    if (!canManageStudents(actorRole)) {
-      throw new Error('O‘quvchi yaratish uchun Teacher yoki IT Manager huquqi kerak.');
-    }
+  function buildAndInsertStudentRecord(students, payload, now, duplicateMsg) {
     const cleanUser = normalizeUsername(payload && payload.username);
     const fullName = String((payload && payload.fullName) || '').trim();
     const group = String((payload && payload.group) || 'General').trim() || 'General';
@@ -545,7 +542,7 @@
 
     const list = Array.isArray(students) ? students.slice() : [];
     if (list.some(function (s) { return normalizeUsername(s.username) === cleanUser; })) {
-      throw new Error('"' + cleanUser + '" logini allaqachon band!');
+      throw new Error(duplicateMsg || ('"' + cleanUser + '" logini allaqachon band!'));
     }
 
     const ts = typeof now === 'number' ? now : Date.now();
@@ -560,6 +557,35 @@
     };
     list.push(created);
     return { students: list, created: created };
+  }
+
+  function createStudentAccount(students, actorRole, payload, now) {
+    if (!canManageStudents(actorRole)) {
+      throw new Error('O‘quvchi yaratish uchun Teacher yoki IT Manager huquqi kerak.');
+    }
+    return buildAndInsertStudentRecord(students, payload, now);
+  }
+
+  function registerStudentSelf(students, payload, now) {
+    const res = buildAndInsertStudentRecord(
+      students,
+      payload,
+      now,
+      'Bu login band! Agar avval ro‘yxatdan o‘tgan bo‘lsangiz «Kirish» dan foydalaning yoki boshqa login tanlang.'
+    );
+    const ts = typeof now === 'number' ? now : Date.now();
+    return {
+      students: res.students,
+      created: res.created,
+      session: {
+        role: 'student',
+        userId: res.created.id,
+        username: res.created.username,
+        fullName: res.created.fullName,
+        group: res.created.group || 'General',
+        loginAt: ts
+      }
+    };
   }
 
   function resetStudentPassword(students, actorRole, studentId, newPassword) {
@@ -741,6 +767,7 @@
     authenticate: authenticate,
     changeRolePassword: changeRolePassword,
     createStudentAccount: createStudentAccount,
+    registerStudentSelf: registerStudentSelf,
     resetStudentPassword: resetStudentPassword,
     toggleStudentActive: toggleStudentActive,
     deleteStudentAccount: deleteStudentAccount,

@@ -188,3 +188,18 @@
 - `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
 - `node tests/verify.js`: **17/17** test to‘plami muvaffaqiyatli o‘tdi (`/api/pronounce`, `resolvePronunciationWithAI` DB/cache `0 API` qayta ishlatish, student bulk `403` cheklovi va `/api/tts` ichida `['deepseek', 'openai-tts']` ketma-ketligi tasdiqlandi).
 - Jonli brauzer QA (`http://127.0.0.1:4180`, 0 konsol/sahifa/HTTP xatosi): `#batchPronounceBtn` IT Manager va Teacher’da ko‘rinishi (Teacher’da API kalit yashirin qolishi) va to‘liq bazada `0 API` xabari bilan ishlashi tasdiqlandi.
+
+---
+
+## 11. 10-bosqich yangilanishlari (Telefonlar uchun ochiq ro‘yxatdan o‘tish va Wi-Fi IP ulanish yordamchisi)
+
+### Qo‘shilgan imkoniyatlar
+- **Hamma o‘quvchilar uchun ochiq mustaqil ro‘yxatdan o‘tish (`js/auth.js`, `server.js`, `js/sync.js`, `index.html`, `js/app.js`):**
+  - `settings.allowOpenSignup: true` standart holatda yoqildi. Endi istalgan o‘quvchi telefoni brauzeridan **`"Ro‘yxatdan o‘tish"`** (`#stuAuthSignupModeBtn`) orqali ism-familiya, guruh, login va parolini kiritib (`POST /api/register`, sinf Wi-Fi NAT uchun IP boshiga 15 daqiqada 30 ta gacha ruxsat) bir zumda tizimga kira oladi.
+  - Teacher va IT Manager `O‘quvchilar` bo‘limidagi `#toggleOpenSignupBtn` orqali ochiq ro‘yxatdan o‘tishni istalgan payt yoqishi/yopishi (`POST /api/students -> setOpenSignup`) hamda `#staffPhoneAccessCard` (`GET /api/network-info`) dan telefonlar uchun tayyor Wi-Fi/Hotspot IP havolalarini (`listReachableLanUrls` virtual adapterlarni pastga surib, real `Wi-Fi` IP larni birinchi chiqaradi) bir bosishda nusxalashi mumkin.
+  - `HTML_CSP` ga `media-src 'self' blob: data:` qo‘shildi (iOS/Android brauzerlarda `blob:` TTS audio bloklanmasligi uchun) va Windows foydalanuvchilari uchun [`start-server.bat`](start-server.bat) yaratildi.
+
+### 10-bosqich tekshiruv natijalari
+- `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
+- `node tests/verify.js`: **18/18** test to‘plami muvaffaqiyatli o‘tdi (`POST /api/register`, dublikat login `400`, `/api/network-info` Teacher `200` / Student `403`, `setOpenSignup` yopish `403` -> ochish `200` va `media-src` CSP testlari bilan).
+- Jonli mobil brauzer E2E QA (`http://192.168.1.15:4181/`): telefondan to‘g‘ridan-to‘g‘ri `@nodira_mob` ro‘yxatdan o‘tib kirishi, Teacher `O‘quvchilar` sahifasida Wi-Fi havolalari (`http://192.168.1.15:4181`) ko‘rinishi va ochiq ro‘yxatdan o‘tishni yopib/qayta ochish `0` konsol/sahifa/HTTP xatosi bilan tasdiqlandi.

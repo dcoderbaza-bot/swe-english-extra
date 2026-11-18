@@ -22,6 +22,7 @@
   let studyScope = 'due'; // 'due' | 'all'
   let currentRole = (currentSession && currentSession.role) || 'guest';
   let loginRoleSelection = 'student';
+  let loginAuthMode = 'login';
   let txtPreviewItems = [];
   let selectedMonitorStudentId = null;
   let heartbeatTimerId = null;
@@ -2612,6 +2613,7 @@
     if ($('loginServerUrlInput') && extUrl && !$('loginServerUrlInput').value) {
       $('loginServerUrlInput').value = extUrl;
     }
+    applyLoginRoleUI();
   }
 
   function applyRoleUI() {
@@ -2659,6 +2661,13 @@
     refreshIcons();
   }
 
+  function isOpenSignupEnabled() {
+    if (Sync && Sync.isServerMode() && typeof Sync.isOpenSignupAllowed === 'function') {
+      return Sync.isOpenSignupAllowed();
+    }
+    return !(state && state.settings && state.settings.allowOpenSignup === false);
+  }
+
   function applyLoginRoleUI() {
     document.querySelectorAll('[data-auth-role]').forEach(function (btn) {
       const active = btn.getAttribute('data-auth-role') === loginRoleSelection;
@@ -2668,17 +2677,38 @@
           : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white');
     });
 
+    const isStudentRole = loginRoleSelection === 'student';
+    const openSignup = isOpenSignupEnabled();
+    if (!isStudentRole || !openSignup) {
+      loginAuthMode = 'login';
+    }
+    const isSignup = isStudentRole && loginAuthMode === 'signup';
+
+    if ($('studentAuthModeTabs')) {
+      $('studentAuthModeTabs').classList.toggle('hidden', !(isStudentRole && openSignup));
+    }
+    if ($('stuAuthLoginModeBtn') && $('stuAuthSignupModeBtn')) {
+      $('stuAuthLoginModeBtn').className = 'py-1.5 px-2 rounded-lg text-xs transition-all ' + (!isSignup
+        ? 'font-extrabold bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm'
+        : 'font-bold text-slate-600 dark:text-slate-300 hover:text-indigo-600');
+      $('stuAuthSignupModeBtn').className = 'py-1.5 px-2 rounded-lg text-xs transition-all ' + (isSignup
+        ? 'font-extrabold bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm'
+        : 'font-bold text-slate-600 dark:text-slate-300 hover:text-indigo-600');
+    }
+    if ($('signupExtraWrap')) $('signupExtraWrap').classList.toggle('hidden', !isSignup);
+    if ($('signupPwHint')) $('signupPwHint').classList.toggle('hidden', !isSignup);
+
     const userWrap = $('loginUsernameWrap');
     if (userWrap) {
-      userWrap.classList.toggle('hidden', loginRoleSelection !== 'student');
+      userWrap.classList.toggle('hidden', !isStudentRole);
     }
 
     const roleMeta = Auth.ROLE_META[loginRoleSelection] || Auth.ROLE_META.student;
     if ($('loginPasswordLabel')) {
-      $('loginPasswordLabel').textContent = roleMeta.label + ' paroli *';
+      $('loginPasswordLabel').textContent = isSignup ? 'Yangi parol yarating *' : (roleMeta.label + ' paroli *');
     }
     if ($('loginSubmitBtn')) {
-      $('loginSubmitBtn').textContent = roleMeta.label + ' sifatida kirish';
+      $('loginSubmitBtn').textContent = isSignup ? 'Ro‘yxatdan o‘tish va kirish' : (roleMeta.label + ' sifatida kirish');
     }
   }
 
@@ -2740,8 +2770,45 @@
         await Sync.detectServer();
         applySyncBadgeUI();
       }
+      const isSignup = role === 'student' && loginAuthMode === 'signup';
       let nextSession = null;
-      if (Sync && Sync.isServerMode()) {
+      if (isSignup) {
+        const fullName = $('signupFullNameInput') ? $('signupFullNameInput').value.trim() : '';
+        const group = $('signupGroupInput') ? $('signupGroupInput').value.trim() : '';
+        if (Sync && Sync.isServerMode()) {
+          const regRes = await Sync.registerStudentRemote({
+            fullName: fullName,
+            group: group,
+            username: username,
+            password: password
+          });
+          mergeRemoteState(regRes.state);
+          nextSession = Auth.setSession(regRes.session);
+        } else {
+          state = Storage.loadState();
+          if (state.settings && state.settings.allowOpenSignup === false) {
+            throw new Error('Ochiq ro‘yxatdan o‘tish vaqtincha yopilgan. Teacher dan login so‘rang.');
+          }
+          const regOut = Auth.registerStudentSelf(state.students, {
+            fullName: fullName,
+            group: group,
+            username: username,
+            password: password
+          }, Date.now());
+          state.students = regOut.students;
+          state.studentProgress = Storage.ensureStudentProgress(state, regOut.created.id, Date.now());
+          state = Storage.recordStudentEvent(state, regOut.session, {
+            type: 'REGISTER',
+            view: 'dashboard',
+            detail: 'Mustaqil ro‘yxatdan o‘tib kirdi'
+          }, Date.now());
+          nextSession = Auth.setSession(regOut.session);
+          persist('students');
+        }
+        if ($('signupFullNameInput')) $('signupFullNameInput').value = '';
+        if ($('signupGroupInput')) $('signupGroupInput').value = '';
+        loginAuthMode = 'login';
+      } else if (Sync && Sync.isServerMode()) {
         const res = await Sync.loginRemote({ role: role, username: username, password: password });
         mergeRemoteState(res.state);
         nextSession = Auth.setSession(res.session);
@@ -3285,7 +3352,93 @@
 
   /* ==================== STAFF MANAGEMENT (STUDENTS, TXT+AI, SECURITY) ==================== */
 
+  function copyTextToClipboard(text) {
+    if (navigator && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(text).then(function () {
+        showToast('Havola nusxalandi: ' + text, 'success');
+      }).catch(function () {
+        showToast(text, 'info');
+      });
+    } else {
+      showToast('Havola: ' + text, 'info');
+    }
+  }
+
+  function renderPhoneAccessCard() {
+    const toggleBtn = $('toggleOpenSignupBtn');
+    const listEl = $('networkUrlsList');
+    const isOpen = isOpenSignupEnabled();
+
+    if (toggleBtn) {
+      toggleBtn.textContent = isOpen
+        ? 'Ochiq ro‘yxatdan o‘tish: YOQILGAN (Hamma kira oladi)'
+        : 'Ochiq ro‘yxatdan o‘tish: YOPILGAN';
+      toggleBtn.className = 'btn-tactile shrink-0 px-3.5 py-2 rounded-xl text-xs font-extrabold text-white ' +
+        (isOpen ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-slate-600 hover:bg-slate-500');
+    }
+    if (!listEl) return;
+
+    if (!(Sync && Sync.isServerMode()) || !Auth.isAdminRole(currentRole)) {
+      listEl.innerHTML = '<span class="text-xs text-amber-700 dark:text-amber-300 font-semibold">Telefonlardan kirish uchun kompyuterda <code class="font-mono-ipa">node server.js</code> (yoki <code class="font-mono-ipa">start-server.bat</code>) ni ishga tushiring.</span>';
+      return;
+    }
+
+    Sync.fetchNetworkInfoRemote().then(function (info) {
+      const urls = (info && Array.isArray(info.urls)) ? info.urls : [];
+      const primary = urls.filter(function (u) { return !u.isVirtual; });
+      const shown = primary.length > 0 ? primary : urls;
+      if (shown.length === 0) {
+        listEl.innerHTML = '<span class="text-xs text-slate-500">Hozircha tashqi Wi-Fi IP aniqlanmadi. Kompyuter Wi-Fi / Hotspot ga ulanganini tekshiring.</span>';
+        return;
+      }
+      listEl.innerHTML = '';
+      shown.slice(0, 4).forEach(function (entry) {
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = 'btn-tactile inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/90 dark:bg-slate-900 border border-emerald-400/40 text-xs font-mono-ipa font-bold text-emerald-700 dark:text-emerald-300';
+        pill.innerHTML = '<span>' + escapeHtml(entry.url) + '</span><span class="text-[10px] font-sans text-slate-400">(' + escapeHtml(entry.name) + ') · Nusxalash</span>';
+        pill.addEventListener('click', function () {
+          copyTextToClipboard(entry.url);
+        });
+        listEl.appendChild(pill);
+      });
+    }).catch(function () {
+      // Ignore transient fetch error
+    });
+  }
+
+  async function handleToggleOpenSignup() {
+    if (!Auth.canManageStudents(currentRole)) {
+      showToast('Ushbu sozlamani faqat Teacher yoki IT Manager o‘zgartira oladi.', 'error');
+      return;
+    }
+    const nextVal = !isOpenSignupEnabled();
+    try {
+      if (Sync && Sync.isServerMode()) {
+        const res = await Sync.pushStudentActionRemote({
+          action: 'setOpenSignup',
+          allowOpenSignup: nextVal
+        });
+        if (res && res.state) mergeRemoteState(res.state);
+        await Sync.detectServer();
+      } else {
+        state.settings = Object.assign({}, state.settings || {}, { allowOpenSignup: nextVal });
+        recordAudit('OPEN_SIGNUP', 'Ochiq ro‘yxatdan o‘tish ' + (nextVal ? 'yoqildi' : 'yopildi'));
+        persist('students');
+      }
+      renderPhoneAccessCard();
+      applyLoginRoleUI();
+      showToast(
+        nextVal ? 'Hamma o‘quvchilar uchun ochiq ro‘yxatdan o‘tish yoqildi!' : 'Ochiq ro‘yxatdan o‘tish vaqtincha yopildi.',
+        nextVal ? 'success' : 'info'
+      );
+    } catch (err) {
+      showToast((err && err.message) || 'Sozlamani saqlashda xatolik.', 'error');
+    }
+  }
+
   function renderAdminStudentsList() {
+    renderPhoneAccessCard();
     const listEl = $('adminStudentsList');
     if (!listEl) return;
     listEl.innerHTML = '';
@@ -4554,6 +4707,22 @@
         }
       });
     });
+    if ($('stuAuthLoginModeBtn')) {
+      $('stuAuthLoginModeBtn').addEventListener('click', function () {
+        loginAuthMode = 'login';
+        applyLoginRoleUI();
+        if ($('loginErrorBox')) $('loginErrorBox').classList.add('hidden');
+      });
+    }
+    if ($('stuAuthSignupModeBtn')) {
+      $('stuAuthSignupModeBtn').addEventListener('click', function () {
+        loginRoleSelection = 'student';
+        loginAuthMode = 'signup';
+        applyLoginRoleUI();
+        if ($('loginErrorBox')) $('loginErrorBox').classList.add('hidden');
+        if ($('signupFullNameInput')) $('signupFullNameInput').focus();
+      });
+    }
     if ($('toggleLoginPwBtn')) {
       $('toggleLoginPwBtn').addEventListener('click', function () {
         const inp = $('loginPasswordInput');
@@ -4905,6 +5074,9 @@
     }
 
     // Students View
+    if ($('toggleOpenSignupBtn')) {
+      $('toggleOpenSignupBtn').addEventListener('click', handleToggleOpenSignup);
+    }
     if ($('studentCreateForm')) {
       $('studentCreateForm').addEventListener('submit', handleStudentCreateSubmit);
     }

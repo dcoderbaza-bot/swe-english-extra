@@ -1854,6 +1854,115 @@ async function runAsyncTests() {
     }
   });
 
+  await testAsync('Open phone/LAN student self-registration (/api/register), /api/network-info & allowOpenSignup toggle', async () => {
+    const defState = Storage.createDefaultState(Date.now());
+    assert.equal(defState.settings.allowOpenSignup, true);
+    assert.ok(getSecurityHeaders(true, true)['Content-Security-Policy'].includes("media-src 'self' blob: data:"));
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-open-reg-'));
+    const dataFilePath = path.join(tmpDir, 'db.json');
+    const secretFilePath = path.join(tmpDir, '.secret');
+
+    let seedState = Storage.createDefaultState(Date.now());
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'teacher', 'OpenTeach#2026!');
+    fs.writeFileSync(dataFilePath, JSON.stringify(seedState, null, 2), 'utf8');
+
+    const server = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath,
+      secretFilePath
+    });
+    await new Promise((resolve) => server.listen(0, '0.0.0.0', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+      const health = await (await fetch(`${baseUrl}/api/health`)).json();
+      assert.equal(health.ok, true);
+      assert.equal(health.allowOpenSignup, true);
+
+      // Any student on a phone can self-register openly
+      const regRes = await fetch(`${baseUrl}/api/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: 'Dilbek Phone',
+          group: 'Mobile Class',
+          username: 'dilbek_phone',
+          password: 'PhoneUser#2026!'
+        })
+      });
+      assert.equal(regRes.status, 200);
+      const regJson = await regRes.json();
+      assert.equal(regJson.ok, true);
+      assert.equal(regJson.session.username, 'dilbek_phone');
+      assert.ok(regJson.token);
+
+      // Duplicate username is rejected cleanly (400)
+      const dupRes = await fetch(`${baseUrl}/api/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fullName: 'Another User',
+          username: 'dilbek_phone',
+          password: 'PhoneUser#2026!'
+        })
+      });
+      assert.equal(dupRes.status, 400);
+
+      // Student cannot read /api/network-info (403)
+      assert.equal((await fetch(`${baseUrl}/api/network-info`, {
+        headers: { 'Authorization': `Bearer ${regJson.token}` }
+      })).status, 403);
+
+      // Teacher sees new phone student & network URLs, and can close/reopen registration
+      const teachToken = (await (await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'OpenTeach#2026!' })
+      })).json()).token;
+
+      const netInfo = await (await fetch(`${baseUrl}/api/network-info`, {
+        headers: { 'Authorization': `Bearer ${teachToken}` }
+      })).json();
+      assert.equal(netInfo.ok, true);
+      assert.ok(Array.isArray(netInfo.urls));
+
+      const teachState = (await (await fetch(`${baseUrl}/api/state`, {
+        headers: { 'Authorization': `Bearer ${teachToken}` }
+      })).json()).state;
+      assert.ok(teachState.students.some((s) => s.username === 'dilbek_phone'));
+
+      // Teacher closes open signup -> /api/register blocked with 403
+      const closeRes = await fetch(`${baseUrl}/api/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${teachToken}` },
+        body: JSON.stringify({ action: 'setOpenSignup', allowOpenSignup: false })
+      });
+      assert.equal(closeRes.status, 200);
+      assert.equal((await (await fetch(`${baseUrl}/api/health`)).json()).allowOpenSignup, false);
+      assert.equal((await fetch(`${baseUrl}/api/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName: 'Late Joiner', username: 'lateuser1', password: 'PhoneUser#2026!' })
+      })).status, 403);
+
+      // Reopen -> /api/register works again
+      assert.equal((await fetch(`${baseUrl}/api/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${teachToken}` },
+        body: JSON.stringify({ action: 'setOpenSignup', allowOpenSignup: true })
+      })).status, 200);
+      assert.equal((await fetch(`${baseUrl}/api/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fullName: 'Late Joiner', username: 'lateuser1', password: 'PhoneUser#2026!' })
+      })).status, 200);
+    } finally {
+      server.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   console.log(`\nAll ${passed} test suites passed!`);
 }
 

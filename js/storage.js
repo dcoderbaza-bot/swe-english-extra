@@ -250,7 +250,8 @@
       stats: createEmptyStats(ts),
       settings: {
         theme: 'light',
-        accent: 'en-US'
+        accent: 'en-US',
+        allowOpenSignup: true
       },
       aiConfig: createDefaultAiConfig(),
       auth: deps.authMod ? deps.authMod.createDefaultAuthState() : { hashes: {} },
