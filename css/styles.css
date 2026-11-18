@@ -306,3 +306,11 @@ html.dark .flashcard-face {
   outline: 2px solid #6366f1;
   outline-offset: 2px;
 }
+
+/* Closed Final Exam anti-copy / anti-selection protection */
+.exam-locked-surface {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -webkit-touch-callout: none;
+}

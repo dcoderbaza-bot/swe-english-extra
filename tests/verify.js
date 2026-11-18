@@ -9,6 +9,7 @@ const SRS = require('../js/srs.js');
 const Auth = require('../js/auth.js');
 const Storage = require('../js/storage.js');
 const AiTxt = require('../js/ai-txt.js');
+const Exam = require('../js/exam.js');
 const { createAppServer, signSessionToken, verifySessionToken, getSecurityHeaders, maskApiKey } = require('../server.js');
 
 function createMockLocalStorage() {
@@ -1147,6 +1148,206 @@ async function runAsyncTests() {
     );
     assert.equal(fetchCalls, 1, 'Repeat enrichment must hit DB/cache with 0 new API calls');
     assert.equal(res2.length, 4);
+  });
+
+  await testAsync('Final Closed Exam (SWEExam): Uzbek translation grading, 2-warning -> 3rd strike cheating lock, server /api/exam & teacher retake approval', async () => {
+    // Unit grading assertions
+    assert.equal(Exam.gradeUzbekTranslation("o'zlashtirmoq", "o‘zlashtirmoq, egallamoq").isCorrect, true);
+    assert.equal(Exam.gradeUzbekTranslation('ozlashtirmoq', "o‘zlashtirmoq / qo'lga kiritmoq").isCorrect, true);
+    assert.equal(Exam.gradeUzbekTranslation('egallamoq', 'o‘zlashtirmoq; egallamoq').isCorrect, true);
+    assert.equal(Exam.gradeUzbekTranslation('xato javob', 'o‘zlashtirmoq, egallamoq').isCorrect, false);
+    assert.equal(Exam.gradeUzbekTranslation('', 'o‘zlashtirmoq').isCorrect, false);
+
+    const firstLesson = Data.DEFAULT_WORDS[0].lesson;
+    const expectedLessonCount = Data.DEFAULT_WORDS.filter((w) => w.lesson === firstLesson).length;
+    const scopedQueue = Exam.buildFinalExamQueue(Data.DEFAULT_WORDS, firstLesson, 'ALL');
+    assert.equal(scopedQueue.length, expectedLessonCount);
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-exam-v5-'));
+    const dataFilePath = path.join(tmpDir, 'db.json');
+    const secretFilePath = path.join(tmpDir, '.secret');
+
+    const now = Date.now();
+    let seedState = Storage.createDefaultState(now);
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'teacher', 'ExamTeach#2026!');
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'it_manager', 'ExamAdmin#2026!');
+    const stuCreated = Auth.createStudentAccount(seedState.students, 'it_manager', {
+      username: 'examstu',
+      fullName: 'Exam Student',
+      group: 'ExamGroup',
+      password: 'ExamStudent#2026!'
+    }, now);
+    seedState.students = stuCreated.students;
+    seedState.studentProgress = Storage.ensureStudentProgress(seedState, stuCreated.created.id, now);
+    fs.writeFileSync(dataFilePath, JSON.stringify(seedState, null, 2), 'utf8');
+
+    const server = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath,
+      secretFilePath
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+      const homeHtml = await (await fetch(`${baseUrl}/`)).text();
+      assert.ok(homeHtml.includes('<meta name="google" content="notranslate"'));
+      assert.ok(homeHtml.includes('id="mode-exam"'));
+      assert.ok(homeHtml.includes('id="monitorCheatingBanner"'));
+      assert.ok(homeHtml.includes('id="stuModalApproveRetakeBtn"'));
+
+      const stuLoginRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'student', username: 'examstu', password: 'ExamStudent#2026!' })
+      });
+      const stuLogin = await stuLoginRes.json();
+      assert.equal(stuLogin.ok, true);
+
+      const teachLoginRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'ExamTeach#2026!' })
+      });
+      const teachLogin = await teachLoginRes.json();
+      assert.equal(teachLogin.ok, true);
+
+      // Start scoped Lesson 1 exam
+      const startRes = await fetch(`${baseUrl}/api/exam`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${stuLogin.token}`
+        },
+        body: JSON.stringify({ action: 'start', lessonScope: firstLesson, categoryScope: 'ALL' })
+      });
+      assert.equal(startRes.status, 200);
+      const startJson = await startRes.json();
+      assert.equal(startJson.finalExam.status, 'in_progress');
+      assert.equal(startJson.finalExam.totalQuestions, expectedLessonCount);
+      const queueIds = startJson.finalExam.questionQueueIds;
+
+      // Answer Q1 correctly using matching default word translation
+      const w1 = Data.DEFAULT_WORDS.find((w) => w.id === queueIds[0]);
+      const ans1Res = await fetch(`${baseUrl}/api/exam`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${stuLogin.token}`
+        },
+        body: JSON.stringify({ action: 'answer', wordId: w1.id, userAnswer: w1.translation })
+      });
+      assert.equal(ans1Res.status, 200);
+      const ans1Json = await ans1Res.json();
+      assert.equal(ans1Json.finalExam.answeredCount, 1);
+      assert.equal(ans1Json.finalExam.correctCount, 1);
+
+      // Restart attempt while in_progress must preserve queue and existing answers
+      const resumeRes = await fetch(`${baseUrl}/api/exam`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${stuLogin.token}`
+        },
+        body: JSON.stringify({ action: 'start', lessonScope: 'Lesson 2', categoryScope: 'ALL' })
+      });
+      assert.equal(resumeRes.status, 200);
+      const resumeJson = await resumeRes.json();
+      assert.equal(resumeJson.finalExam.answeredCount, 1);
+      assert.deepEqual(resumeJson.finalExam.questionQueueIds, queueIds);
+
+      // 2 warnings keep status in_progress; 3rd violation triggers cheating_locked
+      const v1 = await (await fetch(`${baseUrl}/api/exam`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuLogin.token}` },
+        body: JSON.stringify({ action: 'violation', reason: 'Tab switched' })
+      })).json();
+      assert.equal(v1.finalExam.warningsCount, 1);
+      assert.equal(v1.finalExam.status, 'in_progress');
+
+      const v2 = await (await fetch(`${baseUrl}/api/exam`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuLogin.token}` },
+        body: JSON.stringify({ action: 'violation', reason: 'Paste blocked' })
+      })).json();
+      assert.equal(v2.finalExam.warningsCount, 2);
+      assert.equal(v2.finalExam.status, 'in_progress');
+
+      const v3 = await (await fetch(`${baseUrl}/api/exam`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuLogin.token}` },
+        body: JSON.stringify({ action: 'violation', reason: 'Focus lost' })
+      })).json();
+      assert.equal(v3.finalExam.warningsCount, 3);
+      assert.equal(v3.finalExam.status, 'cheating_locked');
+      assert.equal(v3.finalExam.cheatingFlags.length, 3);
+
+      // Locked student is blocked (403) from starting or answering
+      const lockedStartRes = await fetch(`${baseUrl}/api/exam`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuLogin.token}` },
+        body: JSON.stringify({ action: 'start', lessonScope: 'ALL', categoryScope: 'ALL' })
+      });
+      assert.equal(lockedStartRes.status, 403);
+
+      // Teacher sees cheating_locked + answers + telemetry logs
+      const teachState = await (await fetch(`${baseUrl}/api/state`, {
+        headers: { 'Authorization': `Bearer ${teachLogin.token}` }
+      })).json();
+      const observedProg = teachState.state.studentProgress[stuCreated.created.id];
+      assert.equal(observedProg.finalExam.status, 'cheating_locked');
+      assert.equal(observedProg.finalExam.answers.length, 1);
+      assert.ok(teachState.state.studentActivityLog.some((l) => l.type === 'EXAM_CHEATING'));
+      assert.ok(teachState.state.studentActivityLog.some((l) => l.type === 'EXAM_WARNING'));
+
+      // Teacher approves retake -> unlocks back to not_started
+      const approveRes = await fetch(`${baseUrl}/api/students`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${teachLogin.token}`
+        },
+        body: JSON.stringify({ action: 'approveExamRetake', studentId: stuCreated.created.id })
+      });
+      assert.equal(approveRes.status, 200);
+      const approveJson = await approveRes.json();
+      const unlockedExam = approveJson.state.studentProgress[stuCreated.created.id].finalExam;
+      assert.equal(unlockedExam.status, 'not_started');
+      assert.equal(unlockedExam.retakeApprovedBy, 'teacher');
+
+      // Student restarts cleanly and finishes all questions -> completed + locked against self-retake
+      const retryStart = await (await fetch(`${baseUrl}/api/exam`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuLogin.token}` },
+        body: JSON.stringify({ action: 'start', lessonScope: firstLesson, categoryScope: 'ALL' })
+      })).json();
+      assert.equal(retryStart.ok, true);
+      let finalExamOut = retryStart.finalExam;
+      for (let i = 0; i < retryStart.finalExam.questionQueueIds.length; i++) {
+        const w = Data.DEFAULT_WORDS.find((x) => x.id === retryStart.finalExam.questionQueueIds[i]);
+        const ansRes = await fetch(`${baseUrl}/api/exam`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuLogin.token}` },
+          body: JSON.stringify({ action: 'answer', wordId: w.id, userAnswer: i < (expectedLessonCount - 1) ? w.translation : 'noto‘g‘ri' })
+        });
+        assert.equal(ansRes.status, 200);
+        finalExamOut = (await ansRes.json()).finalExam;
+      }
+      assert.equal(finalExamOut.status, 'completed');
+      assert.equal(finalExamOut.correctCount, expectedLessonCount - 1);
+      assert.equal(finalExamOut.scorePct, Math.round(((expectedLessonCount - 1) / expectedLessonCount) * 100));
+
+      // Completed exam also blocks self-restart with 403 until Teacher approves
+      const secondTryRes = await fetch(`${baseUrl}/api/exam`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuLogin.token}` },
+        body: JSON.stringify({ action: 'start', lessonScope: firstLesson, categoryScope: 'ALL' })
+      });
+      assert.equal(secondTryRes.status, 403);
+    } finally {
+      server.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   console.log(`\nAll ${passed} test suites passed!`);

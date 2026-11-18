@@ -15,6 +15,7 @@ const SRS = require('./js/srs.js');
 const Auth = require('./js/auth.js');
 const Storage = require('./js/storage.js');
 const AiTxt = require('./js/ai-txt.js');
+const Exam = require('./js/exam.js');
 
 const DEFAULT_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const SERVER_MAX_LOGIN_ATTEMPTS = 5;
@@ -619,6 +620,33 @@ function createAppServer(options) {
         return;
       }
 
+      if (pathname === '/api/exam' && req.method === 'POST') {
+        const session = getSessionFromRequest(req, parsedUrl);
+        if (!session) {
+          sendJson(res, 401, { ok: false, error: 'Avtorizatsiya talab qilinadi.' });
+          return;
+        }
+        if (session.role === 'student' && !(db.students || []).some(function (s) { return s.id === session.userId && s.active !== false; })) {
+          sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti topilmadi yoki bloklangan.' });
+          return;
+        }
+        const body = await readJsonBody(req);
+        try {
+          const examRes = Exam.applyExamAction(db, session, body, Date.now());
+          db = examRes.state;
+          saveDb();
+          broadcastSse('exam');
+          sendJson(res, 200, { ok: true, finalExam: examRes.finalExam, state: sanitizeDbForSession(db, session) });
+        } catch (examErr) {
+          sendJson(res, (examErr && examErr.statusCode) || 400, {
+            ok: false,
+            code: (examErr && examErr.code) || '',
+            error: (examErr && examErr.message) || 'Yakuniy test amali bajarilmadi.'
+          });
+        }
+        return;
+      }
+
       if (pathname === '/api/curriculum' && req.method === 'POST') {
         const session = getSessionFromRequest(req, parsedUrl);
         if (!session || !Auth.isAdminRole(session.role)) {
@@ -698,13 +726,17 @@ function createAppServer(options) {
             'O‘quvchi o‘chirildi: ' + delRes.deleted.fullName + ' (@' + delRes.deleted.username + ')',
             now
           );
+        } else if (body.action === 'approveExamRetake') {
+          const retakeRes = Exam.approveExamRetake(db, session.role, body.studentId, now);
+          db = retakeRes.state;
+          clearServerRateLimitForAccount('student', retakeRes.student.username);
         } else {
           sendJson(res, 400, { ok: false, error: 'Noma’lum student amali.' });
           return;
         }
 
         saveDb();
-        broadcastSse('students');
+        broadcastSse(body.action === 'approveExamRetake' ? 'exam' : 'students');
         sendJson(res, 200, { ok: true, state: sanitizeDbForSession(db, session) });
         return;
       }

@@ -9,6 +9,7 @@
   const Speech = window.SWESpeech;
   const DefaultData = window.SWEData;
   const Auth = window.SWEAuth;
+  const Exam = window.SWEExam;
   const AiTxt = window.SWEAiTxt;
   const Sync = window.SWESync;
 
@@ -25,6 +26,16 @@
   let selectedMonitorStudentId = null;
   let heartbeatTimerId = null;
   let syncRefreshTimerId = null;
+  let examSessionRuntime = {
+    activeQueueIds: [],
+    currentIndex: 0,
+    proctoringBound: false,
+    armedAt: 0,
+    lastStrikeAt: 0,
+    lastInputValue: '',
+    observer: null,
+    handlers: null
+  };
 
   // Flashcards session state
   let fcSession = {
@@ -347,6 +358,12 @@
   function switchView(viewName) {
     if (!currentSession) {
       applyAuthGateUI();
+      return;
+    }
+
+    if (isExamActivelyProctored() && viewName !== 'study') {
+      recordExamViolation('Yopiq test paytida boshqa bo‘limga o‘tishga urinish (' + viewName + ')');
+      showToast('Yopiq test paytida boshqa bo‘limga o‘tish taqiqlanadi!', 'warning');
       return;
     }
 
@@ -674,18 +691,26 @@
   }
 
   function setStudyMode(mode) {
+    if (isExamActivelyProctored() && mode !== 'exam') {
+      recordExamViolation('Yopiq test paytida yordamchi mashq rejimiga o‘tish urinish (' + mode + ')');
+      showToast('Yopiq test tugamaguncha Flashcard/Test rejimlariga o‘tish mumkin emas!', 'warning');
+      return;
+    }
+
     currentStudyMode = mode;
 
     document.querySelectorAll('.study-mode-tab').forEach(function (btn) {
       const active = btn.getAttribute('data-study-mode') === mode;
+      const isExamBtn = btn.getAttribute('data-study-mode') === 'exam';
       btn.className = 'study-mode-tab px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all ' +
         (active
-          ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm'
-          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white');
+          ? (isExamBtn ? 'bg-rose-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm')
+          : (isExamBtn ? 'text-rose-600 dark:text-rose-300 hover:bg-rose-500/10' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'));
     });
 
-    ['flashcards', 'quiz', 'writing', 'listening'].forEach(function (m) {
-      $('mode-' + m).classList.toggle('hidden', m !== mode);
+    ['flashcards', 'quiz', 'writing', 'listening', 'exam'].forEach(function (m) {
+      const el = $('mode-' + m);
+      if (el) el.classList.toggle('hidden', m !== mode);
     });
 
     $('studyScopeToggle').classList.toggle('hidden', mode !== 'flashcards');
@@ -725,6 +750,8 @@
       initWritingSession();
     } else if (currentStudyMode === 'listening') {
       initListeningSession();
+    } else if (currentStudyMode === 'exam') {
+      initExamSession();
     }
   }
 
@@ -1508,6 +1535,673 @@
     nextBtn.classList.add('inline-flex');
   }
 
+  /* ==================== MODE E: YAKUNIY YOPIQ TEST (PROCTORED EXAM) ==================== */
+
+  let examActionChain = Promise.resolve();
+
+  function queueExamAction(fn) {
+    const run = examActionChain.then(fn, fn);
+    examActionChain = run.catch(function () {});
+    return run;
+  }
+
+  function getStudentFinalExam() {
+    if (!isStudentSession()) return Exam.createEmptyFinalExam();
+    const prog = state && state.studentProgress ? state.studentProgress[currentSession.userId] : null;
+    return Exam.normalizeExamRecord(prog ? prog.finalExam : null);
+  }
+
+  function isExamActivelyProctored() {
+    return Boolean(isStudentSession() && getStudentFinalExam().status === 'in_progress');
+  }
+
+  function getExamStatusMeta(finalExam) {
+    const exam = Exam.normalizeExamRecord(finalExam);
+    if (exam.status === 'cheating_locked') {
+      return {
+        label: 'CHEATING (' + exam.warningsCount + '/' + Exam.MAX_WARNINGS + ')',
+        badgeClass: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/40',
+        dotClass: 'bg-rose-500 animate-pulse'
+      };
+    }
+    if (exam.status === 'completed') {
+      const pct = exam.scorePct !== null ? exam.scorePct : 0;
+      return {
+        label: 'Yakuniy test: ' + pct + '%',
+        badgeClass: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-400/30',
+        dotClass: 'bg-emerald-500'
+      };
+    }
+    if (exam.status === 'in_progress') {
+      return {
+        label: 'Testda (' + exam.answeredCount + '/' + exam.totalQuestions + ')',
+        badgeClass: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-400/30',
+        dotClass: 'bg-amber-500 animate-pulse'
+      };
+    }
+    return {
+      label: 'Yakuniy test: Topshirmagan',
+      badgeClass: 'bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300/60 dark:border-slate-700',
+      dotClass: 'bg-slate-400'
+    };
+  }
+
+  async function applyExamActionLocalOrRemote(payload) {
+    return queueExamAction(async function () {
+      if (Sync && Sync.isServerMode()) {
+        const res = await Sync.pushExamActionRemote(payload);
+        if (res && res.state) mergeRemoteState(res.state);
+        return Exam.normalizeExamRecord((res && res.finalExam) || getStudentFinalExam());
+      }
+      const out = Exam.applyExamAction(state, currentSession, payload, Date.now());
+      state = out.state;
+      persist('exam');
+      return Exam.normalizeExamRecord(out.finalExam);
+    });
+  }
+
+  function updateExamFullscreenBadge() {
+    const fsBadge = $('examFullscreenBadge');
+    const fsBtn = $('examReturnFullscreenBtn');
+    const inFullscreen = Boolean(document.fullscreenElement);
+    if (fsBadge) {
+      fsBadge.textContent = inFullscreen ? 'Fullscreen: Faol' : 'Fullscreen: Chiqilgan';
+      fsBadge.className = 'px-2.5 py-1 rounded-full text-xs font-bold border ' + (inFullscreen
+        ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-400/30'
+        : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-400/30');
+    }
+    if (fsBtn) {
+      fsBtn.classList.toggle('hidden', inFullscreen || !isExamActivelyProctored());
+      fsBtn.classList.toggle('inline-flex', !inFullscreen && isExamActivelyProctored());
+    }
+  }
+
+  function unbindExamProctoring() {
+    if (examSessionRuntime.observer) {
+      try {
+        examSessionRuntime.observer.disconnect();
+      } catch (_) {}
+      examSessionRuntime.observer = null;
+    }
+    const h = examSessionRuntime.handlers;
+    if (h) {
+      document.removeEventListener('visibilitychange', h.onVisibility);
+      window.removeEventListener('blur', h.onWindowBlur);
+      document.removeEventListener('fullscreenchange', h.onFullscreenChange);
+      document.removeEventListener('contextmenu', h.onContextMenu, true);
+      document.removeEventListener('keydown', h.onKeydown, true);
+      ['copy', 'cut', 'paste', 'drop', 'dragstart'].forEach(function (evtName) {
+        document.removeEventListener(evtName, h.onClipboardOrDrop, true);
+      });
+      window.removeEventListener('beforeunload', h.onBeforeUnload);
+      if (h.inputEl) {
+        h.inputEl.removeEventListener('beforeinput', h.onBeforeInput, true);
+        h.inputEl.removeEventListener('input', h.onInputGuard);
+      }
+      examSessionRuntime.handlers = null;
+    }
+    examSessionRuntime.proctoringBound = false;
+  }
+
+  function hasExtensionDomTampering(node) {
+    if (!node || node.nodeType !== 1) return false;
+    const tag = String(node.tagName || '').toUpperCase();
+    if (tag === 'FONT') return true;
+    if (tag.indexOf('GRAMMARLY') !== -1 || tag.indexOf('TRANSLATE') !== -1) return true;
+    const marker = [
+      node.id || '',
+      typeof node.className === 'string' ? node.className : '',
+      node.getAttribute ? (node.getAttribute('data-lt-tmp-id') || '') : ''
+    ].join(' ');
+    return /goog-gt|skiptranslate|grammarly|languagetool|lt-mirror|deepl|gtx-|immersive-translate/i.test(marker);
+  }
+
+  function bindExamProctoring() {
+    if (examSessionRuntime.proctoringBound || !isExamActivelyProctored()) return;
+
+    const inputEl = $('examAnswerInput');
+    const examRoot = $('mode-exam');
+
+    const handlers = {
+      inputEl: inputEl,
+      onVisibility: function () {
+        if (document.hidden && isExamActivelyProctored()) {
+          recordExamViolation('Boshqa tab yoki oynaga o‘tildi (visibilitychange)');
+        }
+      },
+      onWindowBlur: function () {
+        if (!isExamActivelyProctored()) return;
+        if (Date.now() - examSessionRuntime.armedAt < 800) return;
+        recordExamViolation('Faol test oynasidan chiqildi (window blur / Alt+Tab / extension)');
+      },
+      onFullscreenChange: function () {
+        updateExamFullscreenBadge();
+        if (!document.fullscreenElement && isExamActivelyProctored()) {
+          if (Date.now() - examSessionRuntime.armedAt < 800) return;
+          recordExamViolation('To‘liq ekran (Fullscreen) rejimi yopildi');
+        }
+      },
+      onContextMenu: function (e) {
+        if (!isExamActivelyProctored()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        recordExamViolation('Sichqoncha o‘ng tugmasi (Context Menu) bosildi');
+      },
+      onClipboardOrDrop: function (e) {
+        if (!isExamActivelyProctored()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.type !== 'dragstart') {
+          recordExamViolation('Nusxa olish / joylashtirish taqiqlanadi (' + e.type + ')');
+        }
+      },
+      onKeydown: function (e) {
+        if (!isExamActivelyProctored()) return;
+        const keyLower = String(e.key || '').toLowerCase();
+        const keyUpper = String(e.key || '').toUpperCase();
+        const mod = Boolean(e.ctrlKey || e.metaKey);
+        const isDevtools = e.key === 'F12' || (mod && e.shiftKey && ['I', 'J', 'C', 'K', 'E'].indexOf(keyUpper) !== -1);
+        const isCheatCombo = mod && ['c', 'v', 'x', 'u', 's', 'p', 'a'].indexOf(keyLower) !== -1 && (keyLower !== 'a');
+        const isPrintScreen = e.key === 'PrintScreen';
+        if (isDevtools || isCheatCombo || isPrintScreen) {
+          e.preventDefault();
+          e.stopPropagation();
+          recordExamViolation('Taqiqlangan klaviatura buyrug‘i (' + (mod ? 'Ctrl+' : '') + (e.shiftKey ? 'Shift+' : '') + e.key + ')');
+        }
+      },
+      onBeforeInput: function (e) {
+        if (!isExamActivelyProctored()) return;
+        const t = String(e.inputType || '');
+        if (t === 'insertFromPaste' || t === 'insertFromDrop' || t === 'insertReplacementText' || t === 'insertFromYank') {
+          e.preventDefault();
+          e.stopPropagation();
+          recordExamViolation('Clipboard yoki extension orqali matn kiritishga urinish (' + t + ')');
+        }
+      },
+      onInputGuard: function () {
+        if (!inputEl) return;
+        examSessionRuntime.lastInputValue = inputEl.value || '';
+      },
+      onBeforeUnload: function (e) {
+        if (!isExamActivelyProctored()) return;
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+
+    document.addEventListener('visibilitychange', handlers.onVisibility);
+    window.addEventListener('blur', handlers.onWindowBlur);
+    document.addEventListener('fullscreenchange', handlers.onFullscreenChange);
+    document.addEventListener('contextmenu', handlers.onContextMenu, true);
+    document.addEventListener('keydown', handlers.onKeydown, true);
+    ['copy', 'cut', 'paste', 'drop', 'dragstart'].forEach(function (evtName) {
+      document.addEventListener(evtName, handlers.onClipboardOrDrop, true);
+    });
+    window.addEventListener('beforeunload', handlers.onBeforeUnload);
+    if (inputEl) {
+      inputEl.addEventListener('beforeinput', handlers.onBeforeInput, true);
+      inputEl.addEventListener('input', handlers.onInputGuard);
+      examSessionRuntime.lastInputValue = inputEl.value || '';
+    }
+
+    if (typeof MutationObserver !== 'undefined') {
+      const observer = new MutationObserver(function (mutations) {
+        if (!isExamActivelyProctored() || examSessionRuntime.isRenderingPrompt) return;
+        const rootTranslated = document.documentElement.classList.contains('translated-ltr') ||
+          document.documentElement.classList.contains('translated-rtl');
+        if (rootTranslated) {
+          document.documentElement.classList.remove('translated-ltr', 'translated-rtl');
+          recordExamViolation('Brauzer tarjimoni (Page Translate) yoqilgani aniqlandi');
+          return;
+        }
+        for (let i = 0; i < mutations.length; i++) {
+          const m = mutations[i];
+          if (m.type === 'childList' && m.addedNodes) {
+            for (let j = 0; j < m.addedNodes.length; j++) {
+              const node = m.addedNodes[j];
+              if (hasExtensionDomTampering(node) || (m.target === $('examPromptWord') && node.nodeType === 1)) {
+                try { if (node.parentNode) node.parentNode.removeChild(node); } catch (_) {}
+                renderExamQuestion(getStudentFinalExam());
+                recordExamViolation('Tashqi kengaytma (extension) DOM aralashuvi aniqlandi');
+                return;
+              }
+            }
+          }
+        }
+      });
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+      if (examRoot) {
+        observer.observe(examRoot, { childList: true, subtree: true });
+      }
+      examSessionRuntime.observer = observer;
+    }
+
+    examSessionRuntime.handlers = handlers;
+    examSessionRuntime.proctoringBound = true;
+    updateExamFullscreenBadge();
+  }
+
+  function renderExamQuestion(exam) {
+    const answeredIds = {};
+    (exam.answers || []).forEach(function (a) { answeredIds[a.wordId] = true; });
+    const nextId = (exam.questionQueueIds || []).find(function (id) { return !answeredIds[id]; });
+    const wordObj = nextId ? (state.words || []).find(function (w) { return w.id === nextId; }) : null;
+
+    const promptEl = $('examPromptWord');
+    const metaEl = $('examPromptMeta');
+    const inputEl = $('examAnswerInput');
+
+    if (!wordObj) {
+      if (exam.status === 'in_progress' && !examSessionRuntime.finishingEmpty) {
+        examSessionRuntime.finishingEmpty = true;
+        finishExamEarly(true).finally(function () {
+          examSessionRuntime.finishingEmpty = false;
+        });
+      }
+      return;
+    }
+
+    examSessionRuntime.isRenderingPrompt = true;
+    try {
+      const isNewWord = examSessionRuntime.currentWordId !== wordObj.id;
+      examSessionRuntime.currentWordId = wordObj.id;
+      if (promptEl) {
+        promptEl.textContent = wordObj.word;
+      }
+      if (metaEl) {
+        const parts = [wordObj.lesson || 'Umumiy'];
+        if (wordObj.category) parts.push(wordObj.category);
+        if (wordObj.partOfSpeech) parts.push(wordObj.partOfSpeech);
+        metaEl.textContent = parts.join(' · ');
+      }
+      if (inputEl && isNewWord) {
+        inputEl.value = '';
+        examSessionRuntime.lastInputValue = '';
+      }
+      if (examSessionRuntime.observer) examSessionRuntime.observer.takeRecords();
+    } finally {
+      examSessionRuntime.isRenderingPrompt = false;
+    }
+  }
+
+  function renderExamViewFromState() {
+    const introCard = $('examIntroCard');
+    const activeCard = $('examActiveCard');
+    const lockedCard = $('examLockedCard');
+    const resultCard = $('examResultCard');
+    if (!introCard || !activeCard || !lockedCard || !resultCard) return;
+
+    examSessionRuntime.isRenderingPrompt = true;
+    try {
+      const scopedWords = getFilteredStudyWords();
+      if (!isStudentSession()) {
+        unbindExamProctoring();
+        introCard.classList.remove('hidden');
+        activeCard.classList.add('hidden');
+        lockedCard.classList.add('hidden');
+        resultCard.classList.add('hidden');
+        if ($('examStaffNotice')) $('examStaffNotice').classList.remove('hidden');
+        if ($('examQuestionCountLabel')) $('examQuestionCountLabel').textContent = scopedWords.length + ' ta so‘z';
+        if ($('examStartBtn')) $('examStartBtn').disabled = true;
+        return;
+      }
+
+      if ($('examStaffNotice')) $('examStaffNotice').classList.add('hidden');
+      const exam = getStudentFinalExam();
+
+      if (exam.status === 'cheating_locked') {
+        unbindExamProctoring();
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(function () {});
+        }
+        introCard.classList.add('hidden');
+        activeCard.classList.add('hidden');
+        lockedCard.classList.remove('hidden');
+        resultCard.classList.add('hidden');
+        const violEl = $('examViolationList');
+        if (violEl) {
+          const flags = Array.isArray(exam.cheatingFlags) ? exam.cheatingFlags : [];
+          violEl.innerHTML = flags.length === 0
+            ? '<p class="text-xs text-rose-700 dark:text-rose-300 font-semibold">Qoidabuzarliklar qayd etilgan.</p>'
+            : flags.map(function (f) {
+                return '<div class="flex items-start justify-between gap-2 text-xs p-2 rounded-xl bg-white/70 dark:bg-slate-900/70 border border-rose-300/40 dark:border-rose-500/30">' +
+                  '<span class="font-bold text-rose-700 dark:text-rose-300">#' + escapeHtml(String(f.warningNumber || '?')) + ': ' + escapeHtml(f.reason || 'Qoidabuzarlik') + '</span>' +
+                  '<span class="shrink-0 text-[10px] font-mono text-slate-400">' + (f.timestamp ? escapeHtml(new Date(f.timestamp).toLocaleTimeString()) : '') + '</span>' +
+                '</div>';
+              }).join('');
+        }
+        refreshIcons();
+        return;
+      }
+
+      if (exam.status === 'completed') {
+        unbindExamProctoring();
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(function () {});
+        }
+        introCard.classList.add('hidden');
+        activeCard.classList.add('hidden');
+        lockedCard.classList.add('hidden');
+        resultCard.classList.remove('hidden');
+        const pct = exam.scorePct !== null ? exam.scorePct : 0;
+        if ($('examResultStats')) {
+          $('examResultStats').textContent = exam.correctCount + ' / ' + exam.totalQuestions + ' ta to‘g‘ri javob · Ogohlantirishlar: ' + exam.warningsCount + ' / ' + Exam.MAX_WARNINGS;
+        }
+        if ($('examResultPct')) {
+          $('examResultPct').textContent = pct + '%';
+          $('examResultPct').className = 'text-2xl sm:text-3xl font-extrabold ' + (pct >= 80
+            ? 'text-emerald-600 dark:text-emerald-300'
+            : (pct >= 50 ? 'text-amber-600 dark:text-amber-300' : 'text-rose-600 dark:text-rose-300'));
+        }
+        if ($('examResultAnswersList')) {
+          const answers = Array.isArray(exam.answers) ? exam.answers : [];
+          $('examResultAnswersList').innerHTML = answers.length === 0
+            ? '<p class="text-xs text-slate-500 text-center py-3">Javoblar kiritilmagan.</p>'
+            : answers.map(function (a, idx) {
+                return '<div class="flex items-start justify-between gap-2 p-2.5 rounded-xl bg-white/65 dark:bg-slate-900/65 border border-slate-200/60 dark:border-slate-800 text-xs">' +
+                  '<div class="min-w-0">' +
+                    '<p class="font-extrabold">' + (idx + 1) + '. ' + escapeHtml(a.word) + '</p>' +
+                    '<p class="text-slate-600 dark:text-slate-300">Sizning javobingiz: <strong>' + escapeHtml(a.userAnswer || '—') + '</strong></p>' +
+                    (!a.isCorrect ? '<p class="text-emerald-600 dark:text-emerald-300 font-semibold">To‘g‘ri tarjima: ' + escapeHtml(a.expectedTranslation) + '</p>' : '') +
+                  '</div>' +
+                  '<span class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-extrabold border ' + (a.isCorrect
+                    ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-400/30'
+                    : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-400/30') + '">' +
+                    (a.isCorrect ? 'To‘g‘ri' : 'Xato') +
+                  '</span>' +
+                '</div>';
+              }).join('');
+        }
+        refreshIcons();
+        return;
+      }
+
+      if (exam.status === 'in_progress') {
+        introCard.classList.add('hidden');
+        activeCard.classList.remove('hidden');
+        lockedCard.classList.add('hidden');
+        resultCard.classList.add('hidden');
+        const qNum = Math.min((exam.answers || []).length + 1, Math.max(1, exam.totalQuestions));
+        if ($('examCounter')) $('examCounter').textContent = 'Savol ' + qNum + ' / ' + exam.totalQuestions;
+        if ($('examWarningBadge')) {
+          $('examWarningBadge').textContent = 'Ogohlantirish: ' + exam.warningsCount + ' / ' + Exam.MAX_WARNINGS;
+          $('examWarningBadge').className = 'px-2.5 py-1 rounded-full text-xs font-extrabold border ' + (exam.warningsCount > 0
+            ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-400/40'
+            : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-400/30');
+        }
+        if ($('examProgressBar')) {
+          const progPct = exam.totalQuestions > 0 ? Math.round(((exam.answers || []).length / exam.totalQuestions) * 100) : 0;
+          $('examProgressBar').style.width = progPct + '%';
+        }
+        if ($('examWarningBanner')) {
+          if (exam.warningsCount > 0) {
+            const lastFlag = (exam.cheatingFlags && exam.cheatingFlags[exam.cheatingFlags.length - 1]) || null;
+            $('examWarningBanner').classList.remove('hidden');
+            if ($('examWarningTitle')) {
+              $('examWarningTitle').textContent = 'Ogohlantirish ' + exam.warningsCount + ' / ' + Exam.MAX_WARNINGS + '!';
+            }
+            if ($('examWarningDetail')) {
+              $('examWarningDetail').textContent = ((lastFlag && lastFlag.reason) ? lastFlag.reason + ' ' : '') +
+                'Keyingi (3-marta) qoidabuzarlikda test CHEATING sifatida avtomatik bloklanadi!';
+            }
+          } else {
+            $('examWarningBanner').classList.add('hidden');
+          }
+        }
+        updateExamFullscreenBadge();
+        bindExamProctoring();
+        renderExamQuestion(exam);
+        refreshIcons();
+        return;
+      }
+
+      // not_started
+      unbindExamProctoring();
+      examSessionRuntime.currentWordId = null;
+      introCard.classList.remove('hidden');
+      activeCard.classList.add('hidden');
+      lockedCard.classList.add('hidden');
+      resultCard.classList.add('hidden');
+      if ($('examQuestionCountLabel')) $('examQuestionCountLabel').textContent = scopedWords.length + ' ta so‘z';
+      if ($('examStartBtn')) {
+        const agreed = Boolean($('examAgreeCheck') && $('examAgreeCheck').checked);
+        $('examStartBtn').disabled = scopedWords.length === 0 || !agreed;
+      }
+      refreshIcons();
+    } finally {
+      if (examSessionRuntime.observer) {
+        try { examSessionRuntime.observer.takeRecords(); } catch (_) {}
+      }
+      examSessionRuntime.isRenderingPrompt = false;
+    }
+  }
+
+  function initExamSession() {
+    const exam = getStudentFinalExam();
+    if (isStudentSession() && exam.status === 'in_progress') {
+      if (!examSessionRuntime.proctoringBound) {
+        bindExamProctoring();
+        if (examSessionRuntime.armedAt === 0) {
+          examSessionRuntime.armedAt = Date.now();
+          recordExamViolation('Faol test sahifasi yangilandi yoki sessiya uzildi');
+        }
+      }
+    } else {
+      unbindExamProctoring();
+    }
+    renderExamViewFromState();
+  }
+
+  async function recordExamViolation(reason) {
+    if (!isExamActivelyProctored()) return;
+    const now = Date.now();
+    if (now - examSessionRuntime.lastStrikeAt < 1200) return;
+    examSessionRuntime.lastStrikeAt = now;
+
+    let updatedExam;
+    try {
+      updatedExam = await applyExamActionLocalOrRemote({
+        action: 'violation',
+        reason: String(reason || 'Yopiq test qoidasi buzildi').slice(0, 200)
+      });
+    } catch (err) {
+      showToast((err && err.message) || 'Nazorat signalini yuborishda xatolik.', 'error');
+      return;
+    }
+
+    renderExamViewFromState();
+    if (updatedExam.status === 'cheating_locked') {
+      showToast('3-marta qoidabuzarlik! Test CHEATING sifatida bloklandi. Ustozdan ruxsat oling.', 'error');
+    } else {
+      showToast('Ogohlantirish (' + updatedExam.warningsCount + '/' + Exam.MAX_WARNINGS + '): ' + reason, 'warning');
+    }
+  }
+
+  function tryEnterFullscreen() {
+    examSessionRuntime.armedAt = Date.now();
+    if (document.documentElement && typeof document.documentElement.requestFullscreen === 'function') {
+      try {
+        const fsPromise = document.documentElement.requestFullscreen();
+        if (fsPromise && typeof fsPromise.then === 'function') {
+          fsPromise.then(function () {
+            examSessionRuntime.armedAt = Date.now();
+            updateExamFullscreenBadge();
+          }).catch(function () {});
+        }
+      } catch (_) {}
+    }
+  }
+
+  async function startFinalExam() {
+    if (!isStudentSession()) {
+      showToast('Yopiq testni faqat Student sifatida topshirish mumkin.', 'warning');
+      return;
+    }
+    if (!($('examAgreeCheck') && $('examAgreeCheck').checked)) {
+      showToast('Avval test qoidalariga rozilik belgisini qo‘ying.', 'warning');
+      return;
+    }
+    if (getFilteredStudyWords().length === 0) {
+      showToast('Tanlangan dars/turkumda so‘zlar mavjud emas.', 'warning');
+      return;
+    }
+    if (document.documentElement.classList.contains('translated-ltr') || document.documentElement.classList.contains('translated-rtl')) {
+      document.documentElement.classList.remove('translated-ltr', 'translated-rtl');
+      showToast('Iltimos avval brauzer tarjimonini o‘chiring.', 'error');
+      return;
+    }
+
+    const startBtn = $('examStartBtn');
+    if (startBtn) startBtn.disabled = true;
+
+    tryEnterFullscreen();
+
+    try {
+      await applyExamActionLocalOrRemote({
+        action: 'start',
+        lessonScope: activeLesson,
+        categoryScope: activeDeck
+      });
+      bindExamProctoring();
+      renderExamViewFromState();
+      if ($('examAnswerInput')) $('examAnswerInput').focus();
+      showToast('Yakuniy yopiq test boshlandi! Oynadan chiqmang.', 'info');
+    } catch (err) {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(function () {});
+      }
+      renderExamViewFromState();
+      showToast((err && err.message) || 'Yopiq testni boshlab bo‘lmadi.', 'error');
+    } finally {
+      if (startBtn && !isExamActivelyProctored()) {
+        startBtn.disabled = !isStudentSession() || getFilteredStudyWords().length === 0 || !($('examAgreeCheck') && $('examAgreeCheck').checked);
+      }
+    }
+  }
+
+  async function handleExamAnswerSubmit(e) {
+    e.preventDefault();
+    if (!isExamActivelyProctored()) return;
+    const inputEl = $('examAnswerInput');
+    const submitBtn = $('examSubmitAnswerBtn');
+    const userAnswer = (inputEl ? inputEl.value : '').trim();
+    if (!userAnswer) {
+      showToast('Iltimos, avval o‘zbekcha tarjimani klaviaturadan yozing.', 'warning');
+      if (inputEl) inputEl.focus();
+      return;
+    }
+
+    const exam = getStudentFinalExam();
+    const wordId = examSessionRuntime.currentWordId;
+    if (!wordId) {
+      renderExamViewFromState();
+      return;
+    }
+
+    if (submitBtn) submitBtn.disabled = true;
+    try {
+      const updated = await applyExamActionLocalOrRemote({
+        action: 'answer',
+        wordId: wordId,
+        userAnswer: userAnswer
+      });
+      if (inputEl) inputEl.value = '';
+      examSessionRuntime.lastInputValue = '';
+      examSessionRuntime.currentWordId = null;
+      renderExamViewFromState();
+      if (updated.status === 'completed') {
+        showToast('Yakuniy yopiq test yakunlandi! Natija: ' + updated.scorePct + '%', 'success');
+      } else if (inputEl) {
+        inputEl.focus();
+      }
+    } catch (err) {
+      renderExamViewFromState();
+      showToast((err && err.message) || 'Javobni yuborishda xatolik.', 'error');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  }
+
+  async function finishExamEarly(silentAuto) {
+    if (!isExamActivelyProctored()) return;
+    try {
+      const updated = await applyExamActionLocalOrRemote({ action: 'finish' });
+      unbindExamProctoring();
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(function () {});
+      }
+      renderExamViewFromState();
+      if (!silentAuto) {
+        showToast('Yakuniy test yakunlandi! Natija: ' + (updated.scorePct || 0) + '%', 'info');
+      }
+    } catch (err) {
+      showToast((err && err.message) || 'Testni yakunlashda xatolik.', 'error');
+    }
+  }
+
+  async function checkExamUnlockStatus() {
+    if (Sync && Sync.isServerMode()) {
+      try {
+        const res = await Sync.fetchRemoteState();
+        if (res && res.state) mergeRemoteState(res.state);
+      } catch (err) {
+        showToast((err && err.message) || 'Holatni tekshirishda xatolik.', 'error');
+        return;
+      }
+    } else {
+      state = Storage.loadState();
+    }
+    const exam = getStudentFinalExam();
+    renderExamViewFromState();
+    if (exam.status === 'not_started') {
+      showToast('Ustoz qayta topshirishga ruxsat berdi! Testni boshlashingiz mumkin.', 'success');
+    } else if (exam.status === 'cheating_locked') {
+      showToast('Hali CHEATING bloki ochilmagan. Ustozdan ruxsat so‘rang.', 'warning');
+    } else if (exam.status === 'completed') {
+      showToast('Test yakunlangan. Qayta topshirish uchun ustoz ruxsati kerak.', 'info');
+    }
+  }
+
+  function approveStudentExamRetake(student) {
+    if (!Auth.canMonitorStudents(currentRole) || !student) {
+      showToast('Qayta topshirishga ruxsat berish uchun Teacher yoki IT Manager huquqi kerak.', 'error');
+      return;
+    }
+    openConfirm(
+      'Yakuniy testga qayta ruxsat berish',
+      student.fullName + ' (@' + student.username + ') uchun Yakuniy Yopiq Test bloki / natijasini tozalab qayta topshirishga ruxsat berilsinmi?',
+      async function () {
+        if (Sync && Sync.isServerMode()) {
+          try {
+            const res = await Sync.pushStudentActionRemote({
+              action: 'approveExamRetake',
+              studentId: student.id
+            });
+            mergeRemoteState(res.state);
+          } catch (err) {
+            showToast((err && err.message) || 'Ruxsat berishda xatolik.', 'error');
+            return;
+          }
+        } else {
+          try {
+            const out = Exam.approveExamRetake(state, currentRole, student.id, Date.now());
+            state = out.state;
+            persist('exam');
+          } catch (err2) {
+            showToast((err2 && err2.message) || 'Ruxsat berishda xatolik.', 'error');
+            return;
+          }
+        }
+        renderMonitorView();
+        renderAdminStudentsList();
+        if (selectedMonitorStudentId === student.id) {
+          openStudentDetailModal(student.id, true);
+        }
+        showToast(student.fullName + ' uchun qayta test topshirishga ruxsat berildi!', 'success');
+      }
+    );
+  }
+
   /* ==================== VOCABULARY CRUD & IMPORT/EXPORT ==================== */
 
   function getFilteredVocabList() {
@@ -1978,7 +2672,12 @@
       currentSession = nextSession;
       currentRole = nextSession.role;
       applyAuthGateUI();
-      switchView(isStaff() ? 'monitor' : 'dashboard');
+      if (isExamActivelyProctored()) {
+        currentStudyMode = 'exam';
+        switchView('study');
+      } else {
+        switchView(isStaff() ? 'monitor' : 'dashboard');
+      }
       showToast('Xush kelibsiz, ' + nextSession.fullName + '!', 'success');
     } catch (err) {
       if (errEl) {
@@ -1991,6 +2690,11 @@
   }
 
   async function handleLogout() {
+    unbindExamProctoring();
+    if (document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(function () {});
+    }
+    currentStudyMode = 'flashcards';
     stopHeartbeat();
     clearRetryTimer();
     const prevSession = currentSession;
@@ -2084,6 +2788,44 @@
     if ($('monTodayReviews')) $('monTodayReviews').textContent = String(todayTotal);
     if ($('monAvgMastery')) $('monAvgMastery').textContent = avgMastery + '%';
 
+    const cheatingLockedList = summaries.filter(function (x) {
+      return x.finalExam && x.finalExam.status === 'cheating_locked';
+    });
+    const cheatingBanner = $('monitorCheatingBanner');
+    const cheatingListEl = $('monitorCheatingList');
+    if (cheatingBanner && cheatingListEl) {
+      if (cheatingLockedList.length === 0) {
+        cheatingBanner.classList.add('hidden');
+        cheatingListEl.innerHTML = '';
+      } else {
+        cheatingBanner.classList.remove('hidden');
+        cheatingListEl.innerHTML = '';
+        cheatingLockedList.forEach(function (item) {
+          const st = item.student;
+          const ex = item.finalExam;
+          const lastReason = (ex.cheatingFlags && ex.cheatingFlags[ex.cheatingFlags.length - 1] && ex.cheatingFlags[ex.cheatingFlags.length - 1].reason) || 'Qoidabuzarlik';
+          const row = document.createElement('div');
+          row.className = 'flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-rose-300/60 dark:border-rose-500/30';
+          row.innerHTML =
+            '<div class="min-w-0">' +
+              '<p class="text-xs sm:text-sm font-extrabold text-rose-800 dark:text-rose-200">' + escapeHtml(st.fullName) + ' <span class="font-mono text-xs">@' + escapeHtml(st.username) + '</span> · CHEATING (' + ex.warningsCount + ' ta ogohlantirish)</p>' +
+              '<p class="text-[11px] text-rose-700/85 dark:text-rose-300/85 truncate">Oxirgi sabab: ' + escapeHtml(lastReason) + '</p>' +
+            '</div>' +
+            '<div class="flex items-center gap-2 shrink-0">' +
+              '<button type="button" data-cheat-detail class="btn-tactile px-2.5 py-1.5 rounded-xl bg-slate-200/80 dark:bg-slate-800 text-xs font-bold">Batafsil</button>' +
+              '<button type="button" data-cheat-approve class="btn-tactile px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold">Qayta topshirishga ruxsat</button>' +
+            '</div>';
+          row.querySelector('[data-cheat-detail]').addEventListener('click', function () {
+            openStudentDetailModal(st.id);
+          });
+          row.querySelector('[data-cheat-approve]').addEventListener('click', function () {
+            approveStudentExamRetake(st);
+          });
+          cheatingListEl.appendChild(row);
+        });
+      }
+    }
+
     // Populate group & feed filters keeping selection
     const groupSel = $('monitorGroupFilter');
     if (groupSel) {
@@ -2136,10 +2878,17 @@
           const s = item.student;
           const live = item.liveStatus || {};
           const pMeta = presenceBadgeMeta(item.presence, s.active);
+          const examMeta = getExamStatusMeta(item.finalExam);
+          const examStatus = (item.finalExam && item.finalExam.status) || 'not_started';
+          const canApproveExam = examStatus === 'cheating_locked' || examStatus === 'completed';
           const curLocation = [live.currentView, live.currentMode, live.currentWord].filter(Boolean).join(' · ');
 
           const card = document.createElement('div');
-          card.className = 'glass-panel rounded-3xl p-5 flex flex-col justify-between gap-4 border border-slate-200/70 dark:border-slate-800/80 hover:border-indigo-400/60 transition-all cursor-pointer';
+          card.className = 'glass-panel rounded-3xl p-5 flex flex-col justify-between gap-4 border ' +
+            (examStatus === 'cheating_locked'
+              ? 'border-rose-500/70 dark:border-rose-500/60 hover:border-rose-500'
+              : 'border-slate-200/70 dark:border-slate-800/80 hover:border-indigo-400/60') +
+            ' transition-all cursor-pointer';
           card.innerHTML =
             '<div class="flex items-start justify-between gap-3">' +
               '<div class="min-w-0">' +
@@ -2152,6 +2901,15 @@
                 '<span class="w-1.5 h-1.5 rounded-full ' + pMeta.dotClass + '"></span>' +
                 escapeHtml(pMeta.label) +
               '</span>' +
+            '</div>' +
+            '<div class="flex items-center justify-between gap-2">' +
+              '<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold border ' + examMeta.badgeClass + '">' +
+                '<span class="w-1.5 h-1.5 rounded-full ' + examMeta.dotClass + '"></span>' +
+                escapeHtml(examMeta.label) +
+              '</span>' +
+              (canApproveExam
+                ? '<button type="button" data-card-approve-exam class="btn-tactile px-2.5 py-1 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 text-[11px] font-extrabold">Qayta ruxsat</button>'
+                : '') +
             '</div>' +
             '<div class="p-3 rounded-2xl bg-white/55 dark:bg-slate-900/55 border border-slate-200/60 dark:border-slate-800/70 space-y-1">' +
               '<div class="flex items-center justify-between text-[11px] font-bold text-slate-400">' +
@@ -2179,6 +2937,13 @@
               '<i data-lucide="eye" class="w-3.5 h-3.5"></i> Batafsil ko‘rish' +
             '</button>';
 
+          const approveBtn = card.querySelector('[data-card-approve-exam]');
+          if (approveBtn) {
+            approveBtn.addEventListener('click', function (e) {
+              e.stopPropagation();
+              approveStudentExamRetake(s);
+            });
+          }
           card.addEventListener('click', function () {
             openStudentDetailModal(s.id);
           });
@@ -2254,6 +3019,68 @@
         '<div class="p-3 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800"><p class="text-[11px] text-slate-500 font-bold">Bugun / Seriya</p><p class="text-lg font-extrabold">' + summary.todayReviewed + ' ta · ' + summary.streakCount + ' kun 🔥</p></div>' +
         '<div class="p-3 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800"><p class="text-[11px] text-slate-500 font-bold">Testlar aniqligi</p><p class="text-lg font-extrabold">' + (summary.accuracyPct !== null ? summary.accuracyPct + '%' : '—') + '</p></div>' +
         '<div class="p-3 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800"><p class="text-[11px] text-slate-500 font-bold">Rejimlar (F/Q/W/L)</p><p class="text-sm font-extrabold mt-0.5">' + (m.flashcardsReviewed || 0) + ' / ' + (m.quizTotal || 0) + ' / ' + (m.writingTotal || 0) + ' / ' + (m.listeningTotal || 0) + '</p></div>';
+    }
+
+    const exam = Exam.normalizeExamRecord(summary.finalExam);
+    const examMeta = getExamStatusMeta(exam);
+    if ($('stuModalExamBadge')) {
+      $('stuModalExamBadge').className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold border ' + examMeta.badgeClass;
+      $('stuModalExamBadge').innerHTML = '<span class="w-1.5 h-1.5 rounded-full ' + examMeta.dotClass + '"></span>' + escapeHtml(examMeta.label);
+    }
+    if ($('stuModalApproveRetakeBtn')) {
+      const canResetExam = exam.status === 'cheating_locked' || exam.status === 'completed';
+      $('stuModalApproveRetakeBtn').classList.toggle('hidden', !canResetExam);
+      $('stuModalApproveRetakeBtn').onclick = function () {
+        approveStudentExamRetake(student);
+      };
+    }
+    if ($('stuModalExamSummary')) {
+      if (exam.status === 'not_started') {
+        $('stuModalExamSummary').textContent = 'O‘quvchi hali Yakuniy Yopiq Testni boshlamagan.' +
+          (exam.retakeApprovedAt ? ' (Ustoz ruxsati berilgan: ' + new Date(exam.retakeApprovedAt).toLocaleString() + ')' : '');
+      } else {
+        $('stuModalExamSummary').textContent =
+          'Natija: ' + exam.correctCount + ' / ' + exam.totalQuestions +
+          ' (' + (exam.scorePct !== null ? exam.scorePct + '%' : '0%') + ')' +
+          ' · Javoblar: ' + exam.answeredCount + ' / ' + exam.totalQuestions +
+          ' · Ogohlantirishlar: ' + exam.warningsCount + ' / ' + Exam.MAX_WARNINGS +
+          (exam.finishedAt ? ' · Yakunlangan: ' + new Date(exam.finishedAt).toLocaleTimeString() : '');
+      }
+    }
+    if ($('stuModalExamFlags')) {
+      const flags = Array.isArray(exam.cheatingFlags) ? exam.cheatingFlags : [];
+      if (flags.length === 0) {
+        $('stuModalExamFlags').classList.add('hidden');
+        $('stuModalExamFlags').innerHTML = '';
+      } else {
+        $('stuModalExamFlags').classList.remove('hidden');
+        $('stuModalExamFlags').innerHTML = '<p class="text-[11px] font-extrabold text-rose-600 dark:text-rose-300 uppercase tracking-wider">Qoidabuzarliklar tarixi:</p>' +
+          flags.map(function (f) {
+            return '<div class="flex items-start justify-between gap-2 p-2 rounded-xl bg-rose-500/10 border border-rose-400/25 text-xs">' +
+              '<span class="font-bold text-rose-700 dark:text-rose-200">#' + escapeHtml(String(f.warningNumber || '?')) + ': ' + escapeHtml(f.reason || 'Qoidabuzarlik') + '</span>' +
+              '<span class="shrink-0 text-[10px] font-mono text-slate-400">' + (f.timestamp ? escapeHtml(new Date(f.timestamp).toLocaleTimeString()) : '') + '</span>' +
+            '</div>';
+          }).join('');
+      }
+    }
+    if ($('stuModalExamAnswers')) {
+      const answers = Array.isArray(exam.answers) ? exam.answers : [];
+      $('stuModalExamAnswers').innerHTML = answers.length === 0
+        ? ''
+        : answers.map(function (a, idx) {
+            return '<div class="flex items-start justify-between gap-2 p-2 rounded-xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800 text-xs">' +
+              '<div class="min-w-0">' +
+                '<span class="font-extrabold">' + (idx + 1) + '. ' + escapeHtml(a.word) + '</span> ' +
+                '<span class="text-slate-600 dark:text-slate-300">→ <strong>' + escapeHtml(a.userAnswer || '—') + '</strong></span> ' +
+                '<span class="text-slate-400">(To‘g‘risi: ' + escapeHtml(a.expectedTranslation) + ')</span>' +
+              '</div>' +
+              '<span class="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-extrabold border ' + (a.isCorrect
+                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-400/30'
+                : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-400/30') + '">' +
+                (a.isCorrect ? 'To‘g‘ri' : 'Xato') +
+              '</span>' +
+            '</div>';
+          }).join('');
     }
 
     const stuWords = Storage.getWordsForSession(state, { role: 'student', userId: student.id }, now).slice().sort(function (a, b) {
@@ -2367,6 +3194,9 @@
     students.forEach(function (s) {
       const summary = Storage.getStudentSummary(state, s, now);
       const pMeta = presenceBadgeMeta(summary.presence, s.active);
+      const examMeta = getExamStatusMeta(summary.finalExam);
+      const examStatus = (summary.finalExam && summary.finalExam.status) || 'not_started';
+      const canResetExam = examStatus === 'cheating_locked' || examStatus === 'completed';
 
       const row = document.createElement('div');
       row.className = 'glass-panel rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-slate-200/70 dark:border-slate-800/80';
@@ -2379,10 +3209,16 @@
             '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-extrabold border ' + pMeta.badgeClass + '">' +
               '<span class="w-1.5 h-1.5 rounded-full ' + pMeta.dotClass + '"></span>' + escapeHtml(pMeta.label) +
             '</span>' +
+            '<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-extrabold border ' + examMeta.badgeClass + '">' +
+              '<span class="w-1.5 h-1.5 rounded-full ' + examMeta.dotClass + '"></span>' + escapeHtml(examMeta.label) +
+            '</span>' +
           '</div>' +
           '<p class="text-xs text-slate-500 dark:text-slate-400">O‘zlashtirish: <strong>' + summary.masteryPct + '%</strong> (' + summary.masteredCount + '/' + summary.totalWords + ') · Bugun: <strong>' + summary.todayReviewed + '</strong> · Seriya: <strong>' + summary.streakCount + ' kun</strong></p>' +
         '</div>' +
         '<div class="flex flex-wrap items-center gap-2 shrink-0">' +
+          (canResetExam
+            ? '<button type="button" data-stu-approve-exam="' + escapeHtml(s.id) + '" class="btn-tactile px-3 py-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 text-xs font-extrabold">Qayta ruxsat</button>'
+            : '') +
           '<button type="button" data-stu-watch="' + escapeHtml(s.id) + '" class="btn-tactile px-3 py-1.5 rounded-xl bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 text-xs font-bold">Kuzatish</button>' +
           '<button type="button" data-stu-resetpw="' + escapeHtml(s.id) + '" class="btn-tactile px-3 py-1.5 rounded-xl bg-amber-500/15 text-amber-700 dark:text-amber-300 text-xs font-bold">Parolni yangilash</button>' +
           '<button type="button" data-stu-toggle="' + escapeHtml(s.id) + '" class="btn-tactile px-3 py-1.5 rounded-xl ' + (s.active === false ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/10 text-amber-700 dark:text-amber-300') + ' text-xs font-bold">' + (s.active === false ? 'Faollashtirish' : 'Bloklash') + '</button>' +
@@ -2391,6 +3227,12 @@
           '</button>' +
         '</div>';
 
+      const approveStuBtn = row.querySelector('[data-stu-approve-exam]');
+      if (approveStuBtn) {
+        approveStuBtn.addEventListener('click', function () {
+          approveStudentExamRetake(s);
+        });
+      }
       row.querySelector('[data-stu-watch]').addEventListener('click', function () {
         switchView('monitor');
         openStudentDetailModal(s.id);
@@ -3502,10 +4344,20 @@
     });
 
     $('studyDeckSelect').addEventListener('change', function (e) {
+      if (isExamActivelyProctored()) {
+        e.target.value = activeDeck;
+        showToast('Yopiq test paytida turkumni almashtirib bo‘lmaydi!', 'warning');
+        return;
+      }
       activeDeck = e.target.value;
       startCurrentStudyMode();
     });
     $('studyLessonSelect').addEventListener('change', function (e) {
+      if (isExamActivelyProctored()) {
+        e.target.value = activeLesson;
+        showToast('Yopiq test paytida darslikni almashtirib bo‘lmaydi!', 'warning');
+        return;
+      }
       activeLesson = e.target.value;
       startCurrentStudyMode();
     });
@@ -3628,6 +4480,39 @@
       renderListeningQuestion(true);
     });
     $('listenRestartBtn').addEventListener('click', initListeningSession);
+
+    // Final Closed Exam interactions
+    if ($('examAgreeCheck')) {
+      $('examAgreeCheck').addEventListener('change', function () {
+        if ($('examStartBtn')) {
+          $('examStartBtn').disabled = !isStudentSession() || getFilteredStudyWords().length === 0 || !$('examAgreeCheck').checked;
+        }
+      });
+    }
+    if ($('examStartBtn')) {
+      $('examStartBtn').addEventListener('click', startFinalExam);
+    }
+    if ($('examReturnFullscreenBtn')) {
+      $('examReturnFullscreenBtn').addEventListener('click', function () {
+        tryEnterFullscreen();
+        updateExamFullscreenBadge();
+        if ($('examAnswerInput')) $('examAnswerInput').focus();
+      });
+    }
+    if ($('examFinishEarlyBtn')) {
+      $('examFinishEarlyBtn').addEventListener('click', function () {
+        finishExamEarly(false);
+      });
+    }
+    if ($('examAnswerForm')) {
+      $('examAnswerForm').addEventListener('submit', handleExamAnswerSubmit);
+    }
+    if ($('examCheckUnlockBtn')) {
+      $('examCheckUnlockBtn').addEventListener('click', checkExamUnlockStatus);
+    }
+    if ($('examCheckRetakeBtn')) {
+      $('examCheckRetakeBtn').addEventListener('click', checkExamUnlockStatus);
+    }
 
     // Vocabulary Filters & TXT-only Teacher Action
     $('vocabSearchInput').addEventListener('input', renderVocabulary);
@@ -3808,6 +4693,8 @@
         renderAdminStudentsList();
       } else if (currentView === 'security') {
         renderSecurityTab();
+      } else if (currentView === 'study' && currentStudyMode === 'exam') {
+        renderExamViewFromState();
       }
     }, 150);
   }
@@ -3848,9 +4735,14 @@
     applyAuthGateUI();
 
     if (currentSession) {
-      setStudyMode('flashcards');
       setListeningType('quiz');
-      switchView(isStaff() ? 'monitor' : 'dashboard');
+      if (isExamActivelyProctored()) {
+        currentStudyMode = 'exam';
+        switchView('study');
+      } else {
+        setStudyMode('flashcards');
+        switchView(isStaff() ? 'monitor' : 'dashboard');
+      }
     } else {
       refreshIcons();
     }

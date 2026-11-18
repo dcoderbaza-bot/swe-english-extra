@@ -131,6 +131,55 @@
     };
   }
 
+  function createDefaultFinalExamRecord() {
+    return {
+      status: 'not_started',
+      lessonScope: 'ALL',
+      categoryScope: 'ALL',
+      totalQuestions: 0,
+      answeredCount: 0,
+      correctCount: 0,
+      scorePct: null,
+      warningsCount: 0,
+      cheatingFlags: [],
+      questionQueueIds: [],
+      answers: [],
+      startedAt: null,
+      finishedAt: null,
+      retakeApprovedAt: null,
+      retakeApprovedBy: ''
+    };
+  }
+
+  function normalizeFinalExamField(raw) {
+    if (typeof root !== 'undefined' && root.SWEExam && typeof root.SWEExam.normalizeExamRecord === 'function') {
+      return root.SWEExam.normalizeExamRecord(raw);
+    }
+    const base = createDefaultFinalExamRecord();
+    if (!raw || typeof raw !== 'object') return base;
+    return Object.assign(base, {
+      status: ['not_started', 'in_progress', 'completed', 'cheating_locked'].indexOf(raw.status) !== -1
+        ? raw.status
+        : 'not_started',
+      lessonScope: String(raw.lessonScope || 'ALL'),
+      categoryScope: String(raw.categoryScope || 'ALL'),
+      totalQuestions: Number(raw.totalQuestions) || 0,
+      answeredCount: Number(raw.answeredCount) || 0,
+      correctCount: Number(raw.correctCount) || 0,
+      scorePct: raw.scorePct !== null && raw.scorePct !== undefined && !isNaN(Number(raw.scorePct))
+        ? Number(raw.scorePct)
+        : null,
+      warningsCount: Number(raw.warningsCount) || 0,
+      cheatingFlags: Array.isArray(raw.cheatingFlags) ? raw.cheatingFlags.slice(0, 30) : [],
+      questionQueueIds: Array.isArray(raw.questionQueueIds) ? raw.questionQueueIds.slice(0, 500) : [],
+      answers: Array.isArray(raw.answers) ? raw.answers.slice(0, 500) : [],
+      startedAt: raw.startedAt || null,
+      finishedAt: raw.finishedAt || null,
+      retakeApprovedAt: raw.retakeApprovedAt || null,
+      retakeApprovedBy: String(raw.retakeApprovedBy || '')
+    });
+  }
+
   function createEmptyStudentProgress(now) {
     const ts = typeof now === 'number' ? now : Date.now();
     return {
@@ -148,6 +197,7 @@
         listeningCorrect: 0,
         listeningTotal: 0
       },
+      finalExam: createDefaultFinalExamRecord(),
       liveStatus: {
         online: false,
         lastSeenAt: null,
@@ -256,6 +306,7 @@
       srsByWordId: Object.assign({}, current.srsByWordId || {}),
       stats: Object.assign(base.stats, current.stats || {}),
       modeStats: Object.assign(base.modeStats, current.modeStats || {}),
+      finalExam: normalizeFinalExamField(current.finalExam),
       liveStatus: Object.assign(base.liveStatus, current.liveStatus || {})
     };
     return map;
@@ -503,6 +554,7 @@
       totalReviews: Number(stats.totalReviews) || 0,
       modeStats: mStats,
       accuracyPct: accuracyPct,
+      finalExam: normalizeFinalExamField(progress.finalExam),
       liveStatus: live,
       presence: presence
     };
@@ -551,6 +603,7 @@
           srsByWordId: Object.assign({}, mergedProgress[s.id].srsByWordId || {}),
           stats: Object.assign(base.stats, mergedProgress[s.id].stats || {}),
           modeStats: Object.assign(base.modeStats, mergedProgress[s.id].modeStats || {}),
+          finalExam: normalizeFinalExamField(mergedProgress[s.id].finalExam),
           liveStatus: Object.assign(base.liveStatus, mergedProgress[s.id].liveStatus || {})
         };
       }

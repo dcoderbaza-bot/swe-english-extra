@@ -214,6 +214,10 @@
     return apiRequest('/api/security', 'POST', payload);
   }
 
+  async function pushExamActionRemote(payload) {
+    return apiRequest('/api/exam', 'POST', payload);
+  }
+
   async function proxyAiRequest(endpoint, apiKey, requestPayload, provider) {
     const data = await apiRequest('/api/ai-proxy', 'POST', {
       endpoint: endpoint,
@@ -244,6 +248,7 @@
     pushStudentActionRemote: pushStudentActionRemote,
     pushAiConfigRemote: pushAiConfigRemote,
     pushSecurityRemote: pushSecurityRemote,
+    pushExamActionRemote: pushExamActionRemote,
     proxyAiRequest: proxyAiRequest
   };
 

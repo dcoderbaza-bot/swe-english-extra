@@ -1,6 +1,6 @@
 # SWE ENGLISH EXTRA — Smart Flashcards & SRS Studio
 
-**SWE ENGLISH EXTRA** — ingliz tili lug‘atini zamonaviy **3D Flashcards**, **Spaced Repetition (SRS)**, ovozli talaffuz (**Web Speech API: US / UK**) va **4 xil interaktiv mashq rejimi** orqali samarali yodlash uchun yaratilgan Single Page Application (SPA).
+**SWE ENGLISH EXTRA** — ingliz tili lug‘atini zamonaviy **3D Flashcards**, **Spaced Repetition (SRS)**, ovozli talaffuz (**Web Speech API: US / UK**) va **5 xil interaktiv mashq rejimi** (shu jumladan anti-cheating bilan himoyalangan **Yakuniy Yopiq Test**) orqali samarali yodlash uchun yaratilgan Single Page Application (SPA).
 
 ## Asosiy imkoniyatlar
 
@@ -25,6 +25,7 @@
 - **Multiple Choice (Test):** 1 ta inglizcha so‘z va 4 ta o‘zbekcha variant, tezkor natija va xato so‘zlar ro‘yxati.
 - **Writing / Spelling (Yozma mashq):** O‘zbekcha tarjima va audio asosida inglizcha so‘zni harflab yozish (`Ko‘rsatma` yordami bilan).
 - **Listening Mode:** Faqat audio tinglash (normal va `0.75x` sekin tezlik, US/UK aksentlari) hamda `4 Variant` yoki `Eshitib yozish` rejimlari.
+- **Yakuniy Yopiq Test (`Proctored Closed Exam`):** Inglizcha so‘zni **klaviaturadan o‘zbekchaga** yozib topshiriladigan yakuniy imtihon rejimi. Tarjima atributlari o‘chirilgan (`notranslate`, `data-gramm="false"`, `data-lt-active="false"`), nusxalash/joylash (`Copy/Paste/Drop`), o‘ng tugma, `DevTools` qisqa tugmalari va DOM extension aralashuvi kuzatiladi/bloklanadi; boshqa oyna/tabga chiqilsa yoki Fullscreen yopilsa **2 marta ogohlantirish (`1/2`, `2/2`)** beriladi, **3-chi qoidabuzarlikda** esa test avtomatik **`CHEATING`** deb bloklanadi va **O‘qituvchi kuzatuviga** yuboriladi. Bloklangan yoki yakunlangan testni qayta topshirish uchun Teacher (yoki IT Manager) ruxsati talab qilinadi. (*Eslatma: veb-brauzer sandboxi ichida JS tashqi OS/brauzer kengaytmalarini tizim darajasida o‘chira olmaydi, biroq sahifa ichidagi tarjima/autofill/clipboard/focus aralashuvini aniqlab bloklaydi.*)
 
 ### 4. Teacher uchun faqat `.TXT` Lug‘at Kiritish va Minimal API AI Boyitish
 - **Faqat `.TXT` oqimi (Teacher & IT Manager):** O‘qituvchi lug‘atni **faqat `.txt` fayl** yuklash (yoki Drag-and-Drop dropzone / matn joylash) hamda eksport qilish orqali boshqaradi; `Lug‘atlar` bo‘limida esa so‘z yoki **butun darslik lug‘atini** tasdiqlash dialogi (`#confirmModal`) bilan o‘chirish mumkin.
@@ -80,14 +81,15 @@ swe-english-extra/
 │   ├── tailwind-config.js# CSP-xavfsiz Tailwind konfiguratsiyasi
 │   ├── default-data.js   # 5 ta kategoriya, 3 ta boshlang‘ich darslik va 15 ta B2/C1 so‘z
 │   ├── srs.js            # Spaced Repetition algoritmi
+│   ├── exam.js           # Yakuniy yopiq test baholashi, navbat tuzish va 2-ogohlantirish / CHEATING blokirovkasi
 │   ├── auth.js           # swe3:4000 tuzlangan xeshlash, brute-force cheklovi, parol kuchi va Student CRUD
-│   ├── storage.js        # v3 sxema, per-student SRS/telemetriya, API kalit maskalash va CWE-1236 CSV himoyasi
+│   ├── storage.js        # v3 sxema, per-student SRS/telemetriya/finalExam, API kalit maskalash va CWE-1236 CSV himoyasi
 │   ├── ai-txt.js         # .TXT parser/exporter, HTTPS/SSRF validator va DeepSeek/Gemini/OpenAI/Custom AI boyitish
 │   ├── sync.js           # Gibrid sinxronizatsiya (tokenli SSE /api/stream + REST va BroadcastChannel)
 │   ├── speech.js         # Web Speech API (US/UK) ovozli tizim
-│   └── app.js            # UI kontroller, saralangan rol menyulari, drag-and-drop .TXT va jonli monitoring
+│   └── app.js            # UI kontroller, saralangan rol menyulari, drag-and-drop .TXT, anti-cheat proctoring va jonli monitoring
 ├── tests/
-│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik va minimal-API testlari (13 ta suite)
+│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik, minimal-API va yopiq imtihon testlari (14 ta suite)
 ├── README.md             # Loyiha hujjati
 ├── ARCHITECTURE.md       # Texnik arxitektura va ma'lumotlar modeli
 └── WORK_LOG.md           # Bajarilgan ishlar va tekshiruv hisoboti

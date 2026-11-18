@@ -78,7 +78,24 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
       "srsByWordId": {},
       "stats": { "streakCount": 0, "todayReviewed": 0, "totalReviews": 0, "dailyGoal": 10 },
       "modeStats": { "flashcardsReviewed": 0, "quizCorrect": 0, "quizTotal": 0, "writingCorrect": 0, "writingTotal": 0, "listeningCorrect": 0, "listeningTotal": 0 },
-      "liveStatus": { "online": false, "lastSeenAt": null, "currentView": "dashboard", "currentMode": "flashcards", "currentWord": "", "currentAction": "" }
+      "liveStatus": { "online": false, "lastSeenAt": null, "currentView": "dashboard", "currentMode": "flashcards", "currentWord": "", "currentAction": "" },
+      "finalExam": {
+        "status": "not_started | in_progress | completed | cheating_locked",
+        "lessonScope": "ALL",
+        "categoryScope": "ALL",
+        "totalQuestions": 0,
+        "answeredCount": 0,
+        "correctCount": 0,
+        "scorePct": null,
+        "warningsCount": 0,
+        "cheatingFlags": [],
+        "questionQueueIds": [],
+        "answers": [],
+        "startedAt": null,
+        "finishedAt": null,
+        "retakeApprovedAt": null,
+        "retakeApprovedBy": ""
+      }
     }
   },
   "studentActivityLog": [],
@@ -105,4 +122,5 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
 - **Brute-force va Sessiya Himoyasi:** Server va Lokal rejimda ketma-ket 5 ta xato urinishda login 3 daqiqaga bloklanadi (`429` + `Retry-After` + `AUTH_LOCKOUT` audit jurnali; IT Manager `clearRateLimits` bilan ocha oladi). Server sessiya tokenlari `12h` muddatga (`iat`/`exp`/`jti`) ega bo‘lib, `/api/logout` da `revokedTokens` ro‘yxatiga qo‘shiladi; `/api/stream` endi valid tokensiz `401` qaytaradi.
 - **Parollar va API Kalit Himoyasi:** Yangi va o‘zgartirilgan parollar `swe3:4000:<salt>:<sha256>` ko‘p raundli xeshlash va min 8 belgili kuch siyosati bilan saqlanadi. Server rejimida `aiConfig.apiKey` saqlangandan so‘ng mijozga hech qachon ochiq holda qaytarilmaydi (`hasApiKey: true`, `apiKeyMasked: "sk-••••"`), `/api/ai-proxy` esa kalitni server xotirasidan qo‘yadi hamda `validateAiEndpoint` va `redirect: 'error'` bilan faqat ommaviy HTTPS AI hostlariga ruxsat beradi (private/loopback SSRF bloklanadi).
 - Static server `server.js`, `tests/`, `package.json`, `.gitignore`, `.git` va `data/` ga kirishni `403` bilan bloklaydi; CSV eksportida formula-in’yeksiya (`^[=+\-@\t\r]` -> `'` prefiksi, CWE-1236) va UTF-8 BOM (`\uFEFF`) himoyasi qo‘llanadi.
+- **Yakuniy Yopiq Test (Proctoring) va Server Tekshiruvi:** `POST /api/exam` (`start`, `answer`, `violation`, `finish`) holatni serverda yuritadi (`cheating_locked` yoki `completed` bo‘lsa qayta boshlashni `403` bilan bloklaydi; faqat Teacher/IT Manager `POST /api/students` -> `approveExamRetake` orqali qayta topshirishga ruxsat beradi). Mijoz (`js/app.js`) esa `notranslate`, `Fullscreen`, clipboard/contextmenu/shortcut blokirovkasi, `visibilitychange`/`window.blur` va extension DOM `MutationObserver` orqali 2 ta ogohlantirishdan keyin 3-chi urinishda testni bloklaydi.
 - O‘quv dasturi o‘zgarishi (`POST /api/curriculum`) faqat `words`, `categories`, `lessons` va `auditLog` ni yangilab, parallel ishlayotgan o‘quvchilarning `studentProgress` va `studentActivityLog` ma’lumotlarini ustidan yozib yubormaydi.

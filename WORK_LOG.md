@@ -118,3 +118,25 @@
 - `node --check`: [server.js](file:///c:/Users/dcode/Documents/Chiziqli/swe-english-extra/server.js) va barcha 10 ta `js/*.js` fayllar xatosiz o‘tdi.
 - `node tests/verify.js`: **13/13** test to‘plami muvaffaqiyatli o‘tdi (Teacher lockout->reset login, IT-only AI config, student delete token invalidation, `/api/ai-proxy` cache va DB/cache/dedup `0 API` testlari bilan).
 - Jonli brauzer QA (`http://127.0.0.1:4176/`, 0 konsol/CSP/sahifa xatosi): Teacher’da `API Key Sozlamasi` yashirilgani, `@madina` va `3-dars: Business & Expressions` tasdiqlash bilan o‘chirilgani hamda bazadagi so‘zlar API kalitsiz `0 ta AI so‘rovi!` bilan boyitilgani tasdiqlandi.
+
+---
+
+## 7. 6-bosqich yangilanishlari (Yakuniy Yopiq Test, Anti-Cheating Nazorati va Ustoz Ruxsati)
+
+### Qo‘shilgan imkoniyatlar
+- **Yakuniy Yopiq Lug‘at Testi (`js/exam.js`, `index.html`, `js/app.js`, `css/styles.css`):**
+  - `Mashqlar` bo‘limiga 5-rejim (`Yakuniy Yopiq Test`, `#mode-exam`) qo‘shildi: inglizcha so‘z ko‘rsatiladi (`translate="no"`, `.notranslate`, `.exam-locked-surface`), o‘quvchi esa o‘zbekcha tarjimasini **faqat klaviaturadan** kiritadi.
+  - `SWEExam.gradeUzbekTranslation` o‘zbek lotin apostroflarini (`'`/`‘`/`’`), tirelarni hamda vergul/nuqta-vergul/slesh bilan ajratilgan sinonimlarni qabul qiladi; yakuniy natija va batafsil so‘zlar tahlili Teacher kuzatuviga uzatiladi.
+- **Kengaytirilgan Proctoring va Anti-Cheating himoyasi (`js/app.js`, `index.html`):**
+  - Test boshlanganda bloklanmaydigan `tryEnterFullscreen()` orqali Fullscreen rejimi yoqiladi (`notranslate` meta + `data-gramm="false"` + `data-lt-active="false"` + `autocomplete="off"`).
+  - `visibilitychange` (tab almashtirish/yashirish), `window.blur` (Alt+Tab / boshqa oyna / extension popup), `fullscreenchange` (Fullscreen’dan chiqish), o‘ng tugma (`contextmenu`), `copy`/`cut`/`paste`/`drop` + `beforeinput` (`insertFromPaste`/`insertFromDrop`/`insertReplacementText`), `F12` / `Ctrl+Shift+I/J/C/K` / `Ctrl+U/S/P/C/V/X` / `PrintScreen`, boshqa bo‘lim/rejim/darslikka o‘tish va `MutationObserver` (Google Translate `<font>` / `translated-ltr`, Grammarly/LanguageTool/DeepL DOM aralashuvi) kuzatiladi.
+  - **2 marta ogohlantirish -> 3-chi urinishda CHEATING bloki:** Dastlabki 2 qoidabuzarlikda `Ogohlantirish 1/2` va `2/2` (`EXAM_WARNING`), 3-chi qoidabuzarlikda esa test avtomatik **`cheating_locked`** holatiga tushadi (`EXAM_CHEATING`) va sahifa yangilansa ham (`F5`) blok saqlanadi (hamda `in_progress` testda sahifa yangilashning o‘zi ham qoidabuzarlik sifatida qayd etiladi).
+- **Server nazorati va O‘qituvchi kuzatuvi / qayta topshirish ruxsati (`server.js`, `js/storage.js`, `js/sync.js`, `js/app.js`):**
+  - `POST /api/exam` (`start`, `answer`, `violation`, `finish`) va `POST /api/students` (`action: 'approveExamRetake'`) qo‘shildi: bloklangan yoki tugallangan testni qayta boshlash serverda ham `403` bilan bloklanadi, faqat Teacher yoki IT Manager tasdiqlash dialogi (`#confirmModal`) orqali qayta topshirishga ruxsat bera oladi (real vaqt SSE orqali o‘quvchi oynasi ham ochiladi).
+  - `Kuzatuv` bo‘limida `#monitorCheatingBanner`, kartochkalarda Yakuniy Test holati + tezkor `Qayta ruxsat` tugmasi va `#studentDetailModal` da (`#stuModalExamSection`) ball, qoidabuzarliklar tarixi hamda har bir so‘z bo‘yicha yozilgan javoblar ko‘rsatiladi.
+  - Jonli E2E tekshiruvi jarayonida topilgan `requestFullscreen()` kutish muammosi (`tryEnterFullscreen`), `getStudentFinalExam()` da `studentProgress` manzilini o‘qish va `#confirmModal` ning `#studentDetailModal` ortida qolib ketish xatosi (`z-[80]`) tuzatildi.
+
+### 6-bosqich tekshiruv natijalari
+- `node --check`: [server.js](file:///c:/Users/dcode/Documents/Chiziqli/swe-english-extra/server.js) va barcha 11 ta `js/*.js` fayllar xatosiz o‘tdi.
+- `node tests/verify.js`: **14/14** test to‘plami muvaffaqiyatli o‘tdi (o‘zbekcha tarjima tekshiruvi, 2-warning -> 3rd strike `cheating_locked`, `403` himoya, reloadda saqlanish va Teacher retake ruxsati integratsiya testlari bilan).
+- Jonli brauzer E2E QA (`http://127.0.0.1:4176/`, 0 ta konsol/sahifa/HTTP xatosi): `student1` da test boshlash, klaviaturadan javob kiritish, `Ctrl+V` va `contextmenu` orqali 2 ta ogohlantirish + 3-chi urinishda `CHEATING` bloki, reloaddan keyin blok saqlanishi, Teacher `#monitorCheatingBanner` / `#studentDetailModal` da tahlil ko‘rinishi, `#confirmModal` (`z-[80]`) orqali qayta ruxsat berish va o‘quvchida test qayta ochilishi to‘liq tasdiqlandi.

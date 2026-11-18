@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SWE ENGLISH EXTRA — Smart Flashcards &amp; Vocabulary Mastery</title>
   <meta name="description" content="Ingliz tili lug‘atini 3D Flashcards, Spaced Repetition, Test, Yozma va Tinglash mashqlari orqali o‘rganish platformasi." />
+  <meta name="google" content="notranslate" />
 
   <!-- Prevent theme flash before paint (CSP-safe external script) -->
   <script src="js/theme-init.js"></script>
@@ -406,6 +407,10 @@
             <i data-lucide="headphones" class="w-4 h-4"></i>
             Listening
           </button>
+          <button type="button" data-study-mode="exam" class="study-mode-tab px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all text-rose-600 dark:text-rose-300">
+            <i data-lucide="shield-alert" class="w-4 h-4"></i>
+            Yakuniy Yopiq Test
+          </button>
         </div>
 
         <!-- Lesson, Deck & Scope Filters -->
@@ -806,6 +811,172 @@
           </button>
         </div>
       </div>
+
+      <!-- ===== MODE E: FINAL CLOSED EXAM (PROCTORED & ANTI-CHEAT) ===== -->
+      <div id="mode-exam" class="hidden max-w-2xl mx-auto space-y-5 notranslate" translate="no">
+        <!-- Intro / Rules Card -->
+        <div id="examIntroCard" class="glass-panel-strong rounded-3xl p-6 sm:p-8 space-y-5 border border-rose-500/20">
+          <div class="flex items-start justify-between gap-3">
+            <div class="space-y-1">
+              <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-500/12 border border-rose-500/25 text-rose-700 dark:text-rose-300 text-xs font-extrabold">
+                <i data-lucide="shield-alert" class="w-3.5 h-3.5"></i>
+                Proctored Closed Exam
+              </div>
+              <h2 class="text-2xl font-extrabold tracking-tight">Yakuniy Yopiq Lug‘at Testi</h2>
+              <p id="examQuestionCountLabel" class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-semibold">Tanlangan to‘plam bo‘yicha savollar tayyor.</p>
+            </div>
+            <div class="w-12 h-12 rounded-2xl bg-rose-500/15 text-rose-600 dark:text-rose-300 flex items-center justify-center shrink-0">
+              <i data-lucide="lock" class="w-6 h-6"></i>
+            </div>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-slate-100/80 dark:bg-slate-900/75 border border-slate-200/70 dark:border-slate-800 space-y-2 text-xs sm:text-sm text-slate-700 dark:text-slate-300">
+            <p class="font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+              <i data-lucide="shield-check" class="w-4 h-4 text-emerald-500"></i>
+              Yopiq test va Anti-Cheating qoidalari:
+            </p>
+            <ul class="space-y-1.5 list-disc list-inside text-xs">
+              <li>Sizga <strong>inglizcha so‘z</strong> beriladi — <strong>o‘zbekcha tarjimasini</strong> faqat klaviaturadan yozishingiz shart.</li>
+              <li>Test <strong>To‘liq ekran (Fullscreen)</strong> rejimida o‘tadi; tarjima extensionlari, nusxa olish (<code class="font-mono-ipa">Copy/Paste</code>), o‘ng tugma va DevTools bloklanadi.</li>
+              <li>Faol oynadan chiqilsa, tab almashtirilsa, extension aralashsa yoki Fullscreen yopilsa <strong>2 marta ogohlantirish</strong> beriladi; <strong>3-chi qoidabuzarlikda</strong> test <strong>CHEATING</strong> deb yopiladi va natija Ustozga yuboriladi.</li>
+              <li>Bloklangan yoki topshirilgan yakuniy testni qayta topshirish uchun <strong>O‘qituvchidan (Teacher)</strong> ruxsat olish talab qilinadi.</li>
+            </ul>
+          </div>
+
+          <p id="examStaffNotice" class="hidden text-xs font-bold text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-2xl p-3">
+            Eslatma: Yakuniy test natijasi va Cheating nazorati faqat O‘quvchi hisobida saqlanadi va Ustoz paneliga tushadi.
+          </p>
+
+          <label class="flex items-start gap-2.5 cursor-pointer text-xs sm:text-sm font-semibold">
+            <input id="examAgreeCheck" type="checkbox" class="mt-0.5 w-4 h-4 rounded accent-rose-600" />
+            <span>Barcha qoidalarga roziman va test davomida boshqa oyna/extension ishlatmaslikka kafolat beraman.</span>
+          </label>
+
+          <button type="button" id="examStartBtn" class="btn-tactile w-full py-3.5 rounded-2xl bg-gradient-to-r from-rose-600 via-indigo-600 to-violet-600 hover:opacity-95 text-white text-sm font-extrabold shadow-lg shadow-rose-500/25 flex items-center justify-center gap-2">
+            <i data-lucide="play" class="w-4 h-4"></i>
+            Yakuniy Testni Boshlash (Fullscreen)
+          </button>
+        </div>
+
+        <!-- Active Proctored Exam Stage -->
+        <div id="examActiveCard" class="hidden glass-panel-strong rounded-3xl p-6 sm:p-8 space-y-6 border border-indigo-500/25 notranslate" translate="no">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+              <span id="examCounter" class="text-sm font-extrabold tabular-nums">Savol 1 / 15</span>
+              <span id="examWarningBadge" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25 tabular-nums">
+                Ogohlantirish: 0 / 2
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="examFullscreenBadge" class="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-500/10 text-indigo-700 dark:text-indigo-300">
+                <i data-lucide="maximize-2" class="w-3 h-3"></i>
+                Fullscreen Himoya
+              </span>
+              <button type="button" id="examFinishEarlyBtn" class="btn-tactile px-3 py-1.5 rounded-xl glass-panel text-xs font-bold text-slate-600 dark:text-slate-300">
+                Testni Yakunlash
+              </button>
+            </div>
+          </div>
+
+          <!-- Inline 2-Strike Warning Alert Banner -->
+          <div id="examWarningBanner" class="hidden p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-900 dark:text-amber-200 space-y-2">
+            <div class="flex items-start justify-between gap-2">
+              <div class="space-y-0.5">
+                <p id="examWarningTitle" class="font-extrabold text-sm flex items-center gap-1.5">
+                  <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-600 dark:text-amber-300"></i>
+                  <span>Ogohlantirish (1 / 2)!</span>
+                </p>
+                <p id="examWarningDetail" class="text-xs font-semibold"></p>
+              </div>
+              <button type="button" id="examReturnFullscreenBtn" class="shrink-0 btn-tactile px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold">
+                Fullscreen ga qaytish
+              </button>
+            </div>
+          </div>
+
+          <div class="w-full h-2 rounded-full bg-slate-200/70 dark:bg-slate-800 overflow-hidden">
+            <div id="examProgressBar" class="h-full rounded-full bg-gradient-to-r from-rose-500 to-indigo-500 transition-all duration-300" style="width: 0%"></div>
+          </div>
+
+          <!-- Protected Word Prompt (Unselectable / Untranslatable) -->
+          <div class="p-6 rounded-2xl bg-slate-100/70 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-800 text-center space-y-2 exam-locked-surface notranslate" translate="no">
+            <p class="text-[11px] font-extrabold uppercase tracking-wider text-indigo-500 dark:text-indigo-300">Inglizcha so‘zning o‘zbekcha tarjimasini yozing</p>
+            <h3 id="examPromptWord" class="text-3xl sm:text-4xl font-extrabold tracking-tight text-slate-900 dark:text-white exam-locked-surface notranslate" translate="no">endeavor</h3>
+            <div id="examPromptMeta" class="text-xs text-slate-500 dark:text-slate-400 font-semibold exam-locked-surface"></div>
+          </div>
+
+          <form id="examAnswerForm" class="space-y-3" autocomplete="off">
+            <div>
+              <label for="examAnswerInput" class="block text-xs font-bold mb-1.5">O‘zbekcha tarjima (klaviaturadan yozing):</label>
+              <input
+                id="examAnswerInput"
+                type="text"
+                translate="no"
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+                data-gramm="false"
+                data-gramm_editor="false"
+                data-enable-grammarly="false"
+                data-lt-active="false"
+                placeholder="Tarjimani yozing..."
+                class="w-full px-4 py-3.5 rounded-2xl bg-white/90 dark:bg-slate-900/90 border border-slate-300 dark:border-slate-700 text-base font-bold notranslate"
+              />
+            </div>
+            <div class="flex items-center justify-between gap-2 text-[11px] text-slate-400">
+              <span>Copy/Paste va yordamchi extensionlar o‘chirilgan</span>
+              <button type="submit" id="examSubmitAnswerBtn" class="btn-tactile px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-md shadow-indigo-500/20">
+                Javobni tasdiqlash &amp; Keyingi
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Cheating Locked Card -->
+        <div id="examLockedCard" class="hidden glass-panel-strong rounded-3xl p-6 sm:p-8 space-y-5 border-2 border-rose-500/45 text-center">
+          <div class="w-16 h-16 rounded-3xl bg-rose-500/15 text-rose-600 dark:text-rose-400 mx-auto flex items-center justify-center">
+            <i data-lucide="shield-x" class="w-8 h-8"></i>
+          </div>
+          <div class="space-y-1.5">
+            <span class="px-3 py-1 rounded-full text-xs font-extrabold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+              CHEATING SABABLI BLOKLANDI
+            </span>
+            <h3 class="text-2xl font-extrabold text-rose-600 dark:text-rose-400">Yakuniy test to‘xtatildi</h3>
+            <p class="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-lg mx-auto">
+              2 ta ogohlantirishdan keyin yana qoidabuzarlik aniqlangani uchun test <strong>CHEATING</strong> holatida yopildi va O‘qituvchi (Teacher) kuzatuviga yuborildi. Qayta topshirish uchun O‘qituvchingizdan ruxsat oling.
+            </p>
+          </div>
+          <div id="examViolationList" class="text-left p-4 rounded-2xl bg-rose-500/5 border border-rose-500/20 space-y-1.5 text-xs max-h-44 overflow-y-auto"></div>
+          <button type="button" id="examCheckUnlockBtn" class="btn-tactile px-6 py-2.5 rounded-2xl glass-panel text-xs sm:text-sm font-bold text-indigo-600 dark:text-indigo-300">
+            Ustoz ruxsatini tekshirish
+          </button>
+        </div>
+
+        <!-- Final Exam Result Card -->
+        <div id="examResultCard" class="hidden glass-panel-strong rounded-3xl p-6 sm:p-8 space-y-5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/70 dark:border-slate-800">
+            <div>
+              <span class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">Yakuniy Test Topshirildi</span>
+              <h3 class="text-2xl font-extrabold mt-2">Yakuniy Natijangiz</h3>
+              <p id="examResultStats" class="text-sm font-semibold text-slate-600 dark:text-slate-300 mt-0.5"></p>
+            </div>
+            <div class="text-left sm:text-right">
+              <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Umumiy ball</p>
+              <p id="examResultPct" class="text-4xl font-extrabold text-indigo-600 dark:text-indigo-300 tabular-nums">0%</p>
+            </div>
+          </div>
+
+          <div id="examResultAnswersList" class="space-y-2 max-h-72 overflow-y-auto text-xs"></div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2">
+            <span class="text-xs text-slate-500 dark:text-slate-400">Natija O‘qituvchi kuzatuviga yuborildi. Qayta topshirish faqat Teacher ruxsati bilan ochiladi.</span>
+            <button type="button" id="examCheckRetakeBtn" class="btn-tactile px-4 py-2 rounded-xl glass-panel text-xs font-bold text-indigo-600 dark:text-indigo-300">
+              Ruxsatni tekshirish
+            </button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- ==================== VIEW 3: VOCABULARY BROWSER (.TXT EXPORT + SEARCH) ==================== -->
@@ -979,6 +1150,15 @@
             <i data-lucide="trending-up" class="w-5 h-5"></i>
           </div>
         </div>
+      </div>
+
+      <!-- Cheating Alert Banner (shown whenever any student is cheating_locked) -->
+      <div id="monitorCheatingBanner" class="hidden glass-panel rounded-3xl p-4 sm:p-5 border-2 border-rose-500/40 bg-rose-500/10 space-y-3">
+        <div class="flex items-center gap-2 text-rose-700 dark:text-rose-300">
+          <i data-lucide="shield-x" class="w-5 h-5 shrink-0"></i>
+          <h2 class="font-extrabold text-sm sm:text-base">Cheating Ogohlantirishi — Qayta Topshirishga Ruxsat Kutayotganlar</h2>
+        </div>
+        <div id="monitorCheatingList" class="flex flex-wrap gap-2"></div>
       </div>
 
       <!-- Monitoring Filters -->
@@ -1455,7 +1635,7 @@
   </div>
 
   <!-- ==================== MODAL: CONFIRMATION ==================== -->
-  <div id="confirmModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+  <div id="confirmModal" class="hidden fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
     <div class="glass-panel-strong rounded-3xl w-full max-w-sm p-6 space-y-4">
       <h3 id="confirmTitle" class="text-lg font-extrabold">Tasdiqlash</h3>
       <p id="confirmMessage" class="text-sm text-slate-600 dark:text-slate-300"></p>
@@ -1483,6 +1663,25 @@
       </div>
 
       <div id="stuModalStatsRow" class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs"></div>
+
+      <!-- Final Closed Exam Result & Retake Permission -->
+      <div id="stuModalExamSection" class="p-4 rounded-2xl bg-white/60 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <h3 class="font-extrabold text-sm flex items-center gap-1.5">
+              <i data-lucide="shield-alert" class="w-4 h-4 text-rose-500"></i>
+              Yakuniy Yopiq Test Natijasi
+            </h3>
+            <span id="stuModalExamBadge" class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold">Topshirmagan</span>
+          </div>
+          <button type="button" id="stuModalApproveRetakeBtn" class="hidden btn-tactile px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">
+            Qayta topshirishga ruxsat berish
+          </button>
+        </div>
+        <p id="stuModalExamSummary" class="text-xs text-slate-600 dark:text-slate-300 font-semibold"></p>
+        <div id="stuModalExamFlags" class="hidden space-y-1 text-xs p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-700 dark:text-rose-300"></div>
+        <div id="stuModalExamAnswers" class="space-y-1.5 max-h-44 overflow-y-auto text-xs"></div>
+      </div>
 
       <div class="space-y-2">
         <h3 class="font-extrabold text-sm">So‘zlar bo‘yicha SRS holati</h3>
@@ -1531,6 +1730,7 @@
   <script src="js/default-data.js" defer></script>
   <script src="js/srs.js" defer></script>
   <script src="js/auth.js" defer></script>
+  <script src="js/exam.js" defer></script>
   <script src="js/storage.js" defer></script>
   <script src="js/ai-txt.js" defer></script>
   <script src="js/speech.js" defer></script>
