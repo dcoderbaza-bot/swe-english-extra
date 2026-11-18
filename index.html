@@ -51,27 +51,12 @@
         </button>
       </div>
 
-      <div class="space-y-2">
-        <div class="flex items-center justify-between gap-2 px-3.5 py-2 rounded-2xl bg-slate-200/60 dark:bg-slate-900/70 text-xs font-semibold">
-          <span class="text-slate-600 dark:text-slate-300">Sinxronizatsiya:</span>
-          <div class="flex items-center gap-1.5">
-            <span id="loginSyncBadge" class="inline-flex items-center gap-1.5 font-extrabold text-amber-600 dark:text-amber-300">
-              <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-              Tekshirilmoqda...
-            </span>
-            <button type="button" id="toggleServerUrlBtn" class="px-2 py-0.5 rounded-lg bg-slate-300/60 dark:bg-slate-800 hover:bg-indigo-500/20 text-[10px] font-extrabold text-slate-700 dark:text-slate-300" title="Server IP manzilini ulash">
-              Server IP
-            </button>
-          </div>
-        </div>
-        <form id="loginServerConnectForm" class="hidden p-3 rounded-2xl bg-slate-100/90 dark:bg-slate-900/85 border border-slate-200/80 dark:border-slate-800 space-y-2">
-          <label for="loginServerUrlInput" class="block text-[11px] font-bold text-slate-600 dark:text-slate-300">Node Server manzili (boshqa qurilma / IP uchun):</label>
-          <div class="flex items-center gap-1.5">
-            <input id="loginServerUrlInput" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="masalan: http://192.168.1.10:4175" class="flex-1 min-w-0 px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono-ipa" />
-            <button type="submit" id="loginServerSaveBtn" class="px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shrink-0">Ulash</button>
-            <button type="button" id="loginServerClearBtn" class="px-2 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 text-xs font-bold shrink-0" title="Avtomatik holatga qaytarish">Avto</button>
-          </div>
-        </form>
+      <div class="flex items-center justify-between px-3.5 py-2 rounded-2xl bg-slate-200/60 dark:bg-slate-900/70 text-xs font-semibold">
+        <span class="text-slate-600 dark:text-slate-300">Sinxronizatsiya:</span>
+        <span id="loginSyncBadge" class="inline-flex items-center gap-1.5 font-extrabold text-amber-600 dark:text-amber-300">
+          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+          Tekshirilmoqda...
+        </span>
       </div>
 
       <form id="loginForm" class="space-y-4">
@@ -1526,30 +1511,17 @@
 
     <!-- ==================== VIEW 5: STUDENTS MANAGEMENT (TEACHER & IT) ==================== -->
     <section id="view-students" class="hidden view-animate space-y-6">
-      <div id="staffPhoneAccessCard" class="glass-panel rounded-3xl p-5 space-y-3 border border-emerald-400/35 bg-emerald-500/5">
+      <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 class="text-sm sm:text-base font-extrabold flex items-center gap-2 text-emerald-700 dark:text-emerald-300">
-              <i data-lucide="smartphone" class="w-4 h-4"></i>
-              Telefonlar va Barcha Qurilmalardan Kirish
-            </h2>
-            <p class="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
-              O‘quvchilar kompyuter bilan bir Wi-Fi (yoki Hotspot) da quyidagi IP havolasini telefon brauzeridan ochsin (<code class="font-mono-ipa">127.0.0.1</code> emas!).
+            <h1 class="text-xl sm:text-2xl font-extrabold">O‘quvchilar va Kirish Parollari</h1>
+            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+              Har bir o‘quvchi uchun login va kuchli parol (kamida 8 belgi, harf + raqam/belgi) yarating yoki parolni yangilang.
             </p>
           </div>
           <button type="button" id="toggleOpenSignupBtn" class="btn-tactile shrink-0 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold">
-            Ochiq ro‘yxatdan o‘tish: YOQILGAN
+            Ochiq ro‘yxatdan o‘tish: YOQILGAN (Hamma kira oladi)
           </button>
-        </div>
-        <div id="networkUrlsList" class="flex flex-wrap gap-2"></div>
-      </div>
-
-      <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
-        <div>
-          <h1 class="text-xl sm:text-2xl font-extrabold">O‘quvchilar va Kirish Parollari</h1>
-          <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-            Har bir o‘quvchi uchun login va kuchli parol (kamida 8 belgi, harf + raqam/belgi) yarating yoki parolni yangilang.
-          </p>
         </div>
 
         <form id="studentCreateForm" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-start">

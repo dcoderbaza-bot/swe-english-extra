@@ -203,3 +203,18 @@
 - `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
 - `node tests/verify.js`: **18/18** test to‘plami muvaffaqiyatli o‘tdi (`POST /api/register`, dublikat login `400`, `/api/network-info` Teacher `200` / Student `403`, `setOpenSignup` yopish `403` -> ochish `200` va `media-src` CSP testlari bilan).
 - Jonli mobil brauzer E2E QA (`http://192.168.1.15:4181/`): telefondan to‘g‘ridan-to‘g‘ri `@nodira_mob` ro‘yxatdan o‘tib kirishi, Teacher `O‘quvchilar` sahifasida Wi-Fi havolalari (`http://192.168.1.15:4181`) ko‘rinishi va ochiq ro‘yxatdan o‘tishni yopib/qayta ochish `0` konsol/sahifa/HTTP xatosi bilan tasdiqlandi.
+
+---
+
+## 12. 11-bosqich yangilanishlari (Admin va Kirish sahifalaridan Server IP bloklarini olib tashlash)
+
+### Bajarilgan o‘zgartirishlar
+- **Admin (`O‘quvchilar`) va Kirish sahifalarini soddalashtirish (`index.html`, `js/app.js`, `README.md`, `tests/verify.js`):**
+  - `#view-students` ichidan `#staffPhoneAccessCard` va `#networkUrlsList` IP manzillar ro‘yxati olib tashlandi; `#toggleOpenSignupBtn` (`Ochiq ro‘yxatdan o‘tish`) tugmasi to‘g‘ridan-to‘g‘ri `O‘quvchilar va Kirish Parollari` sarlavhasi ostida qoldirildi.
+  - `#view-login` dan `#toggleServerUrlBtn` (`Server IP`) tugmasi hamda `#loginServerConnectForm` formasi va unga bog‘liq `js/app.js` hodisa/render kodlari (`renderPhoneAccessCard`, `copyTextToClipboard`) olib tashlandi (`renderOpenSignupToggle` soddalashtirildi).
+  - Server konsolida `0.0.0.0:4175` va Wi-Fi URL larni chiqarish hamda API testlari uchun `GET /api/network-info` saqlab qolindi.
+
+### 11-bosqich tekshiruv natijalari
+- `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
+- `node tests/verify.js`: **18/18** test to‘plami muvaffaqiyatli o‘tdi (jumladan, HTML da `toggleServerUrlBtn`, `loginServerConnectForm`, `staffPhoneAccessCard`, `networkUrlsList` yo‘qligi va `toggleOpenSignupBtn` mavjudligi tasdiqlandi).
+- Jonli brauzer QA (`http://127.0.0.1:4182/`, `0` konsol/sahifa/`>=400` HTTP xatosi): Kirish va Teacher `O‘quvchilar` sahifalarida birorta Server IP boshqaruvi yoki IP manzil chiqmasligi hamda `#toggleOpenSignupBtn` yopilib/ochilishi tasdiqlandi.

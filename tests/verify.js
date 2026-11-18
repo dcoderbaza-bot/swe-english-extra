@@ -1957,6 +1957,14 @@ async function runAsyncTests() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fullName: 'Late Joiner', username: 'lateuser1', password: 'PhoneUser#2026!' })
       })).status, 200);
+
+      // Admin & Login HTML must not expose Server IP UI controls/cards, while retaining #toggleOpenSignupBtn
+      const indexHtml = await (await fetch(`${baseUrl}/`)).text();
+      assert.equal(indexHtml.includes('id="toggleServerUrlBtn"'), false);
+      assert.equal(indexHtml.includes('id="loginServerConnectForm"'), false);
+      assert.equal(indexHtml.includes('id="staffPhoneAccessCard"'), false);
+      assert.equal(indexHtml.includes('id="networkUrlsList"'), false);
+      assert.equal(indexHtml.includes('id="toggleOpenSignupBtn"'), true);
     } finally {
       server.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });

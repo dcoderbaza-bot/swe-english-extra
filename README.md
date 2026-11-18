@@ -102,7 +102,7 @@ swe-english-extra/
    node server.js
    ```
    *(Yoki Windows’da [`start-server.bat`](start-server.bat) faylini ikki marta bosing.)*
-   Server standart holatda **`0.0.0.0:4175`** da ishga tushadi va konsolda lokal (`http://127.0.0.1:4175`) hamda telefonlar uchun Wi-Fi / Hotspot manzillarini (`Phone/Wi-Fi (Wi-Fi): http://<KOMPYUTER-IP>:4175`) chiqaradi. O‘quvchilar kompyuter bilan **bitta Wi-Fi (yoki Hotspot)** ga ulanib o‘sha `Phone/Wi-Fi` havolasini telefon brauzerida ochsin va **"Ro‘yxatdan o‘tish"** tugmasi orqali darhol o‘z login/parolini yaratib kirishi mumkin (Teacher `O‘quvchilar` bo‘limida bu havolalarni ko‘rishi va ochiq kirishni yoqib/yopishi mumkin). *(Eslatma: agar telefon boshqa mobil tarmoq / 4G da bo‘lsa, `192.168.x.x` lokal IP ishlamaydi — bir xil Wi-Fi/Hotspot yoki ommaviy HTTPS tunnel/hosting kerak bo‘ladi.)*
+   Server standart holatda **`0.0.0.0:4175`** da ishga tushadi va konsolda lokal (`http://127.0.0.1:4175`) hamda telefonlar uchun Wi-Fi / Hotspot manzillarini (`Phone/Wi-Fi (Wi-Fi): http://<KOMPYUTER-IP>:4175`) chiqaradi. O‘quvchilar kompyuter bilan **bitta Wi-Fi (yoki Hotspot)** ga ulanib o‘sha `Phone/Wi-Fi` havolasini telefon brauzerida ochsin va **"Ro‘yxatdan o‘tish"** tugmasi orqali darhol o‘z login/parolini yaratib kirishi mumkin (Teacher `O‘quvchilar` bo‘limidan ochiq ro‘yxatdan o‘tishni yoqib/yopishi mumkin). *(Eslatma: agar telefon boshqa mobil tarmoq / 4G da bo‘lsa, `192.168.x.x` lokal IP ishlamaydi — bir xil Wi-Fi/Hotspot yoki ommaviy HTTPS tunnel/hosting kerak bo‘ladi.)*
 2. **Yoki** `index.html` faylini to‘g‘ridan-to‘g‘ri brauzerda oching (`Local Multi-Tab` rejimida ishlaydi — parollar faqat o‘sha brauzer/qurilma xotirasida saqlanadi).
 3. Avtomatlashtirilgan testlarni ishga tushirish:
    ```bash

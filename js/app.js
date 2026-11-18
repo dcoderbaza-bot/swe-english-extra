@@ -2610,9 +2610,6 @@
       badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full ' + (isSrv ? 'bg-emerald-500 animate-pulse' : 'bg-indigo-500') + '"></span><span>' + escapeHtml(text) + '</span>';
     });
 
-    if ($('loginServerUrlInput') && extUrl && !$('loginServerUrlInput').value) {
-      $('loginServerUrlInput').value = extUrl;
-    }
     applyLoginRoleUI();
   }
 
@@ -2824,7 +2821,7 @@
           rateLimitStore: typeof localStorage !== 'undefined' ? localStorage : null
         });
         if (!authRes.ok) {
-          const hint = ' (Hozir Local rejimda: boshqa qurilma parollari uchun Node server IP orqali kiring yoki "Server IP" dan ulang.)';
+          const hint = ' (Hozir Local rejimda: boshqa qurilmadagi parollar uchun Node server orqali kiring.)';
           throw new Error((authRes.error || 'Login yoki parol noto‘g‘ri!') + (authRes.rateLimited ? '' : hint));
         }
         nextSession = Auth.setSession(authRes.session);
@@ -3352,21 +3349,8 @@
 
   /* ==================== STAFF MANAGEMENT (STUDENTS, TXT+AI, SECURITY) ==================== */
 
-  function copyTextToClipboard(text) {
-    if (navigator && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-      navigator.clipboard.writeText(text).then(function () {
-        showToast('Havola nusxalandi: ' + text, 'success');
-      }).catch(function () {
-        showToast(text, 'info');
-      });
-    } else {
-      showToast('Havola: ' + text, 'info');
-    }
-  }
-
-  function renderPhoneAccessCard() {
+  function renderOpenSignupToggle() {
     const toggleBtn = $('toggleOpenSignupBtn');
-    const listEl = $('networkUrlsList');
     const isOpen = isOpenSignupEnabled();
 
     if (toggleBtn) {
@@ -3376,35 +3360,6 @@
       toggleBtn.className = 'btn-tactile shrink-0 px-3.5 py-2 rounded-xl text-xs font-extrabold text-white ' +
         (isOpen ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-slate-600 hover:bg-slate-500');
     }
-    if (!listEl) return;
-
-    if (!(Sync && Sync.isServerMode()) || !Auth.isAdminRole(currentRole)) {
-      listEl.innerHTML = '<span class="text-xs text-amber-700 dark:text-amber-300 font-semibold">Telefonlardan kirish uchun kompyuterda <code class="font-mono-ipa">node server.js</code> (yoki <code class="font-mono-ipa">start-server.bat</code>) ni ishga tushiring.</span>';
-      return;
-    }
-
-    Sync.fetchNetworkInfoRemote().then(function (info) {
-      const urls = (info && Array.isArray(info.urls)) ? info.urls : [];
-      const primary = urls.filter(function (u) { return !u.isVirtual; });
-      const shown = primary.length > 0 ? primary : urls;
-      if (shown.length === 0) {
-        listEl.innerHTML = '<span class="text-xs text-slate-500">Hozircha tashqi Wi-Fi IP aniqlanmadi. Kompyuter Wi-Fi / Hotspot ga ulanganini tekshiring.</span>';
-        return;
-      }
-      listEl.innerHTML = '';
-      shown.slice(0, 4).forEach(function (entry) {
-        const pill = document.createElement('button');
-        pill.type = 'button';
-        pill.className = 'btn-tactile inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/90 dark:bg-slate-900 border border-emerald-400/40 text-xs font-mono-ipa font-bold text-emerald-700 dark:text-emerald-300';
-        pill.innerHTML = '<span>' + escapeHtml(entry.url) + '</span><span class="text-[10px] font-sans text-slate-400">(' + escapeHtml(entry.name) + ') · Nusxalash</span>';
-        pill.addEventListener('click', function () {
-          copyTextToClipboard(entry.url);
-        });
-        listEl.appendChild(pill);
-      });
-    }).catch(function () {
-      // Ignore transient fetch error
-    });
   }
 
   async function handleToggleOpenSignup() {
@@ -3426,7 +3381,7 @@
         recordAudit('OPEN_SIGNUP', 'Ochiq ro‘yxatdan o‘tish ' + (nextVal ? 'yoqildi' : 'yopildi'));
         persist('students');
       }
-      renderPhoneAccessCard();
+      renderOpenSignupToggle();
       applyLoginRoleUI();
       showToast(
         nextVal ? 'Hamma o‘quvchilar uchun ochiq ro‘yxatdan o‘tish yoqildi!' : 'Ochiq ro‘yxatdan o‘tish vaqtincha yopildi.',
@@ -3438,7 +3393,7 @@
   }
 
   function renderAdminStudentsList() {
-    renderPhoneAccessCard();
+    renderOpenSignupToggle();
     const listEl = $('adminStudentsList');
     if (!listEl) return;
     listEl.innerHTML = '';
@@ -4738,53 +4693,6 @@
     });
     if ($('loginForm')) {
       $('loginForm').addEventListener('submit', handleLoginSubmit);
-    }
-    if ($('toggleServerUrlBtn')) {
-      $('toggleServerUrlBtn').addEventListener('click', function () {
-        const form = $('loginServerConnectForm');
-        if (!form) return;
-        form.classList.toggle('hidden');
-        if (!form.classList.contains('hidden') && $('loginServerUrlInput')) {
-          $('loginServerUrlInput').value = (Sync && Sync.getServerBaseUrl()) || '';
-          $('loginServerUrlInput').focus();
-        }
-      });
-    }
-    if ($('loginServerConnectForm')) {
-      $('loginServerConnectForm').addEventListener('submit', async function (e) {
-        e.preventDefault();
-        if (!Sync) return;
-        const rawUrl = $('loginServerUrlInput') ? $('loginServerUrlInput').value : '';
-        const prevUrl = Sync.getServerBaseUrl();
-        const normalized = Sync.setServerBaseUrl(rawUrl);
-        if (rawUrl.trim() && !normalized) {
-          Sync.setServerBaseUrl(prevUrl);
-          showToast('Server manzili noto‘g‘ri. Masalan: http://192.168.1.10:4175', 'error');
-          return;
-        }
-        const ok = await Sync.detectServer();
-        applySyncBadgeUI();
-        if (ok) {
-          $('loginServerConnectForm').classList.add('hidden');
-          showToast('Serverga ulandi: ' + (normalized || window.location.origin), 'success');
-        } else {
-          Sync.setServerBaseUrl(prevUrl);
-          await Sync.detectServer();
-          applySyncBadgeUI();
-          showToast('Ko‘rsatilgan Server IP javob bermadi. Firewall yoki portni tekshiring.', 'error');
-        }
-      });
-    }
-    if ($('loginServerClearBtn')) {
-      $('loginServerClearBtn').addEventListener('click', async function () {
-        if (!Sync) return;
-        Sync.setServerBaseUrl('');
-        if ($('loginServerUrlInput')) $('loginServerUrlInput').value = '';
-        await Sync.detectServer();
-        applySyncBadgeUI();
-        if ($('loginServerConnectForm')) $('loginServerConnectForm').classList.add('hidden');
-        showToast('Avtomatik server tekshiruvi tiklandi.', 'info');
-      });
     }
 
     // Navigation & Brand Home
