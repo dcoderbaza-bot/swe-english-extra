@@ -176,7 +176,11 @@
     if (!nextRemoteState || typeof nextRemoteState !== 'object') return;
     const savedTheme = (state.settings && state.settings.theme) || 'light';
     const savedAccent = (state.settings && state.settings.accent) || 'en-US';
+    const prevAuthHashes = (state && state.auth && state.auth.hashes) ? Object.assign({}, state.auth.hashes) : null;
     state = Storage.normalizeState(nextRemoteState, Date.now());
+    if (prevAuthHashes && (!nextRemoteState.auth || !nextRemoteState.auth.hashes || Object.keys(nextRemoteState.auth.hashes).length === 0)) {
+      state.auth.hashes = Object.assign({}, state.auth.hashes, prevAuthHashes);
+    }
     state.settings.theme = savedTheme;
     state.settings.accent = savedAccent;
   }
@@ -1761,13 +1765,21 @@
       const active = btn.getAttribute('data-auth-role') === loginRoleSelection;
       btn.className = 'auth-role-btn py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all ' +
         (active
-          ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm'
+          ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25'
           : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white');
     });
 
     const userWrap = $('loginUsernameWrap');
     if (userWrap) {
       userWrap.classList.toggle('hidden', loginRoleSelection !== 'student');
+    }
+
+    const roleMeta = Auth.ROLE_META[loginRoleSelection] || Auth.ROLE_META.student;
+    if ($('loginPasswordLabel')) {
+      $('loginPasswordLabel').textContent = roleMeta.label + ' paroli *';
+    }
+    if ($('loginSubmitBtn')) {
+      $('loginSubmitBtn').textContent = roleMeta.label + ' sifatida kirish';
     }
   }
 
@@ -1824,6 +1836,10 @@
 
     if (submitBtn) submitBtn.disabled = true;
     try {
+      if (Sync && !Sync.isServerMode() && typeof window !== 'undefined' && window.location && window.location.protocol !== 'file:') {
+        await Sync.detectServer();
+        applySyncBadgeUI();
+      }
       let nextSession = null;
       if (Sync && Sync.isServerMode()) {
         const res = await Sync.loginRemote({ role: role, username: username, password: password });
@@ -2335,6 +2351,10 @@
         mergeRemoteState(res.state);
       } else {
         state.students = Auth.resetStudentPassword(state.students, currentRole, studentId, newPassword);
+        const resetStu = (state.students || []).find(function (s) { return s.id === studentId; });
+        if (resetStu) {
+          Auth.clearLoginFailures('student:' + Auth.normalizeUsername(resetStu.username), typeof localStorage !== 'undefined' ? localStorage : null);
+        }
         recordAudit('STUDENT_PW_RESET', 'O‘quvchi paroli yangilandi: ' + studentId);
         persist('students');
       }
@@ -2940,6 +2960,7 @@
     }
 
     try {
+      const ls = typeof localStorage !== 'undefined' ? localStorage : null;
       if (Sync && Sync.isServerMode()) {
         const res = await Sync.pushSecurityRemote({
           action: 'changeRolePassword',
@@ -2947,11 +2968,16 @@
           newPassword: newPw
         });
         mergeRemoteState(res.state);
+        try {
+          state.auth = Auth.changeRolePassword(state.auth, currentRole, targetRole, newPw);
+          Storage.saveState(state);
+        } catch (_) {}
       } else {
         state.auth = Auth.changeRolePassword(state.auth, currentRole, targetRole, newPw);
         recordAudit('PASSWORD_CHANGE', Auth.ROLE_META[targetRole].label + ' paroli yangilandi');
         persist('security');
       }
+      Auth.clearLoginFailures('staff:' + targetRole, ls);
       $(newInpId).value = '';
       $(confirmInpId).value = '';
       if (meterBarId && meterLabelId) updatePasswordMeter('', meterBarId, meterLabelId);
@@ -3124,7 +3150,16 @@
       btn.addEventListener('click', function () {
         loginRoleSelection = btn.getAttribute('data-auth-role') || 'student';
         applyLoginRoleUI();
-        if ($('loginErrorBox')) $('loginErrorBox').classList.add('hidden');
+        if ($('loginPasswordInput')) $('loginPasswordInput').value = '';
+        if ($('loginErrorBox')) {
+          $('loginErrorBox').classList.add('hidden');
+          $('loginErrorBox').textContent = '';
+        }
+        if (loginRoleSelection === 'student' && $('loginUsernameInput')) {
+          $('loginUsernameInput').focus();
+        } else if ($('loginPasswordInput')) {
+          $('loginPasswordInput').focus();
+        }
       });
     });
     if ($('toggleLoginPwBtn')) {
@@ -3133,6 +3168,13 @@
         if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
       });
     }
+    document.querySelectorAll('[data-toggle-pw]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const targetId = btn.getAttribute('data-toggle-pw');
+        const inp = targetId ? $(targetId) : null;
+        if (inp) inp.type = inp.type === 'password' ? 'text' : 'password';
+      });
+    });
     if ($('loginForm')) {
       $('loginForm').addEventListener('submit', handleLoginSubmit);
     }

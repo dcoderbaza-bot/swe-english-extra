@@ -295,6 +295,15 @@ function createAppServer(options) {
     };
   }
 
+  function clearServerRateLimitForAccount(role, username) {
+    const suffix = role === 'student'
+      ? (':student:' + Auth.normalizeUsername(username))
+      : (':' + role + ':' + role);
+    Array.from(rateLimitMap.keys()).forEach(function (k) {
+      if (k.endsWith(suffix)) rateLimitMap.delete(k);
+    });
+  }
+
   function loadDb() {
     const dir = path.dirname(dataFilePath);
     if (!fs.existsSync(dir)) {
@@ -647,9 +656,13 @@ function createAppServer(options) {
           );
         } else if (body.action === 'resetPassword') {
           db.students = Auth.resetStudentPassword(db.students, session.role, body.studentId, body.newPassword);
+          const resetStu = (db.students || []).find(function (s) { return s.id === body.studentId; });
+          if (resetStu) clearServerRateLimitForAccount('student', resetStu.username);
           db.auditLog = Auth.appendAuditLog(db.auditLog, session.role, 'STUDENT_PW_RESET', 'O‘quvchi paroli yangilandi: ' + body.studentId, now);
         } else if (body.action === 'toggleActive') {
           db.students = Auth.toggleStudentActive(db.students, session.role, body.studentId);
+          const toggledStu = (db.students || []).find(function (s) { return s.id === body.studentId; });
+          if (toggledStu) clearServerRateLimitForAccount('student', toggledStu.username);
           db.auditLog = Auth.appendAuditLog(db.auditLog, session.role, 'STUDENT_STATUS', 'O‘quvchi holati o‘zgartirildi: ' + body.studentId, now);
         } else {
           sendJson(res, 400, { ok: false, error: 'Noma’lum student amali.' });
@@ -782,6 +795,7 @@ function createAppServer(options) {
 
         if (body.action === 'changeRolePassword') {
           db.auth = Auth.changeRolePassword(db.auth, session.role, body.targetRole, body.newPassword);
+          clearServerRateLimitForAccount(body.targetRole);
           db.auditLog = Auth.appendAuditLog(
             db.auditLog,
             session.role,

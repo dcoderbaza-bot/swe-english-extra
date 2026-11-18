@@ -745,7 +745,7 @@ async function runAsyncTests() {
       assert.equal((await fetch(`${baseUrl}/api/stream`)).status, 401);
       assert.equal((await fetch(`${baseUrl}/api/stream?token=invalid.token`)).status, 401);
 
-      // 3. Server brute-force 429 lockout & IT Manager clearRateLimits
+      // 3. Server brute-force 429 lockout & role-specific error + IT Manager changeRolePassword unlocks & updates login immediately
       for (let i = 0; i < 3; i++) {
         const failRes = await fetch(`${baseUrl}/api/login`, {
           method: 'POST',
@@ -753,6 +753,10 @@ async function runAsyncTests() {
           body: JSON.stringify({ role: 'teacher', password: 'bad-' + i })
         });
         assert.equal(failRes.status, i < 2 ? 401 : 429);
+        if (i === 0) {
+          const failJson = await failRes.json();
+          assert.match(failJson.error, /Teacher paroli noto‘g‘ri/);
+        }
       }
       const lockedRes = await fetch(`${baseUrl}/api/login`, {
         method: 'POST',
@@ -761,6 +765,14 @@ async function runAsyncTests() {
       });
       assert.equal(lockedRes.status, 429);
       assert.ok(Number(lockedRes.headers.get('retry-after')) >= 1);
+
+      const itBadRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'it_manager', password: 'wrong-it' })
+      });
+      assert.equal(itBadRes.status, 401);
+      assert.match((await itBadRes.json()).error, /IT Manager paroli noto‘g‘ri/);
 
       const itLoginRes = await fetch(`${baseUrl}/api/login`, {
         method: 'POST',
@@ -771,6 +783,40 @@ async function runAsyncTests() {
       assert.equal(itLogin.ok, true);
       assert.ok(itLogin.state.auditLog.some((e) => e.action === 'AUTH_LOCKOUT'));
 
+      // Changing teacher password automatically clears teacher rate-limit and accepts new password immediately
+      const chgTeachRes = await fetch(`${baseUrl}/api/security`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${itLogin.token}`
+        },
+        body: JSON.stringify({
+          action: 'changeRolePassword',
+          targetRole: 'teacher',
+          newPassword: 'SecTeachUpdated#2026'
+        })
+      });
+      assert.equal(chgTeachRes.status, 200);
+
+      // Must succeed immediately without waiting for clearRateLimits
+      const teachLoginRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'SecTeachUpdated#2026' })
+      });
+      const teachLogin = await teachLoginRes.json();
+      assert.equal(teachLoginRes.status, 200);
+      assert.equal(teachLogin.ok, true);
+
+      // Old teacher password must fail with role-specific error
+      const oldPwRes = await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'SecTeach#2026!' })
+      });
+      assert.equal(oldPwRes.status, 401);
+      assert.match((await oldPwRes.json()).error, /Teacher paroli noto‘g‘ri/);
+
       const clearRlRes = await fetch(`${baseUrl}/api/security`, {
         method: 'POST',
         headers: {
@@ -780,15 +826,6 @@ async function runAsyncTests() {
         body: JSON.stringify({ action: 'clearRateLimits' })
       });
       assert.equal(clearRlRes.status, 200);
-
-      // 4. Teacher can now log in + authenticated SSE + logout revocation
-      const teachLoginRes = await fetch(`${baseUrl}/api/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: 'teacher', password: 'SecTeach#2026!' })
-      });
-      const teachLogin = await teachLoginRes.json();
-      assert.equal(teachLogin.ok, true);
 
       // Authenticated SSE opens with 200 and closes cleanly on abort
       const sseController = new AbortController();

@@ -116,7 +116,7 @@
     }
 
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller ? setTimeout(function () { controller.abort(); }, 700) : null;
+    const timer = controller ? setTimeout(function () { controller.abort(); }, 1500) : null;
     try {
       const res = await fetch('/api/health', {
         method: 'GET',

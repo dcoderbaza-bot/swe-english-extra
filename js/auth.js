@@ -438,7 +438,8 @@
     if (role === 'it_manager' || role === 'teacher') {
       if (!verifyRolePassword(opts.authState, role, password)) {
         if (rlStore || opts.enforceRateLimit) recordLoginFailure(rlBucket, now, rlStore);
-        return { ok: false, error: 'Admin paroli noto‘g‘ri!' };
+        const roleLabel = (ROLE_META[role] && ROLE_META[role].label) || 'Admin';
+        return { ok: false, error: roleLabel + ' paroli noto‘g‘ri!' };
       }
       if (rlStore || opts.enforceRateLimit) clearLoginFailures(rlBucket, rlStore);
       return {
