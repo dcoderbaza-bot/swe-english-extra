@@ -150,6 +150,7 @@
   let cachedVoices = [];
   let activeAudioEl = null;
   let activePlayToken = 0;
+  let activeOnEnd = null;
   let remoteTtsHandler = null;
   let lastEngineUsed = 'browser';
   const MAX_CLIENT_AUDIO_CACHE = 240;
@@ -220,6 +221,8 @@
 
   function stop() {
     activePlayToken++;
+    const pendingEnd = activeOnEnd;
+    activeOnEnd = null;
     stopAudioEl();
     if (isSupported()) {
       try {
@@ -227,6 +230,9 @@
       } catch (err) {
         // Ignore browser cancel quirk
       }
+    }
+    if (typeof pendingEnd === 'function') {
+      try { pendingEnd(); } catch (_) {}
     }
   }
 
@@ -365,6 +371,16 @@
 
     stop();
     const myToken = activePlayToken;
+    const origOnEnd = opts.onEnd;
+    let endNotified = false;
+    function notifyEnded() {
+      if (endNotified) return;
+      endNotified = true;
+      if (activeOnEnd === notifyEnded) activeOnEnd = null;
+      if (typeof origOnEnd === 'function') origOnEnd();
+    }
+    activeOnEnd = notifyEnded;
+    opts.onEnd = notifyEnded;
 
     const canTryApi = Boolean(opts.useApiTts !== false && remoteTtsHandler && typeof Audio !== 'undefined');
     if (canTryApi) {

@@ -62,8 +62,12 @@
       .trim();
   }
 
-  function stripApostrophesAndHyphens(str) {
-    return normalizeUzbekAnswer(str).replace(/['\-–—]/g, '').replace(/\s+/g, ' ').trim();
+  function stripApostrophesAndHyphens(str, replaceHyphenWithSpace) {
+    return normalizeUzbekAnswer(str)
+      .replace(/[']/g, '')
+      .replace(/[\-–—]/g, replaceHyphenWithSpace ? ' ' : '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   function extractAcceptedUzbekVariants(expectedTranslation) {
@@ -76,6 +80,15 @@
       if (norm && norm.length >= 2 && !seen.has(norm)) {
         seen.add(norm);
         variants.push(norm);
+      }
+      // Accept Uzbek translations without leading ellipsis suffix placeholders like "...dan kelib chiqmoq"
+      const suffixMatch = String(candidate || '').trim().match(/^(?:\.{2,}|…)\s*[a-z\u02BB\u02BC\u2018\u2019']+\s+(.+)$/i);
+      if (suffixMatch && suffixMatch[1]) {
+        const tailNorm = normalizeUzbekAnswer(suffixMatch[1]);
+        if (tailNorm && tailNorm.length >= 2 && !seen.has(tailNorm)) {
+          seen.add(tailNorm);
+          variants.push(tailNorm);
+        }
       }
     }
 
@@ -105,11 +118,15 @@
       }
     }
 
-    // Fallback: tolerate missing/extra apostrophes or hyphens (e.g. o'zlashtirmoq vs ozlashtirmoq)
-    const strippedUser = stripApostrophesAndHyphens(userAnswer);
-    if (strippedUser.length >= 4) {
+    // Fallback: tolerate missing/extra apostrophes or hyphens (e.g. o'zlashtirmoq vs ozlashtirmoq, sa'y-harakat vs say harakat)
+    const strippedJoinedUser = stripApostrophesAndHyphens(userAnswer, false);
+    const strippedSpacedUser = stripApostrophesAndHyphens(userAnswer, true);
+    if (strippedJoinedUser.length >= 4 || strippedSpacedUser.length >= 4) {
       for (let j = 0; j < variants.length; j++) {
-        if (strippedUser === stripApostrophesAndHyphens(variants[j])) {
+        if (
+          strippedJoinedUser === stripApostrophesAndHyphens(variants[j], false) ||
+          strippedSpacedUser === stripApostrophesAndHyphens(variants[j], true)
+        ) {
           return { isCorrect: true, matchedVariant: variants[j] };
         }
       }

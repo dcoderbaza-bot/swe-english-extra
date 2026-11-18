@@ -428,7 +428,7 @@
             <i data-lucide="headphones" class="w-4 h-4"></i>
             Listening
           </button>
-          <button type="button" data-study-mode="exam" class="study-mode-tab px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all text-rose-600 dark:text-rose-300">
+          <button type="button" data-study-mode="exam" class="study-mode-tab col-span-2 sm:col-span-1 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all text-rose-600 dark:text-rose-300">
             <i data-lucide="shield-alert" class="w-4 h-4"></i>
             Yakuniy Yopiq Test
           </button>
@@ -492,8 +492,8 @@
 
                 <div class="my-auto py-6 text-center space-y-4">
                   <p id="fcPosText" class="text-xs sm:text-sm font-bold uppercase tracking-widest text-indigo-600 dark:text-indigo-300 italic">verb / noun</p>
-                  <h2 id="fcWordText" class="text-4xl sm:text-5xl font-extrabold tracking-tight break-words">endeavor</h2>
-                  <p id="fcPhoneticText" class="font-mono-ipa text-base sm:text-lg text-slate-500 dark:text-slate-400">/ɪnˈdev.ər/</p>
+                  <h2 id="fcWordText" class="text-4xl sm:text-5xl font-extrabold tracking-tight break-words notranslate" translate="no">endeavor</h2>
+                  <p id="fcPhoneticText" class="font-mono-ipa text-base sm:text-lg text-slate-500 dark:text-slate-400 notranslate" translate="no">/ɪnˈdev.ər/</p>
 
                   <div class="pt-3 flex items-center justify-center gap-2.5">
                     <button type="button" id="fcSpeakBtn" class="btn-tactile inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-lg shadow-indigo-500/25">
@@ -516,11 +516,11 @@
               </div>
 
               <!-- BACK FACE -->
-              <div class="flashcard-face flashcard-face--back p-6 sm:p-8 flex flex-col justify-between gap-4">
+              <div class="flashcard-face flashcard-face--back p-6 sm:p-8 flex flex-col justify-start gap-4">
                 <div class="flex items-center justify-between gap-2 pb-3 border-b border-slate-200/80 dark:border-slate-700/70">
                   <div class="flex items-center gap-2.5 min-w-0">
-                    <h3 id="fcBackWord" class="text-lg sm:text-xl font-extrabold truncate">endeavor</h3>
-                    <span id="fcBackPhonetic" class="font-mono-ipa text-xs sm:text-sm text-slate-500 dark:text-slate-400 truncate">/ɪnˈdev.ər/</span>
+                    <h3 id="fcBackWord" class="text-lg sm:text-xl font-extrabold truncate notranslate" translate="no">endeavor</h3>
+                    <span id="fcBackPhonetic" class="font-mono-ipa text-xs sm:text-sm text-slate-500 dark:text-slate-400 truncate notranslate" translate="no">/ɪnˈdev.ər/</span>
                   </div>
                   <div class="flex items-center gap-2 shrink-0">
                     <button type="button" id="fcBackSpeakBtn" class="p-2 rounded-xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-500/25" title="Ovozli o‘qish">
@@ -674,8 +674,8 @@
 
           <div class="text-center space-y-1.5 py-2">
             <p id="quizPos" class="text-xs font-bold uppercase tracking-widest text-indigo-600 dark:text-indigo-300"></p>
-            <h2 id="quizWord" class="text-3xl sm:text-4xl font-extrabold"></h2>
-            <p id="quizPhonetic" class="font-mono-ipa text-sm text-slate-500 dark:text-slate-400"></p>
+            <h2 id="quizWord" class="text-3xl sm:text-4xl font-extrabold notranslate" translate="no"></h2>
+            <p id="quizPhonetic" class="font-mono-ipa text-sm text-slate-500 dark:text-slate-400 notranslate" translate="no"></p>
           </div>
 
           <div id="quizOptionsGrid" class="grid grid-cols-1 gap-3"></div>
@@ -694,7 +694,7 @@
           <div class="w-16 h-16 rounded-3xl bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 mx-auto flex items-center justify-center">
             <i data-lucide="trophy" class="w-8 h-8"></i>
           </div>
-          <h3 class="text-2xl font-extrabold">Test yakunlandi!</h3>
+          <h3 id="quizSummaryTitle" class="text-2xl font-extrabold">Test yakunlandi!</h3>
           <p id="quizSummaryStats" class="text-base font-semibold text-slate-600 dark:text-slate-300"></p>
           <div id="quizWrongList" class="text-left space-y-2"></div>
           <button type="button" id="quizRestartBtn" class="btn-tactile px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
@@ -730,11 +730,11 @@
             <span class="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">O‘zbekcha ma’nosi</span>
             <h2 id="writeTranslation" class="text-2xl sm:text-3xl font-extrabold"></h2>
             <p id="writeDefinition" class="text-sm text-slate-600 dark:text-slate-300 max-w-lg mx-auto"></p>
-            <p id="writeHintText" class="font-mono-ipa text-sm font-bold tracking-widest text-indigo-600 dark:text-indigo-300 min-h-[1.25rem]"></p>
+            <p id="writeHintText" class="font-mono-ipa text-sm font-bold tracking-widest text-indigo-600 dark:text-indigo-300 min-h-[1.25rem] notranslate" translate="no"></p>
           </div>
 
           <form id="writeForm" class="space-y-3">
-            <input id="writeInput" type="text" autocomplete="off" spellcheck="false" placeholder="Inglizcha so‘zni harflab yozing..." class="w-full px-4 py-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-700 text-center text-lg font-bold tracking-wide" />
+            <input id="writeInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Inglizcha so‘zni harflab yozing..." class="w-full px-4 py-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-700 text-center text-lg font-bold tracking-wide" />
             <div class="flex flex-wrap items-center justify-between gap-2">
               <button type="button" id="writeHintBtn" class="btn-tactile px-4 py-2.5 rounded-xl glass-panel text-xs sm:text-sm font-bold flex items-center gap-1.5">
                 <i data-lucide="lightbulb" class="w-4 h-4 text-amber-500"></i>
@@ -760,8 +760,9 @@
           <div class="w-16 h-16 rounded-3xl bg-violet-500/15 text-violet-600 dark:text-violet-300 mx-auto flex items-center justify-center">
             <i data-lucide="sparkles" class="w-8 h-8"></i>
           </div>
-          <h3 class="text-2xl font-extrabold">Yozma mashq yakunlandi!</h3>
+          <h3 id="writeSummaryTitle" class="text-2xl font-extrabold">Yozma mashq yakunlandi!</h3>
           <p id="writeSummaryStats" class="text-base font-semibold text-slate-600 dark:text-slate-300"></p>
+          <div id="writeWrongList" class="text-left space-y-2"></div>
           <button type="button" id="writeRestartBtn" class="btn-tactile px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
             Qayta boshlash
           </button>
@@ -800,10 +801,10 @@
             </div>
           </div>
 
-          <div id="listenQuizOptions" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+          <div id="listenQuizOptions" class="grid grid-cols-1 sm:grid-cols-2 gap-3 notranslate" translate="no"></div>
 
           <form id="listenDictationForm" class="hidden space-y-3">
-            <input id="listenDictationInput" type="text" autocomplete="off" spellcheck="false" placeholder="Eshitgan so‘zingizni yozing..." class="w-full px-4 py-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-700 text-center text-lg font-bold" />
+            <input id="listenDictationInput" type="text" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Eshitgan so‘zingizni yozing..." class="w-full px-4 py-3.5 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-700 text-center text-lg font-bold" />
             <div class="flex justify-end">
               <button type="submit" id="listenDictationCheckBtn" class="btn-tactile px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
                 Tekshirish
@@ -825,8 +826,9 @@
           <div class="w-16 h-16 rounded-3xl bg-sky-500/15 text-sky-600 dark:text-sky-300 mx-auto flex items-center justify-center">
             <i data-lucide="headphones" class="w-8 h-8"></i>
           </div>
-          <h3 class="text-2xl font-extrabold">Listening mashqi yakunlandi!</h3>
+          <h3 id="listenSummaryTitle" class="text-2xl font-extrabold">Listening mashqi yakunlandi!</h3>
           <p id="listenSummaryStats" class="text-base font-semibold text-slate-600 dark:text-slate-300"></p>
+          <div id="listenWrongList" class="text-left space-y-2"></div>
           <button type="button" id="listenRestartBtn" class="btn-tactile px-6 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold">
             Qayta boshlash
           </button>
@@ -1724,8 +1726,8 @@
           <div class="flex gap-1"><kbd class="kbd-badge">1</kbd><kbd class="kbd-badge">2</kbd><kbd class="kbd-badge">3</kbd><kbd class="kbd-badge">4</kbd></div>
         </div>
         <div class="flex items-center justify-between py-1.5 border-b border-slate-200/70 dark:border-slate-800">
-          <span>Oldingi / Keyingi karta</span>
-          <div class="flex gap-1"><kbd class="kbd-badge">←</kbd><kbd class="kbd-badge">→</kbd></div>
+          <span>Oldingi / Keyingi (yoki keyingisi Testda)</span>
+          <div class="flex gap-1"><kbd class="kbd-badge">←</kbd><kbd class="kbd-badge">→</kbd><kbd class="kbd-badge">Enter</kbd></div>
         </div>
         <div class="flex items-center justify-between py-1.5">
           <span>Oynani yopish</span>

@@ -30,9 +30,13 @@
   let examSessionRuntime = {
     activeQueueIds: [],
     currentIndex: 0,
+    currentWordId: null,
+    isRenderingPrompt: false,
+    finishingEmpty: false,
     proctoringBound: false,
     armedAt: 0,
     lastStrikeAt: 0,
+    blurTimerId: null,
     lastInputValue: '',
     observer: null,
     handlers: null
@@ -42,6 +46,8 @@
   let fcSession = {
     queue: [],
     index: 0,
+    scopeKey: '',
+    scopeMode: '',
     isFlipped: false,
     waitingRetryUntil: null,
     waitingWordId: null,
@@ -53,7 +59,9 @@
     items: [],
     index: 0,
     score: 0,
+    scopeKey: '',
     answered: false,
+    currentOptions: [],
     wrongWords: []
   };
 
@@ -62,8 +70,10 @@
     items: [],
     index: 0,
     score: 0,
+    scopeKey: '',
     answered: false,
-    hintStep: 0
+    hintStep: 0,
+    wrongWords: []
   };
 
   // Listening session state
@@ -72,7 +82,10 @@
     items: [],
     index: 0,
     score: 0,
-    answered: false
+    scopeKey: '',
+    answered: false,
+    currentOptions: [],
+    wrongWords: []
   };
 
   let confirmCallback = null;
@@ -323,6 +336,40 @@
     return parts.join(' · ');
   }
 
+  function applyUpdatedWordsToStudySessions() {
+    const byId = new Map();
+    (state.words || []).forEach(function (w) {
+      if (w && w.id) byId.set(w.id, w);
+    });
+
+    function refreshList(list) {
+      return (Array.isArray(list) ? list : []).map(function (item) {
+        const latest = item && item.id ? byId.get(item.id) : null;
+        if (!latest) return item;
+        return Object.assign({}, item, {
+          phonetic: latest.phonetic || item.phonetic || '',
+          phoneticUk: latest.phoneticUk || item.phoneticUk || '',
+          syllables: latest.syllables || item.syllables || '',
+          pronunciationNote: latest.pronunciationNote || item.pronunciationNote || ''
+        });
+      });
+    }
+
+    fcSession.queue = refreshList(fcSession.queue);
+    quizSession.items = refreshList(quizSession.items);
+    writeSession.items = refreshList(writeSession.items);
+    listenSession.items = refreshList(listenSession.items);
+
+    if (currentView !== 'study') return;
+    if (currentStudyMode === 'flashcards' && fcSession.queue[fcSession.index]) {
+      const fcPron = formatWordPronunciation(fcSession.queue[fcSession.index]);
+      if ($('fcPhoneticText')) $('fcPhoneticText').textContent = fcPron;
+      if ($('fcBackPhonetic')) $('fcBackPhonetic').textContent = fcPron;
+    } else if (currentStudyMode === 'quiz' && quizSession.items[quizSession.index]) {
+      if ($('quizPhonetic')) $('quizPhonetic').textContent = formatWordPronunciation(quizSession.items[quizSession.index]);
+    }
+  }
+
   function ensurePrimaryAiPronunciation(text, wordId) {
     const clean = String(text || '').trim();
     if (!clean || !hasSavedAiKey(state && state.aiConfig)) return;
@@ -339,7 +386,10 @@
         if (Sync && Sync.isServerMode()) {
           const res = await Sync.resolvePronunciationRemote({ wordId: match.id, word: match.word });
           if (res && res.state) mergeRemoteState(res.state);
-          if (res && res.updatedCount > 0) refreshActiveView();
+          if (res && res.updatedCount > 0) {
+            if (currentView === 'study') applyUpdatedWordsToStudySessions();
+            else refreshActiveView();
+          }
         } else if (AiTxt && typeof AiTxt.resolvePronunciationWithAI === 'function') {
           const items = await AiTxt.resolvePronunciationWithAI([match], state.aiConfig, {
             existingWords: state.words
@@ -357,7 +407,8 @@
               });
             });
             persist('curriculum');
-            refreshActiveView();
+            if (currentView === 'study') applyUpdatedWordsToStudySessions();
+            else refreshActiveView();
           }
         }
       } catch (_) {
@@ -450,7 +501,8 @@
 
   /* ==================== NAVIGATION ==================== */
 
-  function switchView(viewName) {
+  function switchView(viewName, options) {
+    const opts = options || {};
     if (!currentSession) {
       applyAuthGateUI();
       return;
@@ -470,6 +522,10 @@
     if (viewName === 'security' && !Auth.canManageSecurity(currentRole)) {
       showToast('Xavfsizlik bo‘limi faqat IT Manager uchun!', 'warning');
       viewName = isStaff() ? 'monitor' : 'dashboard';
+    }
+
+    if (Speech && typeof Speech.stop === 'function' && currentView !== viewName) {
+      Speech.stop();
     }
 
     currentView = viewName;
@@ -507,7 +563,7 @@
       renderDashboard();
     } else if (viewName === 'study') {
       syncDeckSelects();
-      setStudyMode(currentStudyMode);
+      setStudyMode(currentStudyMode, { preserveIfActive: !opts.restartStudy });
     } else if (viewName === 'vocabulary') {
       syncDeckSelects();
       renderVocabulary();
@@ -596,7 +652,7 @@
         activeDeck = 'ALL';
         studyScope = dueCount > 0 ? 'due' : 'all';
         currentStudyMode = 'flashcards';
-        switchView('study');
+        switchView('study', { restartStudy: true });
       });
 
       card.innerHTML =
@@ -662,7 +718,7 @@
         activeLesson = 'ALL';
         studyScope = dueCount > 0 ? 'due' : 'all';
         currentStudyMode = 'flashcards';
-        switchView('study');
+        switchView('study', { restartStudy: true });
       });
 
       card.innerHTML =
@@ -698,10 +754,21 @@
 
   /* ==================== STUDY CONTROLS & DECK SYNC ==================== */
 
+  function normalizeFilterValue(val) {
+    return String(val || '').trim().toLowerCase();
+  }
+
+  function getStudyScopeKey() {
+    return normalizeFilterValue(activeLesson) + '|' + normalizeFilterValue(activeDeck);
+  }
+
   function getFilteredStudyWords() {
+    const targetDeck = normalizeFilterValue(activeDeck);
+    const targetLesson = normalizeFilterValue(activeLesson);
     return getSessionWords().filter(function (w) {
-      if (activeDeck !== 'ALL' && w.category !== activeDeck) return false;
-      if (activeLesson !== 'ALL' && w.lesson !== activeLesson) return false;
+      if (!w || !String(w.word || '').trim()) return false;
+      if (activeDeck !== 'ALL' && normalizeFilterValue(w.category) !== targetDeck) return false;
+      if (activeLesson !== 'ALL' && normalizeFilterValue(w.lesson) !== targetLesson) return false;
       return true;
     });
   }
@@ -713,6 +780,13 @@
     const vocabLessonFilter = $('vocabLessonFilter');
     const txtLessonSel = $('txtTargetLessonSelect');
     const txtCatSel = $('txtTargetCategorySelect');
+
+    if (activeDeck !== 'ALL' && !(state.categories || []).some(function (c) { return c.name === activeDeck; })) {
+      activeDeck = 'ALL';
+    }
+    if (activeLesson !== 'ALL' && !(state.lessons || []).some(function (l) { return l.name === activeLesson; })) {
+      activeLesson = 'ALL';
+    }
 
     if (studySel) {
       studySel.innerHTML = '<option value="ALL">Barcha kategoriyalar</option>';
@@ -745,7 +819,7 @@
         opt.textContent = c.name;
         vocabCatFilter.appendChild(opt);
       });
-      vocabCatFilter.value = prev;
+      vocabCatFilter.value = (prev === 'ALL' || state.categories.some(function (c) { return c.name === prev; })) ? prev : 'ALL';
     }
 
     if (vocabLessonFilter) {
@@ -757,7 +831,7 @@
         opt.textContent = l.name;
         vocabLessonFilter.appendChild(opt);
       });
-      vocabLessonFilter.value = prevL;
+      vocabLessonFilter.value = (prevL === 'ALL' || (state.lessons || []).some(function (l) { return l.name === prevL; })) ? prevL : 'ALL';
     }
 
     if (txtLessonSel) {
@@ -785,11 +859,58 @@
     }
   }
 
-  function setStudyMode(mode) {
+  function hasActiveUnfinishedSession(mode) {
+    const scopeKey = getStudyScopeKey();
+    if (mode === 'flashcards') {
+      return fcSession.queue.length > 0 && fcSession.scopeKey === scopeKey && fcSession.scopeMode === studyScope;
+    }
+    if (mode === 'quiz') {
+      return quizSession.items.length > 0 && quizSession.index < quizSession.items.length && quizSession.scopeKey === scopeKey;
+    }
+    if (mode === 'writing') {
+      return writeSession.items.length > 0 && writeSession.index < writeSession.items.length && writeSession.scopeKey === scopeKey;
+    }
+    if (mode === 'listening') {
+      return listenSession.items.length > 0 && listenSession.index < listenSession.items.length && listenSession.scopeKey === scopeKey;
+    }
+    return false;
+  }
+
+  function resumeCurrentStudyMode() {
+    applyStudyScopeUI();
+    if (currentStudyMode === 'flashcards') {
+      renderFlashcard();
+    } else if (currentStudyMode === 'quiz') {
+      $('quizSummaryBox').classList.add('hidden');
+      $('quizCardBox').classList.remove('hidden');
+      if (!quizSession.answered) renderQuizQuestion();
+    } else if (currentStudyMode === 'writing') {
+      $('writeSummaryBox').classList.add('hidden');
+      $('writeCardBox').classList.remove('hidden');
+      if (!writeSession.answered) renderWritingQuestion();
+    } else if (currentStudyMode === 'listening') {
+      $('listenSummaryBox').classList.add('hidden');
+      $('listenCardBox').classList.remove('hidden');
+      if (!listenSession.answered) renderListeningQuestion(false);
+    } else if (currentStudyMode === 'exam') {
+      initExamSession();
+    }
+  }
+
+  function setStudyMode(mode, options) {
+    const opts = options || {};
     if (isExamActivelyProctored() && mode !== 'exam') {
       recordExamViolation('Yopiq test paytida yordamchi mashq rejimiga o‘tish urinish (' + mode + ')');
       showToast('Yopiq test tugamaguncha Flashcard/Test rejimlariga o‘tish mumkin emas!', 'warning');
       return;
+    }
+
+    const modeChanged = currentStudyMode !== mode;
+    if (modeChanged && Speech && typeof Speech.stop === 'function') {
+      Speech.stop();
+    }
+    if (mode !== 'flashcards') {
+      clearRetryTimer();
     }
 
     currentStudyMode = mode;
@@ -797,7 +918,8 @@
     document.querySelectorAll('.study-mode-tab').forEach(function (btn) {
       const active = btn.getAttribute('data-study-mode') === mode;
       const isExamBtn = btn.getAttribute('data-study-mode') === 'exam';
-      btn.className = 'study-mode-tab px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all ' +
+      btn.className = 'study-mode-tab ' + (isExamBtn ? 'col-span-2 sm:col-span-1 ' : '') +
+        'px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all ' +
         (active
           ? (isExamBtn ? 'bg-rose-600 text-white shadow-sm' : 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm')
           : (isExamBtn ? 'text-rose-600 dark:text-rose-300 hover:bg-rose-500/10' : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'));
@@ -821,7 +943,11 @@
       });
     }
 
-    startCurrentStudyMode();
+    if (opts.preserveIfActive && hasActiveUnfinishedSession(mode)) {
+      resumeCurrentStudyMode();
+    } else {
+      startCurrentStudyMode();
+    }
     refreshIcons();
   }
 
@@ -837,6 +963,9 @@
 
   function startCurrentStudyMode() {
     applyStudyScopeUI();
+    if (Speech && typeof Speech.stop === 'function') {
+      Speech.stop();
+    }
     if (currentStudyMode === 'flashcards') {
       initFlashcardsSession();
     } else if (currentStudyMode === 'quiz') {
@@ -869,6 +998,8 @@
 
     fcSession.queue = SRS.sortStudyQueue(filtered, now);
     fcSession.index = 0;
+    fcSession.scopeKey = getStudyScopeKey();
+    fcSession.scopeMode = studyScope;
     fcSession.isFlipped = false;
     fcSession.waitingRetryUntil = null;
     fcSession.waitingWordId = null;
@@ -886,8 +1017,8 @@
 
       const totalInDeck = getFilteredStudyWords().length;
       if (totalInDeck === 0) {
-        $('fcEmptyTitle').textContent = 'Bu kategoriyada hali so‘z yo‘q';
-        $('fcEmptyDesc').textContent = 'Yangi so‘z qo‘shib o‘rganishni boshlashingiz mumkin.';
+        $('fcEmptyTitle').textContent = 'Tanlangan to‘plamda hali so‘z yo‘q';
+        $('fcEmptyDesc').textContent = 'Boshqa darslik/kategoriyani tanlang yoki yangi so‘z qo‘shing.';
         $('fcPracticeAllBtn').classList.add('hidden');
       } else if (fcSession.waitingWordId && fcSession.waitingRetryUntil && fcSession.waitingRetryUntil > Date.now()) {
         const secs = Math.max(1, Math.ceil((fcSession.waitingRetryUntil - Date.now()) / 1000));
@@ -897,7 +1028,7 @@
         $('fcPracticeAllBtn').classList.remove('hidden');
       } else {
         $('fcEmptyTitle').textContent = 'Ajoyib! Bugungi takrorlash yakunlandi';
-        $('fcEmptyDesc').textContent = 'Ushbu kategoriyada hozircha takrorlanishi kerak bo‘lgan so‘z qolmadi.';
+        $('fcEmptyDesc').textContent = 'Ushbu darslikda hozircha takrorlanishi kerak bo‘lgan so‘z qolmadi.';
         $('fcPracticeAllBtn').textContent = 'Barcha so‘zlarni mashq qilish';
         $('fcPracticeAllBtn').classList.remove('hidden');
       }
@@ -924,7 +1055,9 @@
     });
 
     $('fcCounter').textContent = 'Karta ' + (fcSession.index + 1) + ' / ' + total;
-    $('fcDueBadge').textContent = dueCount > 0 ? dueCount + ' ta due' : 'Mashq rejimi';
+    $('fcDueBadge').textContent = dueCount > 0
+      ? (dueCount + ' ta due')
+      : (studyScope === 'due' ? (total + ' ta qayta takror') : 'Mashq rejimi');
     $('fcProgressBar').style.width = Math.round(((fcSession.index + 1) / total) * 100) + '%';
 
     // Front face
@@ -1039,8 +1172,9 @@
   }
 
   function rateCurrentFlashcard(ratingKey) {
-    if (fcSession.queue.length === 0) return;
+    if (fcSession.queue.length === 0 || !fcSession.isFlipped) return;
     const currentCard = fcSession.queue[fcSession.index];
+    if (!currentCard) return;
     const now = Date.now();
     const reviewRes = Storage.applyWordReviewForSession(state, currentSession, currentCard.id, ratingKey, SRS, now);
     state = reviewRes.state;
@@ -1106,41 +1240,55 @@
   }
 
   function buildQuizOptions(targetWord) {
-    const distractorsPool = shuffleArray(
-      getSessionWords().filter(function (w) {
-        return w.id !== targetWord.id &&
-          w.translation.trim().toLowerCase() !== targetWord.translation.trim().toLowerCase();
-      })
-    );
-    const chosen = [targetWord];
-    const usedTranslations = new Set([targetWord.translation.trim().toLowerCase()]);
+    const primaryPool = shuffleArray(getFilteredStudyWords());
+    const fallbackPool = shuffleArray(getSessionWords());
+    return shuffleArray(SRS.selectQuizDistractors(targetWord, primaryPool, fallbackPool, 4));
+  }
 
-    for (let i = 0; i < distractorsPool.length && chosen.length < 4; i++) {
-      const trKey = distractorsPool[i].translation.trim().toLowerCase();
-      if (!usedTranslations.has(trKey)) {
-        usedTranslations.add(trKey);
-        chosen.push(distractorsPool[i]);
-      }
-    }
-    return shuffleArray(chosen);
+  function renderWrongWordsSummary(container, wrongWords) {
+    if (!container) return;
+    container.innerHTML = '';
+    const list = Array.isArray(wrongWords) ? wrongWords : [];
+    if (list.length === 0) return;
+
+    const title = document.createElement('p');
+    title.className = 'text-xs font-extrabold uppercase tracking-wider text-rose-600 dark:text-rose-300 mb-2';
+    title.textContent = 'Qayta ko‘rib chiqish kerak bo‘lgan so‘zlar:';
+    container.appendChild(title);
+
+    list.forEach(function (w) {
+      const row = document.createElement('div');
+      row.className = 'p-3 rounded-xl bg-slate-100/80 dark:bg-slate-800/70 flex items-center justify-between gap-2 text-xs sm:text-sm';
+      row.innerHTML = '<span class="font-extrabold">' + escapeHtml(w.word) + '</span><span class="text-slate-600 dark:text-slate-300 text-right">' + escapeHtml(w.translation) + '</span>';
+      container.appendChild(row);
+    });
   }
 
   function initQuizSession() {
-    const pool = shuffleArray(getFilteredStudyWords());
+    const pool = shuffleArray(getFilteredStudyWords().filter(function (w) {
+      return Boolean(w.word && w.word.trim() && w.translation && w.translation.trim());
+    }));
     quizSession.items = pool.slice(0, Math.min(10, pool.length));
     quizSession.index = 0;
     quizSession.score = 0;
+    quizSession.scopeKey = getStudyScopeKey();
     quizSession.answered = false;
+    quizSession.currentOptions = [];
     quizSession.wrongWords = [];
 
     $('quizSummaryBox').classList.add('hidden');
     $('quizCardBox').classList.remove('hidden');
 
     if (quizSession.items.length === 0) {
+      $('quizProgressText').textContent = 'Savol 0 / 0';
+      $('quizScoreText').textContent = 'To‘g‘ri: 0';
+      $('quizProgressBar').style.width = '0%';
       $('quizCardBox').classList.add('hidden');
       $('quizSummaryBox').classList.remove('hidden');
-      $('quizSummaryStats').textContent = 'Ushbu kategoriyada test uchun so‘z topilmadi.';
+      if ($('quizSummaryTitle')) $('quizSummaryTitle').textContent = 'Test uchun so‘z topilmadi';
+      $('quizSummaryStats').textContent = 'Tanlangan darslik yoki kategoriyada tarjimali so‘z topilmadi.';
       $('quizWrongList').innerHTML = '';
+      refreshIcons();
       return;
     }
     renderQuizQuestion();
@@ -1192,7 +1340,7 @@
   }
 
   function selectQuizOption(idx) {
-    if (quizSession.answered || !quizSession.currentOptions || !quizSession.currentOptions[idx]) return;
+    if (quizSession.answered || quizSession.index >= quizSession.items.length || !quizSession.currentOptions || !quizSession.currentOptions[idx]) return;
     quizSession.answered = true;
 
     const target = quizSession.items[quizSession.index];
@@ -1257,8 +1405,11 @@
   }
 
   function showQuizSummary() {
+    quizSession.answered = false;
+    quizSession.currentOptions = [];
     $('quizCardBox').classList.add('hidden');
     $('quizSummaryBox').classList.remove('hidden');
+    if ($('quizSummaryTitle')) $('quizSummaryTitle').textContent = 'Test yakunlandi!';
     const total = quizSession.items.length;
     const pct = total > 0 ? Math.round((quizSession.score / total) * 100) : 0;
     $('quizSummaryStats').textContent = total + ' ta savoldan ' + quizSession.score + ' tasi to‘g‘ri (' + pct + '%).';
@@ -1275,41 +1426,37 @@
       });
     }
 
-    const wrongWrap = $('quizWrongList');
-    wrongWrap.innerHTML = '';
-    if (quizSession.wrongWords.length > 0) {
-      const title = document.createElement('p');
-      title.className = 'text-xs font-extrabold uppercase tracking-wider text-rose-600 dark:text-rose-300 mb-2';
-      title.textContent = 'Qayta ko‘rib chiqish kerak bo‘lgan so‘zlar:';
-      wrongWrap.appendChild(title);
-
-      quizSession.wrongWords.forEach(function (w) {
-        const row = document.createElement('div');
-        row.className = 'p-3 rounded-xl bg-slate-100/80 dark:bg-slate-800/70 flex items-center justify-between gap-2 text-xs sm:text-sm';
-        row.innerHTML = '<span class="font-extrabold">' + escapeHtml(w.word) + '</span><span class="text-slate-600 dark:text-slate-300">' + escapeHtml(w.translation) + '</span>';
-        wrongWrap.appendChild(row);
-      });
-    }
+    renderWrongWordsSummary($('quizWrongList'), quizSession.wrongWords);
     refreshIcons();
   }
 
   /* ==================== MODE C: WRITING / SPELLING ==================== */
 
   function initWritingSession() {
-    const pool = shuffleArray(getFilteredStudyWords());
+    const pool = shuffleArray(getFilteredStudyWords().filter(function (w) {
+      return Boolean(w.word && w.word.trim() && w.translation && w.translation.trim());
+    }));
     writeSession.items = pool.slice(0, Math.min(10, pool.length));
     writeSession.index = 0;
     writeSession.score = 0;
+    writeSession.scopeKey = getStudyScopeKey();
     writeSession.answered = false;
     writeSession.hintStep = 0;
+    writeSession.wrongWords = [];
 
     $('writeSummaryBox').classList.add('hidden');
     $('writeCardBox').classList.remove('hidden');
 
     if (writeSession.items.length === 0) {
+      $('writeProgressText').textContent = 'Mashq 0 / 0';
+      $('writeScoreText').textContent = 'To‘g‘ri: 0';
+      $('writeProgressBar').style.width = '0%';
       $('writeCardBox').classList.add('hidden');
       $('writeSummaryBox').classList.remove('hidden');
-      $('writeSummaryStats').textContent = 'Ushbu kategoriyada yozma mashq uchun so‘z topilmadi.';
+      if ($('writeSummaryTitle')) $('writeSummaryTitle').textContent = 'Yozma mashq uchun so‘z topilmadi';
+      $('writeSummaryStats').textContent = 'Tanlangan darslik yoki kategoriyada tarjimali so‘z topilmadi.';
+      if ($('writeWrongList')) $('writeWrongList').innerHTML = '';
+      refreshIcons();
       return;
     }
     renderWritingQuestion();
@@ -1318,8 +1465,10 @@
   function renderWritingQuestion() {
     const total = writeSession.items.length;
     if (writeSession.index >= total) {
+      writeSession.answered = false;
       $('writeCardBox').classList.add('hidden');
       $('writeSummaryBox').classList.remove('hidden');
+      if ($('writeSummaryTitle')) $('writeSummaryTitle').textContent = 'Yozma mashq yakunlandi!';
       const pct = total > 0 ? Math.round((writeSession.score / total) * 100) : 0;
       $('writeSummaryStats').textContent = total + ' ta so‘zdan ' + writeSession.score + ' tasini to‘g‘ri yozdingiz (' + pct + '%).';
       if (isStudentSession() && total > 0) {
@@ -1333,6 +1482,7 @@
           detail: 'Yozma mashq yakunlandi: ' + writeSession.score + '/' + total + ' (' + pct + '%)'
         });
       }
+      renderWrongWordsSummary($('writeWrongList'), writeSession.wrongWords);
       refreshIcons();
       return;
     }
@@ -1369,9 +1519,15 @@
     const word = writeSession.items[writeSession.index].word;
     writeSession.hintStep = Math.min(3, writeSession.hintStep + 1);
 
+    let prevWasSep = true;
     const chars = word.split('').map(function (ch, idx) {
-      if (ch === ' ' || ch === '-') return ch;
-      if (idx === 0) return ch;
+      if (ch === ' ' || ch === '-' || ch === "'") {
+        prevWasSep = ch === ' ' || ch === '-';
+        return ch;
+      }
+      const isWordStart = idx === 0 || prevWasSep;
+      prevWasSep = false;
+      if (isWordStart) return ch;
       if (writeSession.hintStep >= 2 && idx === word.length - 1) return ch;
       if (writeSession.hintStep >= 3 && idx % 3 === 0) return ch;
       return '_';
@@ -1383,25 +1539,30 @@
   function checkWritingAnswer(e) {
     if (e) e.preventDefault();
     if (writeSession.answered) {
-      writeSession.index++;
-      renderWritingQuestion();
+      if (writeSession.index < writeSession.items.length) {
+        writeSession.index++;
+        renderWritingQuestion();
+      }
       return;
     }
 
     const target = writeSession.items[writeSession.index];
     if (!target) return;
 
-    const rawAnswer = $('writeInput').value.trim().replace(/\s+/g, ' ').toLowerCase();
+    const rawAnswer = $('writeInput').value.trim();
     if (!rawAnswer) {
       showToast('Iltimos, javobni kiriting!', 'warning');
       return;
     }
 
-    const expected = target.word.trim().replace(/\s+/g, ' ').toLowerCase();
-    const isCorrect = rawAnswer === expected;
+    const isCorrect = SRS.gradeEnglishTypingAnswer(rawAnswer, target.word);
 
     writeSession.answered = true;
-    if (isCorrect) writeSession.score++;
+    if (isCorrect) {
+      writeSession.score++;
+    } else {
+      writeSession.wrongWords.push(target);
+    }
 
     if (isStudentSession()) {
       emitStudentTelemetry({
@@ -1440,7 +1601,7 @@
     const nextBtn = $('writeNextBtn');
     nextBtn.classList.remove('hidden');
     nextBtn.classList.add('inline-flex');
-    speakText(target.word);
+    speakText(target.word, { wordId: target.id });
   }
 
   /* ==================== MODE D: LISTENING MODE ==================== */
@@ -1455,24 +1616,36 @@
           : 'text-slate-600 dark:text-slate-300');
     });
     if (currentView === 'study' && currentStudyMode === 'listening') {
+      if (Speech && typeof Speech.stop === 'function') Speech.stop();
       initListeningSession();
     }
   }
 
   function initListeningSession() {
-    const pool = shuffleArray(getFilteredStudyWords());
+    const pool = shuffleArray(getFilteredStudyWords().filter(function (w) {
+      return Boolean(w.word && w.word.trim());
+    }));
     listenSession.items = pool.slice(0, Math.min(10, pool.length));
     listenSession.index = 0;
     listenSession.score = 0;
+    listenSession.scopeKey = getStudyScopeKey();
     listenSession.answered = false;
+    listenSession.currentOptions = [];
+    listenSession.wrongWords = [];
 
     $('listenSummaryBox').classList.add('hidden');
     $('listenCardBox').classList.remove('hidden');
 
     if (listenSession.items.length === 0) {
+      $('listenProgressText').textContent = 'Audio 0 / 0';
+      $('listenScoreText').textContent = 'To‘g‘ri: 0';
+      $('listenProgressBar').style.width = '0%';
       $('listenCardBox').classList.add('hidden');
       $('listenSummaryBox').classList.remove('hidden');
-      $('listenSummaryStats').textContent = 'Ushbu kategoriyada listening mashqi uchun so‘z topilmadi.';
+      if ($('listenSummaryTitle')) $('listenSummaryTitle').textContent = 'Listening uchun so‘z topilmadi';
+      $('listenSummaryStats').textContent = 'Tanlangan darslik yoki kategoriyada listening mashqi uchun so‘z topilmadi.';
+      if ($('listenWrongList')) $('listenWrongList').innerHTML = '';
+      refreshIcons();
       return;
     }
     renderListeningQuestion(true);
@@ -1481,8 +1654,11 @@
   function renderListeningQuestion(autoSpeak) {
     const total = listenSession.items.length;
     if (listenSession.index >= total) {
+      listenSession.answered = false;
+      listenSession.currentOptions = [];
       $('listenCardBox').classList.add('hidden');
       $('listenSummaryBox').classList.remove('hidden');
+      if ($('listenSummaryTitle')) $('listenSummaryTitle').textContent = 'Listening mashqi yakunlandi!';
       const pct = total > 0 ? Math.round((listenSession.score / total) * 100) : 0;
       $('listenSummaryStats').textContent = total + ' ta audiodan ' + listenSession.score + ' tasi to‘g‘ri topildi (' + pct + '%).';
       if (isStudentSession() && total > 0) {
@@ -1496,6 +1672,7 @@
           detail: 'Listening yakunlandi: ' + listenSession.score + '/' + total + ' (' + pct + '%)'
         });
       }
+      renderWrongWordsSummary($('listenWrongList'), listenSession.wrongWords);
       refreshIcons();
       return;
     }
@@ -1544,12 +1721,12 @@
     }
 
     if (autoSpeak && currentView === 'study' && currentStudyMode === 'listening') {
-      speakText(target.word, { triggerEl: $('listenSpeakBtn') });
+      speakText(target.word, { wordId: target.id, triggerEl: $('listenSpeakBtn') });
     }
   }
 
   function selectListeningOption(idx) {
-    if (listenSession.answered || !listenSession.currentOptions || !listenSession.currentOptions[idx]) return;
+    if (listenSession.answered || listenSession.index >= listenSession.items.length || !listenSession.currentOptions || !listenSession.currentOptions[idx]) return;
     const target = listenSession.items[listenSession.index];
     const selected = listenSession.currentOptions[idx];
     const isCorrect = selected.id === target.id;
@@ -1559,25 +1736,30 @@
   function checkListeningDictation(e) {
     if (e) e.preventDefault();
     if (listenSession.answered) {
-      listenSession.index++;
-      renderListeningQuestion(true);
+      if (listenSession.index < listenSession.items.length) {
+        listenSession.index++;
+        renderListeningQuestion(true);
+      }
       return;
     }
     const target = listenSession.items[listenSession.index];
     if (!target) return;
-    const typed = $('listenDictationInput').value.trim().replace(/\s+/g, ' ').toLowerCase();
+    const typed = $('listenDictationInput').value.trim();
     if (!typed) {
       showToast('Eshitgan so‘zingizni yozing!', 'warning');
       return;
     }
-    const expected = target.word.trim().replace(/\s+/g, ' ').toLowerCase();
-    finishListeningAnswer(typed === expected, -1);
+    finishListeningAnswer(SRS.gradeEnglishTypingAnswer(typed, target.word), -1);
   }
 
   function finishListeningAnswer(isCorrect, chosenIdx) {
     listenSession.answered = true;
     const target = listenSession.items[listenSession.index];
-    if (isCorrect) listenSession.score++;
+    if (isCorrect) {
+      listenSession.score++;
+    } else {
+      listenSession.wrongWords.push(target);
+    }
 
     if (isStudentSession()) {
       emitStudentTelemetry({
@@ -1624,7 +1806,7 @@
         ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-800 dark:text-emerald-200'
         : 'bg-rose-500/10 border-rose-500/30 text-rose-800 dark:text-rose-200');
     fb.innerHTML =
-      '<p class="font-extrabold">' + escapeHtml(target.word) + ' <span class="font-mono-ipa font-normal opacity-80">' + escapeHtml(target.phonetic || '') + '</span></p>' +
+      '<p class="font-extrabold">' + escapeHtml(target.word) + ' <span class="font-mono-ipa font-normal opacity-80">' + escapeHtml(formatWordPronunciation(target)) + '</span></p>' +
       '<p class="text-xs sm:text-sm">' + escapeHtml(target.translation) + '</p>';
     fb.classList.remove('hidden');
 
@@ -1714,7 +1896,56 @@
     }
   }
 
+  function resetAllStudyRuntimeSessions() {
+    clearRetryTimer();
+    unbindExamProctoring();
+    if (Speech && typeof Speech.stop === 'function') {
+      Speech.stop();
+    }
+    fcSession.queue = [];
+    fcSession.index = 0;
+    fcSession.scopeKey = '';
+    fcSession.scopeMode = '';
+    fcSession.isFlipped = false;
+    fcSession.waitingRetryUntil = null;
+    fcSession.waitingWordId = null;
+
+    quizSession.items = [];
+    quizSession.index = 0;
+    quizSession.score = 0;
+    quizSession.scopeKey = '';
+    quizSession.answered = false;
+    quizSession.currentOptions = [];
+    quizSession.wrongWords = [];
+
+    writeSession.items = [];
+    writeSession.index = 0;
+    writeSession.score = 0;
+    writeSession.scopeKey = '';
+    writeSession.answered = false;
+    writeSession.hintStep = 0;
+    writeSession.wrongWords = [];
+
+    listenSession.items = [];
+    listenSession.index = 0;
+    listenSession.score = 0;
+    listenSession.scopeKey = '';
+    listenSession.answered = false;
+    listenSession.currentOptions = [];
+    listenSession.wrongWords = [];
+
+    examSessionRuntime.currentWordId = null;
+    examSessionRuntime.finishingEmpty = false;
+    examSessionRuntime.armedAt = 0;
+    examSessionRuntime.lastStrikeAt = 0;
+    examSessionRuntime.lastInputValue = '';
+  }
+
   function unbindExamProctoring() {
+    if (examSessionRuntime.blurTimerId) {
+      clearTimeout(examSessionRuntime.blurTimerId);
+      examSessionRuntime.blurTimerId = null;
+    }
     if (examSessionRuntime.observer) {
       try {
         examSessionRuntime.observer.disconnect();
@@ -1725,6 +1956,7 @@
     if (h) {
       document.removeEventListener('visibilitychange', h.onVisibility);
       window.removeEventListener('blur', h.onWindowBlur);
+      if (h.onWindowFocus) window.removeEventListener('focus', h.onWindowFocus);
       document.removeEventListener('fullscreenchange', h.onFullscreenChange);
       document.removeEventListener('contextmenu', h.onContextMenu, true);
       document.removeEventListener('keydown', h.onKeydown, true);
@@ -1764,18 +1996,37 @@
       inputEl: inputEl,
       onVisibility: function () {
         if (document.hidden && isExamActivelyProctored()) {
+          if (examSessionRuntime.blurTimerId) {
+            clearTimeout(examSessionRuntime.blurTimerId);
+            examSessionRuntime.blurTimerId = null;
+          }
           recordExamViolation('Boshqa tab yoki oynaga o‘tildi (visibilitychange)');
+        }
+      },
+      onWindowFocus: function () {
+        if (examSessionRuntime.blurTimerId) {
+          clearTimeout(examSessionRuntime.blurTimerId);
+          examSessionRuntime.blurTimerId = null;
         }
       },
       onWindowBlur: function () {
         if (!isExamActivelyProctored()) return;
-        if (Date.now() - examSessionRuntime.armedAt < 800) return;
-        recordExamViolation('Faol test oynasidan chiqildi (window blur / Alt+Tab / extension)');
+        if (Date.now() - examSessionRuntime.armedAt < 1500) return;
+        if (examSessionRuntime.blurTimerId) clearTimeout(examSessionRuntime.blurTimerId);
+        // Short 250ms debounce eliminates OS IME / Alt+Shift keyboard language switch flicker
+        // while still catching any real window switch, devtools popout, or extension popup.
+        examSessionRuntime.blurTimerId = setTimeout(function () {
+          examSessionRuntime.blurTimerId = null;
+          if (!isExamActivelyProctored()) return;
+          if (document.hidden || !document.hasFocus()) {
+            recordExamViolation('Faol test oynasidan chiqildi (window blur / Alt+Tab / extension)');
+          }
+        }, 250);
       },
       onFullscreenChange: function () {
         updateExamFullscreenBadge();
         if (!document.fullscreenElement && isExamActivelyProctored()) {
-          if (Date.now() - examSessionRuntime.armedAt < 800) return;
+          if (Date.now() - examSessionRuntime.armedAt < 1500) return;
           recordExamViolation('To‘liq ekran (Fullscreen) rejimi yopildi');
         }
       },
@@ -1797,14 +2048,19 @@
         if (!isExamActivelyProctored()) return;
         const keyLower = String(e.key || '').toLowerCase();
         const keyUpper = String(e.key || '').toUpperCase();
+        const code = String(e.code || '');
         const mod = Boolean(e.ctrlKey || e.metaKey);
-        const isDevtools = e.key === 'F12' || (mod && e.shiftKey && ['I', 'J', 'C', 'K', 'E'].indexOf(keyUpper) !== -1);
-        const isCheatCombo = mod && ['c', 'v', 'x', 'u', 's', 'p', 'a'].indexOf(keyLower) !== -1 && (keyLower !== 'a');
+        const isDevtools = e.key === 'F12' ||
+          (mod && e.shiftKey && (['I', 'J', 'C', 'K', 'E'].indexOf(keyUpper) !== -1 || ['KeyI', 'KeyJ', 'KeyC', 'KeyK', 'KeyE'].indexOf(code) !== -1));
+        const isCheatCombo = mod && !e.shiftKey && !e.altKey && (
+          ['c', 'v', 'x', 'u', 's', 'p'].indexOf(keyLower) !== -1 ||
+          ['KeyC', 'KeyV', 'KeyX', 'KeyU', 'KeyS', 'KeyP'].indexOf(code) !== -1
+        );
         const isPrintScreen = e.key === 'PrintScreen';
         if (isDevtools || isCheatCombo || isPrintScreen) {
           e.preventDefault();
           e.stopPropagation();
-          recordExamViolation('Taqiqlangan klaviatura buyrug‘i (' + (mod ? 'Ctrl+' : '') + (e.shiftKey ? 'Shift+' : '') + e.key + ')');
+          recordExamViolation('Taqiqlangan klaviatura buyrug‘i (' + (mod ? 'Ctrl+' : '') + (e.shiftKey ? 'Shift+' : '') + (e.key || code) + ')');
         }
       },
       onBeforeInput: function (e) {
@@ -1829,6 +2085,7 @@
 
     document.addEventListener('visibilitychange', handlers.onVisibility);
     window.addEventListener('blur', handlers.onWindowBlur);
+    window.addEventListener('focus', handlers.onWindowFocus);
     document.addEventListener('fullscreenchange', handlers.onFullscreenChange);
     document.addEventListener('contextmenu', handlers.onContextMenu, true);
     document.addEventListener('keydown', handlers.onKeydown, true);
@@ -2015,6 +2272,14 @@
       }
 
       if (exam.status === 'in_progress') {
+        if (exam.lessonScope && exam.lessonScope !== activeLesson) {
+          activeLesson = exam.lessonScope;
+          if ($('studyLessonSelect')) $('studyLessonSelect').value = activeLesson;
+        }
+        if (exam.categoryScope && exam.categoryScope !== activeDeck) {
+          activeDeck = exam.categoryScope;
+          if ($('studyDeckSelect')) $('studyDeckSelect').value = activeDeck;
+        }
         introCard.classList.add('hidden');
         activeCard.classList.remove('hidden');
         lockedCard.classList.add('hidden');
@@ -2055,12 +2320,20 @@
 
       // not_started
       unbindExamProctoring();
+      const wasActiveOrFinished = Boolean(examSessionRuntime.currentWordId);
       examSessionRuntime.currentWordId = null;
+      if (wasActiveOrFinished && $('examAgreeCheck')) {
+        $('examAgreeCheck').checked = false;
+      }
       introCard.classList.remove('hidden');
       activeCard.classList.add('hidden');
       lockedCard.classList.add('hidden');
       resultCard.classList.add('hidden');
-      if ($('examQuestionCountLabel')) $('examQuestionCountLabel').textContent = scopedWords.length + ' ta so‘z';
+      if ($('examQuestionCountLabel')) {
+        const scopeLabel = (activeLesson === 'ALL' ? 'Barcha darsliklar' : activeLesson) +
+          (activeDeck === 'ALL' ? '' : ' · ' + activeDeck);
+        $('examQuestionCountLabel').textContent = scopeLabel + ' — ' + scopedWords.length + ' ta so‘z';
+      }
       if ($('examStartBtn')) {
         const agreed = Boolean($('examAgreeCheck') && $('examAgreeCheck').checked);
         $('examStartBtn').disabled = scopedWords.length === 0 || !agreed;
@@ -2160,6 +2433,7 @@
         lessonScope: activeLesson,
         categoryScope: activeDeck
       });
+      examSessionRuntime.armedAt = Date.now();
       bindExamProctoring();
       renderExamViewFromState();
       if ($('examAnswerInput')) $('examAnswerInput').focus();
@@ -2842,10 +3116,12 @@
       currentSession = nextSession;
       currentRole = nextSession.role;
       applyAuthGateUI();
+      setListeningType('quiz');
       if (isExamActivelyProctored()) {
         currentStudyMode = 'exam';
         switchView('study');
       } else {
+        currentStudyMode = 'flashcards';
         switchView(isStaff() ? 'monitor' : 'dashboard');
       }
       showToast('Xush kelibsiz, ' + nextSession.fullName + '!', 'success');
@@ -2860,13 +3136,15 @@
   }
 
   async function handleLogout() {
-    unbindExamProctoring();
     if (document.fullscreenElement && document.exitFullscreen) {
       document.exitFullscreen().catch(function () {});
     }
+    resetAllStudyRuntimeSessions();
+    activeDeck = 'ALL';
+    activeLesson = 'ALL';
+    studyScope = 'due';
     currentStudyMode = 'flashcards';
     stopHeartbeat();
-    clearRetryTimer();
     const prevSession = currentSession;
     const prevRole = currentRole;
 
@@ -4521,6 +4799,7 @@
         }
         activeDeck = 'ALL';
         activeLesson = 'ALL';
+        resetAllStudyRuntimeSessions();
         syncDeckSelects();
         renderSecurityTab();
         refreshActiveView();
@@ -4562,17 +4841,22 @@
 
     if (currentView !== 'study') return;
 
-    // 'S' speaks the current word across all study modes
+    // 'S' speaks the current word across active practice modes (disabled during closed exam)
     if (e.key === 's' || e.key === 'S') {
+      if (currentStudyMode === 'exam') return;
       e.preventDefault();
       if (currentStudyMode === 'flashcards' && fcSession.queue[fcSession.index]) {
-        speakText(fcSession.queue[fcSession.index].word, { triggerEl: $('fcSpeakBtn') });
-      } else if (currentStudyMode === 'quiz' && quizSession.items[quizSession.index]) {
-        speakText(quizSession.items[quizSession.index].word, { triggerEl: $('quizSpeakBtn') });
-      } else if (currentStudyMode === 'writing' && writeSession.items[writeSession.index]) {
-        speakText(writeSession.items[writeSession.index].word, { triggerEl: $('writeSpeakBtn') });
-      } else if (currentStudyMode === 'listening' && listenSession.items[listenSession.index]) {
-        speakText(listenSession.items[listenSession.index].word, { triggerEl: $('listenSpeakBtn') });
+        const fc = fcSession.queue[fcSession.index];
+        speakText(fc.word, { wordId: fc.id, triggerEl: $('fcSpeakBtn') });
+      } else if (currentStudyMode === 'quiz' && quizSession.index < quizSession.items.length && quizSession.items[quizSession.index]) {
+        const q = quizSession.items[quizSession.index];
+        speakText(q.word, { wordId: q.id, triggerEl: $('quizSpeakBtn') });
+      } else if (currentStudyMode === 'writing' && writeSession.index < writeSession.items.length && writeSession.items[writeSession.index]) {
+        const w = writeSession.items[writeSession.index];
+        speakText(w.word, { wordId: w.id, triggerEl: $('writeSpeakBtn') });
+      } else if (currentStudyMode === 'listening' && listenSession.index < listenSession.items.length && listenSession.items[listenSession.index]) {
+        const l = listenSession.items[listenSession.index];
+        speakText(l.word, { wordId: l.id, triggerEl: $('listenSpeakBtn') });
       }
       return;
     }
@@ -4580,6 +4864,9 @@
     if (currentStudyMode === 'flashcards') {
       if (e.code === 'Space' || e.key === ' ') {
         e.preventDefault();
+        if (tag === 'BUTTON' && e.target && typeof e.target.blur === 'function') {
+          e.target.blur();
+        }
         toggleFlashcardFlip();
         return;
       }
@@ -4606,21 +4893,31 @@
     }
 
     if (currentStudyMode === 'quiz') {
-      if (['1', '2', '3', '4'].indexOf(e.key) !== -1) {
+      if (['1', '2', '3', '4'].indexOf(e.key) !== -1 && quizSession.index < quizSession.items.length) {
         e.preventDefault();
         selectQuizOption(Number(e.key) - 1);
-      } else if (e.key === 'ArrowRight' && quizSession.answered) {
+      } else if ((e.key === 'ArrowRight' || (e.key === 'Enter' && tag !== 'BUTTON')) && quizSession.answered && quizSession.index < quizSession.items.length) {
         e.preventDefault();
         quizSession.index++;
         renderQuizQuestion();
       }
+      return;
     }
 
-    if (currentStudyMode === 'listening' && listenSession.type === 'quiz') {
-      if (['1', '2', '3', '4'].indexOf(e.key) !== -1) {
+    if (currentStudyMode === 'writing') {
+      if ((e.key === 'ArrowRight' || (e.key === 'Enter' && tag !== 'BUTTON')) && writeSession.answered && writeSession.index < writeSession.items.length) {
+        e.preventDefault();
+        writeSession.index++;
+        renderWritingQuestion();
+      }
+      return;
+    }
+
+    if (currentStudyMode === 'listening') {
+      if (listenSession.type === 'quiz' && ['1', '2', '3', '4'].indexOf(e.key) !== -1 && listenSession.index < listenSession.items.length) {
         e.preventDefault();
         selectListeningOption(Number(e.key) - 1);
-      } else if (e.key === 'ArrowRight' && listenSession.answered) {
+      } else if ((e.key === 'ArrowRight' || (e.key === 'Enter' && tag !== 'BUTTON')) && listenSession.answered && listenSession.index < listenSession.items.length) {
         e.preventDefault();
         listenSession.index++;
         renderListeningQuestion(true);
@@ -4713,7 +5010,7 @@
       activeLesson = 'ALL';
       studyScope = SRS.getDueCards(getSessionWords(), Date.now()).length > 0 ? 'due' : 'all';
       currentStudyMode = 'flashcards';
-      switchView('study');
+      switchView('study', { restartStudy: true });
     });
 
     // User badge & Logout
@@ -4815,13 +5112,25 @@
     });
 
     // Flashcard interactions
-    $('fcCardInner').addEventListener('click', function () { toggleFlashcardFlip(); });
+    $('fcCardInner').addEventListener('click', function () {
+      const selText = (window.getSelection && String(window.getSelection().toString() || '').trim()) || '';
+      if (selText.length > 0) return;
+      toggleFlashcardFlip();
+    });
     $('fcCardInner').addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') {
+      if (e.key === 'Enter' || e.code === 'Space' || e.key === ' ') {
         e.preventDefault();
+        e.stopPropagation();
         toggleFlashcardFlip();
       }
     });
+    if ($('fcActiveWrap')) {
+      $('fcActiveWrap').addEventListener('keyup', function (e) {
+        if ((e.code === 'Space' || e.key === ' ') && e.target && e.target.tagName === 'BUTTON') {
+          e.preventDefault();
+        }
+      });
+    }
     $('fcFlipBtn').addEventListener('click', function () { toggleFlashcardFlip(); });
     $('fcPrevBtn').addEventListener('click', function () { moveFlashcard(-1); });
     $('fcNextBtn').addEventListener('click', function () { moveFlashcard(1); });
@@ -4829,22 +5138,22 @@
     $('fcSpeakBtn').addEventListener('click', function (e) {
       e.stopPropagation();
       const card = fcSession.queue[fcSession.index];
-      if (card) speakText(card.word, { triggerEl: e.currentTarget });
+      if (card) speakText(card.word, { wordId: card.id, triggerEl: e.currentTarget });
     });
     $('fcSpeakUsBtn').addEventListener('click', function (e) {
       e.stopPropagation();
       const card = fcSession.queue[fcSession.index];
-      if (card) speakText(card.word, { accent: 'en-US', triggerEl: e.currentTarget });
+      if (card) speakText(card.word, { wordId: card.id, accent: 'en-US', triggerEl: e.currentTarget });
     });
     $('fcSpeakUkBtn').addEventListener('click', function (e) {
       e.stopPropagation();
       const card = fcSession.queue[fcSession.index];
-      if (card) speakText(card.word, { accent: 'en-GB', triggerEl: e.currentTarget });
+      if (card) speakText(card.word, { wordId: card.id, accent: 'en-GB', triggerEl: e.currentTarget });
     });
     $('fcBackSpeakBtn').addEventListener('click', function (e) {
       e.stopPropagation();
       const card = fcSession.queue[fcSession.index];
-      if (card) speakText(card.word, { triggerEl: e.currentTarget });
+      if (card) speakText(card.word, { wordId: card.id, triggerEl: e.currentTarget });
     });
 
     document.querySelectorAll('[data-srs-rate]').forEach(function (btn) {
@@ -4854,6 +5163,7 @@
     });
 
     $('fcPracticeAllBtn').addEventListener('click', function () {
+      clearRetryTimer();
       if (fcSession.waitingWordId) {
         fcSession.waitingRetryUntil = null;
         const word = getSessionWords().find(function (w) { return w.id === fcSession.waitingWordId; });
@@ -4861,6 +5171,8 @@
         if (word) {
           fcSession.queue = [word];
           fcSession.index = 0;
+          fcSession.scopeKey = getStudyScopeKey();
+          fcSession.scopeMode = studyScope;
           fcSession.isFlipped = false;
           renderFlashcard();
           return;
@@ -4875,9 +5187,10 @@
     // Quiz interactions
     $('quizSpeakBtn').addEventListener('click', function (e) {
       const q = quizSession.items[quizSession.index];
-      if (q) speakText(q.word, { triggerEl: e.currentTarget });
+      if (q) speakText(q.word, { wordId: q.id, triggerEl: e.currentTarget });
     });
     $('quizNextBtn').addEventListener('click', function () {
+      if (!quizSession.answered || quizSession.index >= quizSession.items.length) return;
       quizSession.index++;
       renderQuizQuestion();
     });
@@ -4886,11 +5199,12 @@
     // Writing interactions
     $('writeSpeakBtn').addEventListener('click', function (e) {
       const item = writeSession.items[writeSession.index];
-      if (item) speakText(item.word, { triggerEl: e.currentTarget });
+      if (item) speakText(item.word, { wordId: item.id, triggerEl: e.currentTarget });
     });
     $('writeHintBtn').addEventListener('click', revealWritingHint);
     $('writeForm').addEventListener('submit', checkWritingAnswer);
     $('writeNextBtn').addEventListener('click', function () {
+      if (!writeSession.answered || writeSession.index >= writeSession.items.length) return;
       writeSession.index++;
       renderWritingQuestion();
     });
@@ -4904,22 +5218,23 @@
     });
     $('listenSpeakBtn').addEventListener('click', function (e) {
       const item = listenSession.items[listenSession.index];
-      if (item) speakText(item.word, { triggerEl: e.currentTarget });
+      if (item) speakText(item.word, { wordId: item.id, triggerEl: e.currentTarget });
     });
     $('listenSlowBtn').addEventListener('click', function () {
       const item = listenSession.items[listenSession.index];
-      if (item) speakText(item.word, { rate: 0.72, triggerEl: $('listenSpeakBtn') });
+      if (item) speakText(item.word, { wordId: item.id, rate: 0.75, triggerEl: $('listenSpeakBtn') });
     });
     $('listenUsBtn').addEventListener('click', function () {
       const item = listenSession.items[listenSession.index];
-      if (item) speakText(item.word, { accent: 'en-US', triggerEl: $('listenSpeakBtn') });
+      if (item) speakText(item.word, { wordId: item.id, accent: 'en-US', triggerEl: $('listenSpeakBtn') });
     });
     $('listenUkBtn').addEventListener('click', function () {
       const item = listenSession.items[listenSession.index];
-      if (item) speakText(item.word, { accent: 'en-GB', triggerEl: $('listenSpeakBtn') });
+      if (item) speakText(item.word, { wordId: item.id, accent: 'en-GB', triggerEl: $('listenSpeakBtn') });
     });
     $('listenDictationForm').addEventListener('submit', checkListeningDictation);
     $('listenNextBtn').addEventListener('click', function () {
+      if (!listenSession.answered || listenSession.index >= listenSession.items.length) return;
       listenSession.index++;
       renderListeningQuestion(true);
     });
@@ -4945,6 +5260,17 @@
     }
     if ($('examFinishEarlyBtn')) {
       $('examFinishEarlyBtn').addEventListener('click', function () {
+        const exam = getStudentFinalExam();
+        if (exam.status === 'in_progress' && exam.answeredCount < exam.totalQuestions) {
+          openConfirm(
+            'Yopiq testni muddatidan oldin yakunlash',
+            'Siz hali ' + (exam.totalQuestions - exam.answeredCount) + ' ta savolga javob bermadingiz. Baribir yakunlansinmi? (Yakunlangach Teacher ruxsatisiz qayta topshirib bo‘lmaydi.)',
+            function () {
+              finishExamEarly(false);
+            }
+          );
+          return;
+        }
         finishExamEarly(false);
       });
     }
@@ -5159,8 +5485,13 @@
         renderAdminStudentsList();
       } else if (currentView === 'security') {
         renderSecurityTab();
-      } else if (currentView === 'study' && currentStudyMode === 'exam') {
-        renderExamViewFromState();
+      } else if (currentView === 'study') {
+        if (currentStudyMode === 'exam') {
+          renderExamViewFromState();
+        } else if (reason === 'curriculum' || reason === 'local') {
+          syncDeckSelects();
+          applyUpdatedWordsToStudySessions();
+        }
       }
       if (reason === 'ai-config' && Speech && typeof Speech.clearCache === 'function') {
         Speech.clearCache();
@@ -5219,7 +5550,7 @@
         currentStudyMode = 'exam';
         switchView('study');
       } else {
-        setStudyMode('flashcards');
+        currentStudyMode = 'flashcards';
         switchView(isStaff() ? 'monitor' : 'dashboard');
       }
     } else {

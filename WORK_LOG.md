@@ -218,3 +218,27 @@
 - `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
 - `node tests/verify.js`: **18/18** test to‘plami muvaffaqiyatli o‘tdi (jumladan, HTML da `toggleServerUrlBtn`, `loginServerConnectForm`, `staffPhoneAccessCard`, `networkUrlsList` yo‘qligi va `toggleOpenSignupBtn` mavjudligi tasdiqlandi).
 - Jonli brauzer QA (`http://127.0.0.1:4182/`, `0` konsol/sahifa/`>=400` HTTP xatosi): Kirish va Teacher `O‘quvchilar` sahifalarida birorta Server IP boshqaruvi yoki IP manzil chiqmasligi hamda `#toggleOpenSignupBtn` yopilib/ochilishi tasdiqlandi.
+
+---
+
+## 13. 12-bosqich yangilanishlari (Barcha mashq rejimlaridagi jiddiy xatoliklarni tuzatish)
+
+### Tuzatilgan jiddiy xatoliklar
+- **Mashq jarayoni o‘chib ketishi (`js/app.js`):**
+  - `ensurePrimaryAiPronunciation` endi `refreshActiveView()` orqali faol Quiz/Writing/Listening/Flashcards sessiyasini qaytadan boshlab yuborish o‘rniga `applyUpdatedWordsToStudySessions()` orqali faqat fonetik yorliqlarni yangilaydi; `switchView('study')` esa tugallanmagan mashqni bir xil darslik/kategoriya filtrida saqlab qoladi.
+  - `syncDeckSelects()` va `getFilteredStudyWords()` darslik/turkum filtrlari o‘chirilgan bo‘lsa `'ALL'` ga qaytaradi va bosh/oxirgi bo‘shliqlarga tolerant moslikni ta’minlaydi.
+  - Chiqish (`handleLogout`) va bazani tiklash (`handleResetDatabase`) paytida barcha mashq sessiyalari va taymerlar (`resetAllStudyRuntimeSessions`) tozalanadi; bosh sahifaga kirganda soxta `MODE_CHANGE` telemetriyasi yuborilmaydi.
+- **3D Flashcards (`js/app.js`, `css/styles.css`, `index.html`, `js/speech.js`):**
+  - Fokuslangan `#fcCardInner` da `Space` bosilganda ikki marta aylanib oldingi tomoniga qaytib qolish xatosi (`stopPropagation()` va `#fcActiveWrap` tugmalari uchun `Space` `keyup` himoyasi) bartaraf etildi; matn belgilanganda karta bexosdan aylanib ketmaydi; `"Darhol qayta ko‘rish"` tugmasida qolgan 1 daqiqalik taymer tozalanadi; orqa tomon (`flashcard-face--back`) yuqoridan tekis joylashib (`justify-content: flex-start`) to‘liq skroll bo‘ladi; `.audio-speaking` puls klassi va `Speech.stop()` da uzilgan audio `onEnd` tozalashi qo‘shildi.
+- **Test (Quiz), Yozma mashq va Listening (`js/srs.js`, `js/app.js`, `index.html`):**
+  - `SRS.selectQuizDistractors` endi ham inglizcha so‘z (`word`), ham o‘zbekcha tarjima (`translation`) dublikatlarini oldini oladi (Listening `4 Variant`da bir xil so‘z ikki tugmada chiqib xato hisoblanishi tuzatildi) va avval joriy darslik/turkumdan variant oladi.
+  - `Yozma mashq` va `Listening (Eshitib yozish)` da javobdan keyin `Enter` / `ArrowRight` ishlamay qolish xatosi tuzatildi; shuningdek yakuniy natija oynasida `ArrowRight` bosilganda `quizCompleted`/`listeningCompleted` qayta-qayta oshib ketish xatosi (`answered = false` + indeks tekshiruvi) yopildi.
+  - `SRS.gradeEnglishTypingAnswer` qo‘shildi (`o’clock`/`o'clock`, tire/bo‘shliq `double-edged`, `color / colour`, qavsli `depend (on)` va tinish belgilarini to‘g‘ri qabul qiladi), hamda Writing/Listening yakunida xato so‘zlar ro‘yxati (`#writeWrongList`, `#listenWrongList`) va bo‘sh to‘plam sarlavhalari (`#quizSummaryTitle`, `#writeSummaryTitle`, `#listenSummaryTitle`) qo‘shildi.
+- **Yakuniy Yopiq Test (`js/exam.js`, `js/app.js`):**
+  - `Exam.gradeUzbekTranslation` `"...dan kelib chiqmoq"` kabi boshlang‘ich ko‘p nuqtali qo‘shimchasiz sof o‘zbekcha tarjimani (`"kelib chiqmoq"`) hamda tire o‘rniga bo‘shliq yozilgan juft so‘zlarni (`"say harakat"`, `"sa'y harakat"`) to‘g‘ri baholaydi.
+  - `#examFinishEarlyBtn` (`Testni Yakunlash`) bosilganda javob berilmagan savollar bo‘lsa darhol yakunlab bloklamasdan `#confirmModal` tasdig‘ini so‘raydi; klaviatura tili almashtirish (`Alt+Shift` / OS fokus miltillashi) sababli soxta `blur` jarimalarini oldini olish uchun `250ms` `!document.hasFocus()` tekshiruvi va kirill/lotin `e.code` nazorati qo‘shildi.
+
+### 12-bosqich tekshiruv natijalari
+- `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
+- `node tests/verify.js`: **20/20** test to‘plami muvaffaqiyatli o‘tdi (jumladan 19-suite: typing/exam baholash, dublikatsiz distraktorlar, `Speech.stop` cleanup, CSS/HTML; hamda 20-suite: `vm` SPA DOM da barcha 5 mashq rejimi — Flashcards `Space`, Quiz saqlanish va telemetry himoyasi, Writing/Listening `Enter` keyingisi, Exam muddatidan oldin yakunlash tasdig‘i).
+- `SECRET_HITS=0`. *(Eslatma: jonli `chrome_devtools` MCP brauzer tekshiruvida Chrome masofaviy debugging porti ochiq emasligi sababli avtomatik brauzer ulana olmadi; barcha UI hodisalari 20-suite SPA DOM testida to‘liq tekshirildi.)*

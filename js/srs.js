@@ -178,6 +178,72 @@
     };
   }
 
+  function normalizeEnglishToken(str) {
+    return String(str === undefined || str === null ? '' : str)
+      .toLowerCase()
+      .replace(/[\u2018\u2019\u02BB\u02BC\u02B9\u02BD`´]/g, "'")
+      .replace(/^["'.,!?;:\s]+|["'.,!?;:\s]+$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function gradeEnglishTypingAnswer(rawInput, expectedWord) {
+    const userNorm = normalizeEnglishToken(rawInput);
+    if (!userNorm) return false;
+    const rawExpected = String(expectedWord || '');
+    const candidates = new Set();
+
+    function addCandidate(val) {
+      const clean = normalizeEnglishToken(val);
+      if (!clean) return;
+      candidates.add(clean);
+      if (clean.indexOf('-') !== -1 || clean.indexOf('–') !== -1 || clean.indexOf('—') !== -1) {
+        candidates.add(clean.replace(/[\-–—]/g, ' ').replace(/\s+/g, ' ').trim());
+      }
+    }
+
+    addCandidate(rawExpected);
+    const noParens = rawExpected.replace(/\([^)]*\)/g, ' ');
+    addCandidate(noParens);
+    [rawExpected, noParens].forEach(function (src) {
+      src.split(/[;/]+/).forEach(addCandidate);
+    });
+
+    const userSpaced = userNorm.replace(/[\-–—]/g, ' ').replace(/\s+/g, ' ').trim();
+    return candidates.has(userNorm) || candidates.has(userSpaced);
+  }
+
+  function selectQuizDistractors(targetWord, primaryPool, fallbackPool, totalChoices) {
+    const limit = Math.max(1, Number(totalChoices) || 4);
+    const targetWordKey = normalizeEnglishToken(targetWord && targetWord.word);
+    const targetTransKey = normalizeEnglishToken(targetWord && targetWord.translation);
+    const chosen = targetWord ? [targetWord] : [];
+    const usedWords = new Set(targetWordKey ? [targetWordKey] : []);
+    const usedTranslations = new Set(targetTransKey ? [targetTransKey] : []);
+
+    function absorbFrom(pool) {
+      const list = Array.isArray(pool) ? pool : [];
+      for (let i = 0; i < list.length && chosen.length < limit; i++) {
+        const w = list[i];
+        if (!w || w.id === (targetWord && targetWord.id)) continue;
+        const wKey = normalizeEnglishToken(w.word);
+        const tKey = normalizeEnglishToken(w.translation);
+        if (!wKey || !tKey) continue;
+        if (!usedWords.has(wKey) && !usedTranslations.has(tKey)) {
+          usedWords.add(wKey);
+          usedTranslations.add(tKey);
+          chosen.push(w);
+        }
+      }
+    }
+
+    absorbFrom(primaryPool);
+    if (chosen.length < limit) {
+      absorbFrom(fallbackPool);
+    }
+    return chosen;
+  }
+
   const api = {
     MINUTE_MS: MINUTE_MS,
     DAY_MS: DAY_MS,
@@ -188,7 +254,9 @@
     getDueCards: getDueCards,
     sortStudyQueue: sortStudyQueue,
     formatNextReviewText: formatNextReviewText,
-    getStatusMeta: getStatusMeta
+    getStatusMeta: getStatusMeta,
+    gradeEnglishTypingAnswer: gradeEnglishTypingAnswer,
+    selectQuizDistractors: selectQuizDistractors
   };
 
   if (typeof module !== 'undefined' && module.exports) {

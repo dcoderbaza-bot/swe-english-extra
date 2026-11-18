@@ -90,7 +90,7 @@ swe-english-extra/
 │   └── app.js            # UI kontroller, saralangan rol menyulari, drag-and-drop .TXT, anti-cheat proctoring va jonli monitoring
 ├── start-server.bat      # Windows uchun bir klik bilan 0.0.0.0:4175 serverni ishga tushirish skripti
 ├── tests/
-│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik, minimal-API, TTS, DeepSeek-talaffuz, ochiq ro‘yxatdan o‘tish va yopiq imtihon testlari (18 ta suite)
+│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik, minimal-API, TTS, DeepSeek-talaffuz, ochiq ro‘yxatdan o‘tish, mashqlar DOM va yopiq imtihon testlari (20 ta suite)
 ├── README.md             # Loyiha hujjati
 ├── ARCHITECTURE.md       # Texnik arxitektura va ma'lumotlar modeli
 └── WORK_LOG.md           # Bajarilgan ishlar va tekshiruv hisoboti

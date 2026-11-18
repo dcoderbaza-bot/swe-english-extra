@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const vm = require('node:vm');
 const Data = require('../js/default-data.js');
 const SRS = require('../js/srs.js');
 const Auth = require('../js/auth.js');
@@ -1968,6 +1969,375 @@ async function runAsyncTests() {
     } finally {
       server.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  await testAsync('Exercise bugfixes: typing/exam grading, unique quiz/listening distractors, speech stop cleanup & UI markup', async () => {
+    // 1. Exam Uzbek translation grading handles leading "...dan" placeholders and hyphen-vs-space variants
+    assert.equal(Exam.gradeUzbekTranslation('kelib chiqmoq', '...dan kelib chiqmoq, ildiz otmoq').isCorrect, true);
+    assert.equal(Exam.gradeUzbekTranslation('say harakat', 'astoydil harakat qilmoq, intilmoq; sa’y-harakat').isCorrect, true);
+    assert.equal(Exam.gradeUzbekTranslation("sa'y harakat", 'astoydil harakat qilmoq; sa’y-harakat').isCorrect, true);
+
+    // 2. Writing & Listening dictation English typing grading
+    assert.equal(SRS.gradeEnglishTypingAnswer("o'clock", 'o’clock'), true);
+    assert.equal(SRS.gradeEnglishTypingAnswer('a double edged sword', 'a double-edged sword'), true);
+    assert.equal(SRS.gradeEnglishTypingAnswer('colour', 'color / colour'), true);
+    assert.equal(SRS.gradeEnglishTypingAnswer('depend', 'depend (on)'), true);
+    assert.equal(SRS.gradeEnglishTypingAnswer('endeavor.', 'endeavor'), true);
+    assert.equal(SRS.gradeEnglishTypingAnswer('endevor', 'endeavor'), false);
+
+    // 3. Quiz & Listening option builder prevents duplicate English words & duplicate translations, prefers primary scope
+    const target = { id: 't1', word: 'run', translation: 'yugurmoq' };
+    const dupWordSame = { id: 't2', word: 'Run', translation: 'boshqarmoq' };
+    const dupTransSame = { id: 't3', word: 'sprint', translation: 'Yugurmoq' };
+    const p1 = { id: 't4', word: 'mitigate', translation: 'yumshatmoq' };
+    const p2 = { id: 't5', word: 'coherent', translation: 'izchil' };
+    const f1 = { id: 't6', word: 'resilient', translation: 'bardoshli' };
+    const picked = SRS.selectQuizDistractors(target, [target, dupWordSame, dupTransSame, p1, p2], [f1], 4);
+    assert.equal(picked.length, 4);
+    const wordsLower = new Set(picked.map((x) => x.word.toLowerCase()));
+    const transLower = new Set(picked.map((x) => x.translation.toLowerCase()));
+    assert.equal(wordsLower.size, 4);
+    assert.equal(transLower.size, 4);
+    assert.ok(wordsLower.has('mitigate') && wordsLower.has('coherent') && wordsLower.has('resilient'));
+
+    // 4. Speech.stop cleanly fires pending onEnd once so speak button spinner never sticks
+    let endCount = 0;
+    Speech.stop();
+    Speech.setRemoteTtsHandler(async () => new Promise(() => {}));
+    const origAudio = global.Audio;
+    global.Audio = function () {};
+    try {
+      Speech.speak('endeavor', { onEnd: () => { endCount++; } });
+      Speech.stop();
+      Speech.stop();
+      assert.equal(endCount, 1);
+    } finally {
+      Speech.setRemoteTtsHandler(null);
+      global.Audio = origAudio;
+    }
+
+    // 5. Exercise HTML & CSS regression markers
+    const rootPath = path.resolve(__dirname, '..');
+    const html = fs.readFileSync(path.join(rootPath, 'index.html'), 'utf8');
+    const css = fs.readFileSync(path.join(rootPath, 'css', 'styles.css'), 'utf8');
+    assert.ok(html.includes('id="quizSummaryTitle"'));
+    assert.ok(html.includes('id="writeSummaryTitle"'));
+    assert.ok(html.includes('id="listenSummaryTitle"'));
+    assert.ok(html.includes('id="writeWrongList"'));
+    assert.ok(html.includes('id="listenWrongList"'));
+    assert.ok(css.includes('.audio-speaking'));
+    assert.ok(css.includes('justify-content: flex-start;'));
+  });
+
+  await testAsync('SPA DOM runtime test across all 5 exercise modes (Flashcards Space flip, Quiz preserve/summary, Writing Enter, Listening Dictation Enter, Exam confirm)', async () => {
+    const rootPath = path.resolve(__dirname, '..');
+    const html = fs.readFileSync(path.join(rootPath, 'index.html'), 'utf8');
+    const appCode = fs.readFileSync(path.join(rootPath, 'js', 'app.js'), 'utf8');
+
+    const byId = new Map();
+    const allElements = [];
+
+    function makeEl(tag, attrsStr) {
+      const classes = new Set();
+      const attrs = {};
+      if (attrsStr) {
+        const attrRe = /([a-zA-Z0-9_-]+)="([^"]*)"/g;
+        let m;
+        while ((m = attrRe.exec(attrsStr)) !== null) {
+          attrs[m[1]] = m[2];
+        }
+        if (attrs.class) {
+          attrs.class.split(/\s+/).filter(Boolean).forEach((c) => classes.add(c));
+        }
+      }
+      const listeners = {};
+      const children = [];
+      let _innerHTML = '';
+      const el = {
+        tagName: String(tag || 'DIV').toUpperCase(),
+        id: attrs.id || '',
+        type: attrs.type || 'text',
+        value: '',
+        checked: false,
+        disabled: false,
+        hidden: false,
+        textContent: '',
+        style: {},
+        scrollTop: 0,
+        parentNode: null,
+        children,
+        get className() {
+          return Array.from(classes).join(' ');
+        },
+        set className(val) {
+          classes.clear();
+          String(val || '').split(/\s+/).filter(Boolean).forEach((c) => classes.add(c));
+        },
+        classList: {
+          add: (...c) => c.forEach((x) => classes.add(x)),
+          remove: (...c) => c.forEach((x) => classes.delete(x)),
+          toggle: (x, f) => (typeof f === 'boolean' ? (f ? classes.add(x) : classes.delete(x)) : (classes.has(x) ? classes.delete(x) : classes.add(x))),
+          contains: (x) => classes.has(x)
+        },
+        getAttribute: (k) => (k === 'class' ? Array.from(classes).join(' ') : (Object.prototype.hasOwnProperty.call(attrs, k) ? attrs[k] : null)),
+        setAttribute: (k, v) => { attrs[k] = String(v); },
+        addEventListener: (ev, fn) => { (listeners[ev] = listeners[ev] || []).push(fn); },
+        removeEventListener: (ev, fn) => { if (listeners[ev]) listeners[ev] = listeners[ev].filter((f) => f !== fn); },
+        appendChild: (ch) => { ch.parentNode = el; children.push(ch); return ch; },
+        removeChild: (ch) => { const idx = children.indexOf(ch); if (idx !== -1) children.splice(idx, 1); ch.parentNode = null; },
+        focus: () => { doc.activeElement = el; },
+        blur: () => { if (doc.activeElement === el) doc.activeElement = doc.body; },
+        click: () => el.dispatchEvent({ type: 'click', target: el }),
+        dispatchEvent: (rawEvt) => {
+          const evt = Object.assign({
+            target: el,
+            currentTarget: el,
+            defaultPrevented: false,
+            _stopped: false,
+            preventDefault() { this.defaultPrevented = true; },
+            stopPropagation() { this._stopped = true; }
+          }, rawEvt || {});
+          (listeners[evt.type] || []).slice().forEach((fn) => fn(evt));
+          if (!evt._stopped && el !== doc) {
+            doc.dispatchEvent(Object.assign({}, evt, { currentTarget: doc }));
+          }
+          return !evt.defaultPrevented;
+        },
+        querySelectorAll: (sel) => queryMatch(children, sel),
+        querySelector: (sel) => queryMatch(children, sel)[0] || null,
+        set innerHTML(val) {
+          _innerHTML = String(val || '');
+          children.length = 0;
+          if (_innerHTML) {
+            const subRe = /<(option|button|div|span|p|li|tr)\b([^>]*)>/gi;
+            let sm;
+            while ((sm = subRe.exec(_innerHTML)) !== null) {
+              const child = makeEl(sm[1], sm[2]);
+              children.push(child);
+            }
+          }
+        },
+        get innerHTML() { return _innerHTML; },
+        reset: () => {}
+      };
+      if (el.id && !byId.has(el.id)) byId.set(el.id, el);
+      allElements.push(el);
+      return el;
+    }
+
+    function queryMatch(pool, selector) {
+      const list = [];
+      const seen = new Set();
+      function walk(arr) {
+        arr.forEach((node) => {
+          if (!node || seen.has(node)) return;
+          let matched = false;
+          if (selector.startsWith('.')) {
+            matched = node.classList.contains(selector.slice(1));
+          } else if (selector.startsWith('[') && selector.endsWith(']')) {
+            const inner = selector.slice(1, -1);
+            const eqIdx = inner.indexOf('=');
+            if (eqIdx === -1) matched = node.getAttribute(inner) !== null;
+            else {
+              const k = inner.slice(0, eqIdx);
+              const v = inner.slice(eqIdx + 1).replace(/^"|"$/g, '');
+              matched = node.getAttribute(k) === v;
+            }
+          } else {
+            matched = node.tagName.toLowerCase() === selector.toLowerCase();
+          }
+          if (matched) {
+            seen.add(node);
+            list.push(node);
+          }
+          if (node.children && node.children.length) walk(node.children);
+        });
+      }
+      walk(pool);
+      return list;
+    }
+
+    const docListeners = {};
+    const doc = {
+      readyState: 'complete',
+      hidden: false,
+      fullscreenElement: null,
+      documentElement: makeEl('html', ''),
+      body: makeEl('body', ''),
+      activeElement: null,
+      getElementById: (id) => byId.get(id) || null,
+      createElement: (tag) => makeEl(tag, ''),
+      querySelectorAll: (sel) => queryMatch(allElements, sel),
+      querySelector: (sel) => queryMatch(allElements, sel)[0] || null,
+      hasFocus: () => true,
+      addEventListener: (ev, fn) => { (docListeners[ev] = docListeners[ev] || []).push(fn); },
+      removeEventListener: (ev, fn) => { if (docListeners[ev]) docListeners[ev] = docListeners[ev].filter((f) => f !== fn); },
+      dispatchEvent: (rawEvt) => {
+        const evt = Object.assign({
+          target: doc.body,
+          currentTarget: doc,
+          defaultPrevented: false,
+          preventDefault() { this.defaultPrevented = true; },
+          stopPropagation() {}
+        }, rawEvt || {});
+        (docListeners[evt.type] || []).slice().forEach((fn) => fn(evt));
+        return !evt.defaultPrevented;
+      }
+    };
+
+    const tagRe = /<(section|header|main|div|span|p|h1|h2|h3|h4|button|input|select|textarea|form|label|ul|tbody|kbd|i)\b([^>]*)>/gi;
+    let tm;
+    while ((tm = tagRe.exec(html)) !== null) {
+      makeEl(tm[1], tm[2]);
+    }
+
+    const mockLS = createMockLocalStorage();
+    const mockSS = createMockLocalStorage();
+    let seedState = Storage.createDefaultState(Date.now());
+    const stuCreated = Auth.createStudentAccount(seedState.students, 'it_manager', {
+      username: 'domqa01',
+      fullName: 'DOM QA Student',
+      group: 'B2',
+      password: 'DomQaPass#2026!'
+    }, Date.now());
+    seedState.students = stuCreated.students;
+    seedState.studentProgress = Storage.ensureStudentProgress(seedState, stuCreated.created.id, Date.now());
+    mockLS.setItem(Storage.STORAGE_KEY, JSON.stringify(seedState));
+
+    const winListeners = {};
+    const activeIntervals = new Set();
+    const activeTimeouts = new Set();
+
+    const sandboxWin = {
+      SWESpeech: Object.assign({}, Speech, {
+        speak: () => true,
+        stop: () => {}
+      }),
+      SWESync: {
+        isServerMode: () => false,
+        isOpenSignupAllowed: () => true,
+        startLocalListeners: () => {},
+        notifyLocalTabs: () => {},
+        detectServer: async () => false,
+        onSyncUpdate: () => () => {}
+      },
+      document: doc,
+      localStorage: mockLS,
+      sessionStorage: mockSS,
+      location: { protocol: 'http:', search: '' },
+      getSelection: () => ({ toString: () => '' }),
+      addEventListener: (ev, fn) => { (winListeners[ev] = winListeners[ev] || []).push(fn); },
+      removeEventListener: (ev, fn) => { if (winListeners[ev]) winListeners[ev] = winListeners[ev].filter((f) => f !== fn); },
+      setTimeout: (fn, ms) => { const t = setTimeout(() => { activeTimeouts.delete(t); fn(); }, Math.min(Number(ms) || 0, 10)); activeTimeouts.add(t); return t; },
+      clearTimeout: (t) => { activeTimeouts.delete(t); clearTimeout(t); },
+      setInterval: (fn, ms) => { const i = setInterval(fn, ms); activeIntervals.add(i); return i; },
+      clearInterval: (i) => { activeIntervals.delete(i); clearInterval(i); },
+      requestAnimationFrame: (fn) => fn(),
+      Date, Math, Array, Object, String, Number, Boolean, Set, Map, JSON, Promise, RegExp, URL, Error, Blob,
+      console
+    };
+    sandboxWin.window = sandboxWin;
+    sandboxWin.globalThis = sandboxWin;
+
+    try {
+      ['default-data.js', 'srs.js', 'auth.js', 'exam.js', 'storage.js', 'ai-txt.js'].forEach((fname) => {
+        vm.runInNewContext(fs.readFileSync(path.join(rootPath, 'js', fname), 'utf8'), sandboxWin);
+      });
+      vm.runInNewContext(appCode, sandboxWin);
+      await new Promise((r) => setTimeout(r, 30));
+
+      // Login as student domqa01
+      byId.get('loginUsernameInput').value = 'domqa01';
+      byId.get('loginPasswordInput').value = 'DomQaPass#2026!';
+      byId.get('loginForm').dispatchEvent({ type: 'submit' });
+      await new Promise((r) => setTimeout(r, 30));
+
+      assert.equal(byId.get('view-login').classList.contains('hidden'), true);
+      assert.equal(byId.get('view-dashboard').classList.contains('hidden'), false);
+
+      // Navigate to Study (Mashqlar)
+      const studyNav = doc.querySelector('[data-nav-view="study"]');
+      studyNav.click();
+      assert.equal(byId.get('view-study').classList.contains('hidden'), false);
+
+      // 1. Flashcards: Space key on focused fcCardInner flips ONCE (no double-flip!)
+      const fcCardInner = byId.get('fcCardInner');
+      assert.equal(fcCardInner.classList.contains('is-flipped'), false);
+      fcCardInner.dispatchEvent({ type: 'keydown', key: ' ', code: 'Space' });
+      assert.equal(fcCardInner.classList.contains('is-flipped'), true, 'Space on fcCardInner must stay flipped');
+      doc.querySelector('[data-srs-rate="good"]').click();
+      assert.equal(fcCardInner.classList.contains('is-flipped'), false);
+
+      // 2. Quiz: Answer Q1, press Enter -> advances to Savol 2/10, switch tab & return -> preserves Savol 2/10, summary ArrowRight does NOT inflate stats
+      doc.querySelector('[data-study-mode="quiz"]').click();
+      assert.equal(byId.get('quizProgressText').textContent, 'Savol 1 / 10');
+      byId.get('quizOptionsGrid').children[0].click();
+      doc.dispatchEvent({ type: 'keydown', key: 'Enter', target: doc.body });
+      assert.equal(byId.get('quizProgressText').textContent, 'Savol 2 / 10');
+
+      doc.querySelector('[data-nav-view="vocabulary"]').click();
+      studyNav.click();
+      assert.equal(byId.get('quizProgressText').textContent, 'Savol 2 / 10', 'Returning to Mashqlar must preserve unfinished Quiz');
+
+      for (let qi = 1; qi < 10; qi++) {
+        byId.get('quizOptionsGrid').children[0].click();
+        doc.dispatchEvent({ type: 'keydown', key: 'Enter', target: doc.body });
+      }
+      assert.equal(byId.get('quizSummaryBox').classList.contains('hidden'), false);
+      // Pressing ArrowRight on Summary must NOT re-emit QUIZ_FINISH
+      doc.dispatchEvent({ type: 'keydown', key: 'ArrowRight', target: doc.body });
+      doc.dispatchEvent({ type: 'keydown', key: 'ArrowRight', target: doc.body });
+      const savedAfterQuiz = JSON.parse(mockLS.getItem(Storage.STORAGE_KEY));
+      assert.equal(savedAfterQuiz.studentProgress[stuCreated.created.id].modeStats.quizCompleted, 1);
+
+      // 3. Writing: Wrong answer + Enter to advance + wrongWords list populated
+      doc.querySelector('[data-study-mode="writing"]').click();
+      assert.equal(byId.get('writeProgressText').textContent, 'Mashq 1 / 10');
+      byId.get('writeInput').value = 'wrongwordxyz';
+      byId.get('writeForm').dispatchEvent({ type: 'submit' });
+      assert.equal(byId.get('writeInput').disabled, true);
+      doc.dispatchEvent({ type: 'keydown', key: 'Enter', target: doc.body });
+      assert.equal(byId.get('writeProgressText').textContent, 'Mashq 2 / 10');
+      for (let wi = 1; wi < 10; wi++) {
+        byId.get('writeInput').value = 'wrongwordxyz';
+        byId.get('writeForm').dispatchEvent({ type: 'submit' });
+        doc.dispatchEvent({ type: 'keydown', key: 'ArrowRight', target: doc.body });
+      }
+      assert.equal(byId.get('writeSummaryBox').classList.contains('hidden'), false);
+      assert.ok(byId.get('writeWrongList').children.length > 0);
+
+      // 4. Listening Dictation: submit -> Enter advances to Audio 2 / 10
+      doc.querySelector('[data-study-mode="listening"]').click();
+      doc.querySelector('[data-listen-type="dictation"]').click();
+      assert.equal(byId.get('listenProgressText').textContent, 'Audio 1 / 10');
+      byId.get('listenDictationInput').value = 'testword';
+      byId.get('listenDictationForm').dispatchEvent({ type: 'submit' });
+      assert.equal(byId.get('listenDictationInput').disabled, true);
+      doc.dispatchEvent({ type: 'keydown', key: 'Enter', target: doc.body });
+      assert.equal(byId.get('listenProgressText').textContent, 'Audio 2 / 10');
+
+      // 5. Final Closed Exam: Finish early button opens confirmation modal rather than abruptly terminating
+      doc.querySelector('[data-study-mode="exam"]').click();
+      byId.get('examAgreeCheck').checked = true;
+      byId.get('examAgreeCheck').dispatchEvent({ type: 'change' });
+      byId.get('examStartBtn').click();
+      await new Promise((r) => setTimeout(r, 20));
+      assert.equal(byId.get('examActiveCard').classList.contains('hidden'), false);
+      byId.get('examFinishEarlyBtn').click();
+      assert.equal(byId.get('confirmModal').classList.contains('hidden'), false, 'Finish early must open confirmation modal');
+      const midExamState = JSON.parse(mockLS.getItem(Storage.STORAGE_KEY));
+      assert.equal(midExamState.studentProgress[stuCreated.created.id].finalExam.status, 'in_progress');
+      byId.get('confirmOkBtn').click();
+      await new Promise((r) => setTimeout(r, 20));
+      const endedExamState = JSON.parse(mockLS.getItem(Storage.STORAGE_KEY));
+      assert.equal(endedExamState.studentProgress[stuCreated.created.id].finalExam.status, 'completed');
+
+      byId.get('headerLogoutBtn').click();
+      await new Promise((r) => setTimeout(r, 15));
+    } finally {
+      activeIntervals.forEach((id) => clearInterval(id));
+      activeTimeouts.forEach((id) => clearTimeout(id));
     }
   });
 
