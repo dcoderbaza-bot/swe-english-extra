@@ -172,4 +172,19 @@
 ### 8-bosqich tekshiruv natijalari
 - `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
 - `node tests/verify.js`: **16/16** test to‘plami o‘tdi (US/UK IPA + `syllables`, `pcm16ToWavUint8Array`, OpenAI TTS disk-kesh `0 API`, Gemini WAV va IT-only masking / SSRF testlari bilan).
-- Jonli brauzer E2E QA (`http://127.0.0.1:4178` & `4179`): IT Manager TTS API kalitini saqlash/reload/maskalash/tozalash, sahifa yuklanganda `0` ta avtomatik `/api/tts` chaqiruvi, va `student1` Flashcard’da `US /ɪnˈdev.ər/ · UK /ɪnˈdev.ə(r)/ · in·DEV·er` ko‘rinishi `0` konsol/sahifa/HTTP xatosi bilan tasdiqlandi.
+- Jonli brauzer E2E QA (`http://127.0.0.1:4178` va `4179`): IT Manager TTS API kalitini saqlash/reload/maskalash/tozalash, sahifa yuklanganda `0` ta avtomatik `/api/tts` chaqiruvi, va `student1` Flashcard’da `US /ɪnˈdev.ər/ · UK /ɪnˈdev.ə(r)/ · in·DEV·er` ko‘rinishi `0` konsol/sahifa/HTTP xatosi bilan tasdiqlandi.
+
+---
+
+## 10. 9-bosqich yangilanishlari (Birlamchi AI / DeepSeek orqali talaffuzni birinchi aniqlash)
+
+### Qo‘shilgan imkoniyatlar
+- **Birlamchi AI (`DeepSeek`) Talaffuz Dvigateli (`js/ai-txt.js`, `server.js`, `js/sync.js`, `js/storage.js`, `js/app.js`, `index.html`):**
+  - `AiTxt.buildPronunciationPrompt` va `AiTxt.resolvePronunciationWithAI` qo‘shildi: US IPA, UK IPA, bo‘g‘in-urg‘u (`syllables`) hamda o‘qilish qo‘llanmasi (`pronunciationNote` / `"say"`) ni ixcham JSON formatda birinchi navbatda **birlamchi AI (DeepSeek)** orqali aniqlaydi va `state.words` / keshda saqlaydi (`0` takror so‘rov).
+  - Serverda **`POST /api/pronounce`** endpointi qo‘shildi va `POST /api/tts` ham so‘zda talaffuz to‘liq bo‘lmasa **avval DeepSeek** orqali talaffuz shaklini aniqlab `db.words` ga saqlaydi, so‘ngra 2-bosqichda audio TTS (yoki brauzer Web Speech) ga o‘tadi.
+  - `.TXT Kiritish` bo‘limiga Teacher va IT Manager uchun `#batchPronounceBtn` (`"Talaffuzlarni AI bilan aniqlash"`) tugmasi qo‘shildi; shuningdek `#aiModelInput` da `defaultModel` o‘rniga `undefined` ko‘rinishiga sabab bo‘lgan xato (`getDefaultAiModel`) tuzatildi.
+
+### 9-bosqich tekshiruv natijalari
+- `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
+- `node tests/verify.js`: **17/17** test to‘plami muvaffaqiyatli o‘tdi (`/api/pronounce`, `resolvePronunciationWithAI` DB/cache `0 API` qayta ishlatish, student bulk `403` cheklovi va `/api/tts` ichida `['deepseek', 'openai-tts']` ketma-ketligi tasdiqlandi).
+- Jonli brauzer QA (`http://127.0.0.1:4180`, 0 konsol/sahifa/HTTP xatosi): `#batchPronounceBtn` IT Manager va Teacher’da ko‘rinishi (Teacher’da API kalit yashirin qolishi) va to‘liq bazada `0 API` xabari bilan ishlashi tasdiqlandi.

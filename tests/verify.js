@@ -1659,6 +1659,201 @@ async function runAsyncTests() {
     }
   });
 
+  await testAsync('Primary AI (DeepSeek first) pronunciation resolution: /api/pronounce batch & auto-first in /api/tts', async () => {
+    let unitCalls = 0;
+    const unitCache = {};
+    const unitFetch = async (url, init) => {
+      unitCalls++;
+      assert.ok(String(url).includes('https://api.deepseek.com/chat/completions'));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify([
+                { w: 'ephemeral', p: '/ɪˈfem.ər.əl/', pUk: '/ɪˈfem.ər.əl/', syl: 'i·FEM·er·ul', say: 'i-fem-er-ul' }
+              ])
+            }
+          }]
+        })
+      };
+    };
+
+    const unitRes1 = await AiTxt.resolvePronunciationWithAI(
+      [Data.DEFAULT_WORDS[0], { word: 'ephemeral', translation: 'o‘tkinchi' }],
+      { provider: 'deepseek', model: 'deepseek-chat', apiKey: 'sk-ds-unit' },
+      { existingWords: Data.DEFAULT_WORDS, cache: unitCache, fetchImpl: unitFetch }
+    );
+    assert.equal(unitCalls, 1, 'Existing DB word must NOT be sent to DeepSeek; only missing word sent');
+    assert.equal(unitRes1[1].phonetic, '/ɪˈfem.ər.əl/');
+    assert.equal(unitRes1[1].syllables, 'i·FEM·er·ul');
+    assert.equal(unitRes1[1].pronunciationNote, 'i-fem-er-ul');
+
+    // Repeat call must use cache with 0 API calls
+    await AiTxt.resolvePronunciationWithAI(
+      [{ word: 'ephemeral' }],
+      { provider: 'deepseek', model: 'deepseek-chat', apiKey: 'sk-ds-unit' },
+      { existingWords: Data.DEFAULT_WORDS, cache: unitCache, fetchImpl: unitFetch }
+    );
+    assert.equal(unitCalls, 1);
+
+    // Full server flow: Teacher batch DeepSeek pronounce + Student TTS auto-DeepSeek-first
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-ds-pron-'));
+    const dataFilePath = path.join(tmpDir, 'db.json');
+    const secretFilePath = path.join(tmpDir, '.secret');
+
+    const now = Date.now();
+    let seedState = Storage.createDefaultState(now);
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'teacher', 'DsTeach#2026!');
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'it_manager', 'DsAdmin#2026!');
+    const stuRes = Auth.createStudentAccount(seedState.students, 'it_manager', {
+      username: 'dsstu',
+      fullName: 'DS Student',
+      group: 'DS',
+      password: 'DsStudent#2026!'
+    }, now);
+    seedState.students = stuRes.students;
+    seedState.studentProgress = Storage.ensureStudentProgress(seedState, stuRes.created.id, now);
+    // Add two words with missing IPA/UK/syllables
+    seedState = Storage.mergeImportedWords(seedState, [
+      { word: 'ephemeral', translation: 'vaqtinchalik', lesson: '1-dars: Academic Foundations' },
+      { word: 'ameliorate', translation: 'yaxshilamoq', lesson: '1-dars: Academic Foundations' }
+    ], [], now).state;
+    fs.writeFileSync(dataFilePath, JSON.stringify(seedState, null, 2), 'utf8');
+
+    const callOrder = [];
+    const mockFetch = async (url, init) => {
+      const u = String(url);
+      if (u.includes('api.deepseek.com')) {
+        callOrder.push('deepseek');
+        const body = JSON.parse(init.body);
+        const userMsg = body.messages[1].content;
+        const results = [];
+        if (userMsg.includes('ephemeral')) {
+          results.push({ w: 'ephemeral', p: '/ɪˈfem.ər.əl/', pUk: '/ɪˈfem.ər.əl/', syl: 'i·FEM·er·ul', say: 'i-fem-er-ul' });
+        }
+        if (userMsg.includes('ameliorate')) {
+          results.push({ w: 'ameliorate', p: '/əˈmiːl.jə.reɪt/', pUk: '/əˈmiː.li.ə.reɪt/', syl: 'uh·MEEL·yuh·rayt', say: 'uh-meel-yuh-reyt' });
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ choices: [{ message: { content: JSON.stringify(results) } }] })
+        };
+      }
+      if (u.includes('api.openai.com/v1/audio/speech')) {
+        callOrder.push('openai-tts');
+        const fakeMp3 = Buffer.from('ID3_DS_FIRST_MP3_0123456789_0123456789');
+        return {
+          ok: true,
+          status: 200,
+          headers: { get: () => 'audio/mpeg' },
+          arrayBuffer: async () => fakeMp3.buffer.slice(fakeMp3.byteOffset, fakeMp3.byteOffset + fakeMp3.byteLength)
+        };
+      }
+      throw new Error('Unexpected URL: ' + u);
+    };
+
+    const server = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath,
+      secretFilePath,
+      fetchImpl: mockFetch
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+      const itToken = (await (await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'it_manager', password: 'DsAdmin#2026!' })
+      })).json()).token;
+
+      const teachToken = (await (await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'DsTeach#2026!' })
+      })).json()).token;
+
+      const stuToken = (await (await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'student', username: 'dsstu', password: 'DsStudent#2026!' })
+      })).json()).token;
+
+      // IT Manager saves DeepSeek primary key + OpenAI TTS key
+      assert.equal((await fetch(`${baseUrl}/api/ai-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${itToken}` },
+        body: JSON.stringify({
+          aiConfig: {
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            apiKey: 'sk-deepseek-primary-1111',
+            ttsProvider: 'openai',
+            ttsApiKey: 'sk-openai-tts-2222'
+          }
+        })
+      })).status, 200);
+
+      // Student bulk pronounce is forbidden (403)
+      assert.equal((await fetch(`${baseUrl}/api/pronounce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuToken}` },
+        body: JSON.stringify({ words: [{ word: 'ephemeral' }, { word: 'ameliorate' }] })
+      })).status, 403);
+
+      // Teacher triggers single-word DeepSeek pronounce on 'ephemeral' (without seeing API key!)
+      const pRes = await (await fetch(`${baseUrl}/api/pronounce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${teachToken}` },
+        body: JSON.stringify({ words: [{ word: 'ephemeral' }] })
+      })).json();
+      assert.equal(pRes.ok, true);
+      assert.equal(pRes.source, 'ai');
+      assert.equal(pRes.provider, 'deepseek');
+      assert.equal(pRes.updatedCount, 1);
+      const updatedEph = pRes.state.words.find((w) => w.word === 'ephemeral');
+      assert.equal(updatedEph.phonetic, '/ɪˈfem.ər.əl/');
+      assert.equal(updatedEph.pronunciationNote, 'i-fem-er-ul');
+
+      // Second call for 'ephemeral' hits DB (0 DeepSeek API calls)
+      const dsBeforeRepeat = callOrder.filter((c) => c === 'deepseek').length;
+      const pRes2 = await (await fetch(`${baseUrl}/api/pronounce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${teachToken}` },
+        body: JSON.stringify({ words: [{ word: 'ephemeral' }] })
+      })).json();
+      assert.equal(pRes2.source, 'db');
+      assert.equal(callOrder.filter((c) => c === 'deepseek').length, dsBeforeRepeat);
+
+      // Student requests audio TTS for 'ameliorate' (missing IPA): DeepSeek MUST run BEFORE OpenAI TTS!
+      const orderStart = callOrder.length;
+      const ttsRes = await fetch(`${baseUrl}/api/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuToken}` },
+        body: JSON.stringify({ text: 'ameliorate', accent: 'en-GB' })
+      });
+      assert.equal(ttsRes.status, 200);
+      assert.deepEqual(callOrder.slice(orderStart), ['deepseek', 'openai-tts']);
+
+      // Verify DeepSeek saved 'ameliorate' IPA + syllables permanently in DB
+      const stuStateAfter = (await (await fetch(`${baseUrl}/api/state`, {
+        headers: { 'Authorization': `Bearer ${stuToken}` }
+      })).json()).state;
+      const updatedAmel = stuStateAfter.words.find((w) => w.word === 'ameliorate');
+      assert.equal(updatedAmel.phonetic, '/əˈmiːl.jə.reɪt/');
+      assert.equal(updatedAmel.phoneticUk, '/əˈmiː.li.ə.reɪt/');
+      assert.equal(updatedAmel.syllables, 'uh·MEEL·yuh·rayt');
+      assert.equal(updatedAmel.pronunciationNote, 'uh-meel-yuh-reyt');
+    } finally {
+      server.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   console.log(`\nAll ${passed} test suites passed!`);
 }
 

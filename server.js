@@ -272,7 +272,94 @@ function createAppServer(options) {
   const AI_PROXY_CACHE_MAX = 150;
   const ttsCacheDir = path.join(path.dirname(dataFilePath), 'tts-cache');
   const ttsInFlight = new Map();
+  const pronounceInFlight = new Map();
   const TTS_DISK_CACHE_MAX = 2000;
+
+  async function resolvePrimaryPronunciationOnServer(entries, actorRole) {
+    const cfg = db.aiConfig || {};
+    const list = (Array.isArray(entries) ? entries : []).filter(function (item) {
+      return item && String(item.word || '').trim().length > 0;
+    });
+    if (list.length === 0) {
+      return { source: 'db', provider: cfg.provider || 'deepseek', updatedCount: 0, items: [] };
+    }
+    if (!cfg.apiKey) {
+      return { mode: 'no-ai-key', provider: cfg.provider || 'deepseek', updatedCount: 0, items: list };
+    }
+
+    const sig = list.map(function (x) { return String(x.word || '').trim().toLowerCase(); }).sort().join('|');
+    let pending = pronounceInFlight.get(sig);
+    if (!pending) {
+      pending = (async function () {
+        let stats = { sentToAi: 0, apiCalls: 0 };
+        const items = await AiTxt.resolvePronunciationWithAI(list, cfg, {
+          existingWords: db.words,
+          useCache: false,
+          batchSize: AiTxt.DEFAULT_BATCH_SIZE || 40,
+          onStats: function (st) { stats = st; },
+          fetchImpl: fetcher
+        });
+
+        const byLower = new Map();
+        items.forEach(function (it) {
+          if (it && it.word) byLower.set(it.word.toLowerCase(), it);
+        });
+
+        let updatedCount = 0;
+        const now = Date.now();
+        db.words = (db.words || []).map(function (w) {
+          const match = byLower.get(String(w.word || '').trim().toLowerCase());
+          if (!match) return w;
+          const nextPh = w.phonetic || match.phonetic || '';
+          const nextUk = w.phoneticUk || match.phoneticUk || '';
+          const nextSyl = w.syllables || match.syllables || '';
+          const nextNote = w.pronunciationNote || match.pronunciationNote || '';
+          if (
+            nextPh === (w.phonetic || '') &&
+            nextUk === (w.phoneticUk || '') &&
+            nextSyl === (w.syllables || '') &&
+            nextNote === (w.pronunciationNote || '')
+          ) {
+            return w;
+          }
+          updatedCount++;
+          return Object.assign({}, w, {
+            phonetic: nextPh,
+            phoneticUk: nextUk,
+            syllables: nextSyl,
+            pronunciationNote: nextNote,
+            updatedAt: now
+          });
+        });
+
+        if (updatedCount > 0) {
+          if (Auth.isAdminRole(actorRole)) {
+            db.auditLog = Auth.appendAuditLog(
+              db.auditLog,
+              actorRole,
+              'AI_PRONOUNCE',
+              (cfg.provider || 'deepseek') + ' orqali ' + updatedCount + ' ta so‘z talaffuzi aniqlandi',
+              now
+            );
+          }
+          saveDb();
+          broadcastSse('curriculum');
+        }
+
+        return {
+          source: stats.apiCalls > 0 ? 'ai' : 'db',
+          provider: cfg.provider || 'deepseek',
+          apiCalls: stats.apiCalls || 0,
+          updatedCount: updatedCount,
+          items: items
+        };
+      })().finally(function () {
+        pronounceInFlight.delete(sig);
+      });
+      pronounceInFlight.set(sig, pending);
+    }
+    return pending;
+  }
 
   function readTtsDiskCache(cacheHash) {
     if (!/^[a-f0-9]{64}$/.test(cacheHash)) return null;
@@ -1028,7 +1115,7 @@ function createAppServer(options) {
         return;
       }
 
-      if (pathname === '/api/tts' && req.method === 'POST') {
+      if ((pathname === '/api/pronounce' || pathname === '/api/tts') && req.method === 'POST') {
         const session = getSessionFromRequest(req, parsedUrl);
         if (!session) {
           sendJson(res, 401, { ok: false, error: 'Avval tizimga kiring.' });
@@ -1049,12 +1136,61 @@ function createAppServer(options) {
         }
 
         const body = await readJsonBody(req);
+
+        if (pathname === '/api/pronounce') {
+          let targets = [];
+          if (Array.isArray(body.words) && body.words.length > 0) {
+            if (!Auth.isAdminRole(session.role) && body.words.length > 1) {
+              sendJson(res, 403, { ok: false, error: 'Ommaviy talaffuz aniqlash faqat Teacher yoki IT Manager uchun.' });
+              return;
+            }
+            targets = body.words.slice(0, 80);
+          } else if (body.wordId) {
+            const matched = (db.words || []).find(function (w) { return w.id === body.wordId; });
+            if (matched) targets = [matched];
+          } else if (body.word) {
+            const wClean = String(body.word || '').trim().slice(0, 120);
+            const matchedByWord = (db.words || []).find(function (w) {
+              return String(w.word || '').trim().toLowerCase() === wClean.toLowerCase();
+            });
+            targets = [matchedByWord || { word: wClean }];
+          }
+
+          if (targets.length === 0) {
+            sendJson(res, 400, { ok: false, error: 'Talaffuzini aniqlash uchun so‘z kiritilmadi.' });
+            return;
+          }
+
+          try {
+            const out = await resolvePrimaryPronunciationOnServer(targets, session.role);
+            sendJson(res, 200, Object.assign({ ok: true, state: sanitizeDbForSession(db, session) }, out));
+          } catch (pErr) {
+            sendJson(res, 502, { ok: false, error: (pErr && pErr.message) || 'Birlamchi AI talaffuz aniqlashda xatolik.' });
+          }
+          return;
+        }
+
         const text = String(body.text || '').replace(/\s+/g, ' ').trim().slice(0, 320);
         if (!text) {
           sendJson(res, 400, { ok: false, error: 'Talaffuz uchun matn kiritilmadi.' });
           return;
         }
         const accent = body.accent === 'en-GB' ? 'en-GB' : 'en-US';
+
+        // Step 1: Ensure word pronunciation metadata is determined via Primary AI (DeepSeek) first if missing
+        if (!body.testConfig && db.aiConfig && db.aiConfig.apiKey) {
+          const wordMatch = (db.words || []).find(function (w) {
+            return (body.wordId && w.id === body.wordId) ||
+              String(w.word || '').trim().toLowerCase() === text.toLowerCase();
+          });
+          if (wordMatch && !AiTxt.hasCompletePronunciation(wordMatch)) {
+            try {
+              await resolvePrimaryPronunciationOnServer([wordMatch], session.role);
+            } catch (_) {
+              // Do not block audio playback if text AI transiently fails
+            }
+          }
+        }
 
         // Only IT Manager can test unsaved ttsConfig overrides
         let rawCfg = db.aiConfig || {};

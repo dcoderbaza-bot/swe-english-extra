@@ -299,11 +299,14 @@
     return false;
   }
 
+  const pendingPrimaryPronounce = new Set();
+
   function formatWordPronunciation(wordObj) {
     if (!wordObj) return '';
     const us = String(wordObj.phonetic || '').trim();
     const uk = String(wordObj.phoneticUk || '').trim();
     const syl = String(wordObj.syllables || '').trim();
+    const note = String(wordObj.pronunciationNote || '').trim();
     const parts = [];
     if (us && uk && uk !== us) {
       parts.push('US ' + us + ' · UK ' + uk);
@@ -313,7 +316,55 @@
     if (syl) {
       parts.push(syl);
     }
+    if (note) {
+      parts.push('[' + note + ']');
+    }
     return parts.join(' · ');
+  }
+
+  function ensurePrimaryAiPronunciation(text, wordId) {
+    const clean = String(text || '').trim();
+    if (!clean || !hasSavedAiKey(state && state.aiConfig)) return;
+    const match = (state.words || []).find(function (w) {
+      return (wordId && w.id === wordId) || String(w.word || '').trim().toLowerCase() === clean.toLowerCase();
+    });
+    if (!match || (AiTxt && AiTxt.hasCompletePronunciation(match))) return;
+    const key = String(match.id || clean.toLowerCase());
+    if (pendingPrimaryPronounce.has(key)) return;
+    pendingPrimaryPronounce.add(key);
+
+    (async function () {
+      try {
+        if (Sync && Sync.isServerMode()) {
+          const res = await Sync.resolvePronunciationRemote({ wordId: match.id, word: match.word });
+          if (res && res.state) mergeRemoteState(res.state);
+          if (res && res.updatedCount > 0) refreshActiveView();
+        } else if (AiTxt && typeof AiTxt.resolvePronunciationWithAI === 'function') {
+          const items = await AiTxt.resolvePronunciationWithAI([match], state.aiConfig, {
+            existingWords: state.words
+          });
+          const resolved = items && items[0];
+          if (resolved && resolved.phonetic) {
+            state.words = (state.words || []).map(function (w) {
+              if (w.id !== match.id) return w;
+              return Object.assign({}, w, {
+                phonetic: w.phonetic || resolved.phonetic,
+                phoneticUk: w.phoneticUk || resolved.phoneticUk || '',
+                syllables: w.syllables || resolved.syllables || '',
+                pronunciationNote: w.pronunciationNote || resolved.pronunciationNote || '',
+                updatedAt: Date.now()
+              });
+            });
+            persist('curriculum');
+            refreshActiveView();
+          }
+        }
+      } catch (_) {
+        // Silent background enrichment — never disrupt audio playback
+      } finally {
+        pendingPrimaryPronounce.delete(key);
+      }
+    })();
   }
 
   function speakText(text, options) {
@@ -321,6 +372,10 @@
     const accent = opts.accent || state.settings.accent || 'en-US';
     const triggerEl = opts.triggerEl || null;
     const canUseServerTts = Boolean(Sync && Sync.isServerMode() && hasUsableTtsApi());
+
+    if (!opts.testConfig && !opts.skipPrimaryPronounce) {
+      ensurePrimaryAiPronunciation(text, opts.wordId);
+    }
 
     const ok = Speech.speak(text, {
       accent: accent,
@@ -3428,6 +3483,11 @@
 
   /* ----- TXT + AI Bulk Importer ----- */
 
+  function getDefaultAiModel(provider) {
+    const d = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[provider]) || {};
+    return d.defaultModel || d.model || 'deepseek-chat';
+  }
+
   function hasSavedAiKey(cfg) {
     const c = cfg || state.aiConfig || {};
     return Boolean((c.apiKey && String(c.apiKey).trim()) || (Sync && Sync.isServerMode() && c.hasApiKey));
@@ -3448,7 +3508,7 @@
       if (ready) {
         const defaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[cfg.provider]) || {};
         const label = defaults.label || cfg.provider || 'AI';
-        el.textContent = 'AI Tayyor (' + label + ' · ' + (cfg.model || defaults.model || 'deepseek-chat') + ')';
+        el.textContent = 'AI Tayyor (' + label + ' · ' + (cfg.model || getDefaultAiModel(cfg.provider)) + ')';
         el.className = 'font-bold text-emerald-600 dark:text-emerald-400';
       } else {
         el.textContent = canManageKey
@@ -3826,9 +3886,9 @@
     }
     const cfg = state.aiConfig || Storage.createDefaultAiConfig();
     const provider = cfg.provider || 'deepseek';
-    const defaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[provider]) || { model: 'deepseek-chat' };
+    const defaultModel = getDefaultAiModel(provider);
     if ($('aiProviderSelect')) $('aiProviderSelect').value = provider;
-    if ($('aiModelInput')) $('aiModelInput').value = cfg.model || defaults.model;
+    if ($('aiModelInput')) $('aiModelInput').value = cfg.model || defaultModel;
     if ($('aiCustomUrlInput')) $('aiCustomUrlInput').value = cfg.customUrl || '';
     if ($('aiApiKeyInput')) {
       $('aiApiKeyInput').value = cfg.apiKey || '';
@@ -3855,7 +3915,6 @@
 
   function collectAiConfigFromForm() {
     const provider = $('aiProviderSelect').value || 'deepseek';
-    const defaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[provider]) || { model: 'deepseek-chat' };
     const prev = state.aiConfig || {};
     const enteredKey = $('aiApiKeyInput').value.trim();
     const ttsProvider = $('ttsProviderSelect') ? ($('ttsProviderSelect').value || 'auto') : (prev.ttsProvider || 'auto');
@@ -3863,7 +3922,7 @@
 
     return {
       provider: provider,
-      model: $('aiModelInput').value.trim() || defaults.model,
+      model: $('aiModelInput').value.trim() || getDefaultAiModel(provider),
       customUrl: $('aiCustomUrlInput').value.trim(),
       apiKey: enteredKey,
       hasApiKey: Boolean(enteredKey || (Sync && Sync.isServerMode() && prev.hasApiKey)),
@@ -4133,6 +4192,7 @@
           phonetic: w.phonetic || ai.phonetic,
           phoneticUk: w.phoneticUk || ai.phoneticUk || '',
           syllables: w.syllables || ai.syllables || '',
+          pronunciationNote: w.pronunciationNote || ai.pronunciationNote || '',
           partOfSpeech: (!w.partOfSpeech || w.partOfSpeech === 'word') ? ai.partOfSpeech : w.partOfSpeech,
           definition: w.definition || ai.definition,
           examples: (Array.isArray(w.examples) && w.examples.length >= 2) ? w.examples : ai.examples,
@@ -4151,6 +4211,77 @@
       showToast(err.message || 'AI bilan boyitishda xatolik.', 'error');
     } finally {
       btn.disabled = false;
+    }
+  }
+
+  async function handleBatchPronounceWithPrimaryAi() {
+    if (!Auth.isAdminRole(currentRole)) {
+      showToast('Talaffuzlarni ommaviy aniqlash uchun Teacher yoki IT Manager huquqi kerak.', 'error');
+      return;
+    }
+    const cfg = state.aiConfig || {};
+    if (!hasSavedAiKey(cfg)) {
+      showToast('Birlamchi AI (DeepSeek) API kaliti kiritilmagan! IT Manager sozlamalarda kiritishi kerak.', 'warning');
+      if (Auth.canManageAiConfig(currentRole)) {
+        if ($('aiSettingsDrawer')) $('aiSettingsDrawer').classList.remove('hidden');
+        if ($('aiApiKeyInput')) $('aiApiKeyInput').focus();
+      }
+      return;
+    }
+
+    const targets = (state.words || []).filter(function (w) {
+      return !(AiTxt && AiTxt.hasCompletePronunciation(w));
+    });
+    if (targets.length === 0) {
+      showToast('Barcha so‘zlarning US/UK IPA va bo‘g‘in talaffuzi allaqachon to‘liq (0 API)!', 'info');
+      return;
+    }
+
+    const btn = $('batchPronounceBtn');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Aniqlanmoqda...';
+    }
+    try {
+      let updatedCount = 0;
+      const providerName = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[cfg.provider] && AiTxt.PROVIDER_DEFAULTS[cfg.provider].label) || cfg.provider || 'DeepSeek';
+      if (Sync && Sync.isServerMode()) {
+        const res = await Sync.resolvePronunciationRemote({
+          words: targets.map(function (w) { return { id: w.id, word: w.word, translation: w.translation }; })
+        });
+        if (res && res.state) mergeRemoteState(res.state);
+        updatedCount = Number((res && res.updatedCount) || 0);
+      } else {
+        const resolved = await AiTxt.resolvePronunciationWithAI(targets, cfg, { existingWords: state.words });
+        const byLower = new Map();
+        resolved.forEach(function (it) { if (it && it.word) byLower.set(it.word.toLowerCase(), it); });
+        const now = Date.now();
+        state.words = (state.words || []).map(function (w) {
+          const m = byLower.get(String(w.word || '').trim().toLowerCase());
+          if (!m) return w;
+          updatedCount++;
+          return Object.assign({}, w, {
+            phonetic: w.phonetic || m.phonetic || '',
+            phoneticUk: w.phoneticUk || m.phoneticUk || '',
+            syllables: w.syllables || m.syllables || '',
+            pronunciationNote: w.pronunciationNote || m.pronunciationNote || '',
+            updatedAt: now
+          });
+        });
+        if (updatedCount > 0) {
+          persistCurriculum('AI_PRONOUNCE', providerName + ' orqali ' + updatedCount + ' ta so‘z talaffuzi aniqlandi');
+        }
+      }
+      refreshActiveView();
+      showToast(providerName + ' orqali ' + updatedCount + ' ta so‘z talaffuzi aniqlandi!', 'success');
+    } catch (err) {
+      showToast((err && err.message) || 'Birlamchi AI bilan talaffuz aniqlashda xatolik.', 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="audio-waveform" class="w-3.5 h-3.5"></i> Talaffuzlarni AI bilan aniqlash';
+        refreshIcons();
+      }
     }
   }
 
@@ -4813,6 +4944,9 @@
       runTxtParseOnly();
     });
     $('txtExportAllBtn').addEventListener('click', function () { handleExportTXT('detailed'); });
+    if ($('batchPronounceBtn')) {
+      $('batchPronounceBtn').addEventListener('click', handleBatchPronounceWithPrimaryAi);
+    }
     $('txtExportSimpleBtn').addEventListener('click', function () { handleExportTXT('simple'); });
     $('txtFileInput').addEventListener('change', handleTxtFilesSelected);
     $('txtTargetLessonSelect').addEventListener('change', function (e) {
@@ -4834,8 +4968,7 @@
       const curModel = modelInput.value.trim();
       const knownDefaults = ['deepseek-chat', 'gemini-2.5-flash', 'gpt-4o-mini'];
       if (!curModel || knownDefaults.indexOf(curModel) !== -1) {
-        const nextDefaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[provider]) || { model: 'deepseek-chat' };
-        modelInput.value = nextDefaults.model;
+        modelInput.value = getDefaultAiModel(provider);
       }
     });
     if ($('ttsProviderSelect')) {

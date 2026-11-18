@@ -309,6 +309,10 @@
     return data.content;
   }
 
+  async function resolvePronunciationRemote(payload) {
+    return apiRequest('/api/pronounce', 'POST', payload || {});
+  }
+
   async function fetchTtsAudio(payload) {
     const token = getSessionToken();
     const headers = { 'Content-Type': 'application/json' };
@@ -369,6 +373,7 @@
     pushSecurityRemote: pushSecurityRemote,
     pushExamActionRemote: pushExamActionRemote,
     proxyAiRequest: proxyAiRequest,
+    resolvePronunciationRemote: resolvePronunciationRemote,
     fetchTtsAudio: fetchTtsAudio
   };
 

@@ -338,6 +338,7 @@
       phonetic: srcPhonetic || String(rec.phonetic || '').trim(),
       phoneticUk: String(rec.phoneticUk || '').trim(),
       syllables: String(rec.syllables || '').trim(),
+      pronunciationNote: String(rec.pronunciationNote || '').trim(),
       partOfSpeech: String(rec.partOfSpeech || 'word').trim(),
       translation: srcTranslation || String(rec.translation || '').trim(),
       definition: String(rec.definition || '').trim(),
@@ -465,6 +466,7 @@
         phonetic: String(ai.p || ai.phonetic || src.phonetic || '').trim(),
         phoneticUk: String(ai.pUk || ai.phoneticUk || src.phoneticUk || '').trim(),
         syllables: String(ai.syl || ai.syllables || src.syllables || '').trim(),
+        pronunciationNote: String(ai.say || ai.pronunciationNote || src.pronunciationNote || '').trim(),
         partOfSpeech: String(ai.pos || ai.partOfSpeech || 'word').trim(),
         translation: String(ai.tr || ai.translation || src.translation || '').trim(),
         definition: String(ai.d || ai.definition || '').trim(),
@@ -498,9 +500,140 @@
 
     return [
       'Return ONLY a JSON array matching input count & order. Fix spelling if needed. Keep Uzbek values in Latin Uzbek (o‘,g‘,sh,ch).',
-      'Keys per item: "w":word,"p":US IPA "/.../","pUk":UK IPA "/.../" (or "" if same as US),"syl":syllables with CAPS stress e.g. "u·BIQ·ui·tous","pos":partOfSpeech,"tr":Uzbek translation,"d":concise English def,"ex":[2 short sentences with **w**],"syn":[2 synonyms],"ant":[1 antonym],"m":short mnemonic,"lvl":A1-C2' + catRule + '.',
+      'Keys per item: "w":word,"p":US IPA "/.../","pUk":UK IPA "/.../" (or "" if same),"syl":syllables with CAPS stress e.g. "u·BIQ·ui·tous","say":short phonetic read clue e.g. "yoo-bik-wi-tus","pos":partOfSpeech,"tr":Uzbek translation,"d":concise English def,"ex":[2 short sentences with **w**],"syn":[2 synonyms],"ant":[1 antonym],"m":short mnemonic,"lvl":A1-C2' + catRule + '.',
       'Input:' + JSON.stringify(compactInput)
     ].join('\n');
+  }
+
+  function buildPronunciationPrompt(wordEntries) {
+    const compact = wordEntries.map(function (e) {
+      const tr = String((e && e.translation) || '').trim();
+      return tr ? (e.word + '|' + tr) : String((e && e.word) || e);
+    });
+    return [
+      'Determine exact English pronunciation for each item. Return ONLY a JSON array matching input count & order.',
+      'Keys per item: "w":word,"p":US IPA "/.../","pUk":UK IPA "/.../","syl":syllables with CAPS primary stress e.g. "in·DEV·er","say":short Uzbek-readable pronunciation guide e.g. "in-dev-er".',
+      'Input:' + JSON.stringify(compact)
+    ].join('\n');
+  }
+
+  function hasCompletePronunciation(rec) {
+    return Boolean(rec && rec.phonetic && rec.phoneticUk && rec.syllables);
+  }
+
+  async function resolvePronunciationWithAI(wordsInput, aiConfig, options) {
+    const opts = options || {};
+    const list = (Array.isArray(wordsInput) ? wordsInput : []).map(function (item) {
+      return typeof item === 'string' ? { word: item } : (item || {});
+    }).filter(function (item) {
+      return cleanWordToken(item.word).length > 0;
+    });
+    if (list.length === 0) return [];
+
+    const dbByKey = new Map();
+    if (Array.isArray(opts.existingWords)) {
+      opts.existingWords.forEach(function (w) {
+        if (!hasCompletePronunciation(w)) return;
+        const k = cleanWordToken(w.word).toLowerCase();
+        if (k && !dbByKey.has(k)) dbByKey.set(k, w);
+      });
+    }
+
+    const useCache = opts.useCache !== false;
+    const cacheObj = opts.cache || (useCache ? loadLexiconCache() : {});
+    const resolvedByKey = new Map();
+    const missing = [];
+    const seenMissing = new Set();
+
+    list.forEach(function (entry) {
+      const k = cleanWordToken(entry.word).toLowerCase();
+      if (hasCompletePronunciation(entry)) {
+        resolvedByKey.set(k, {
+          word: cleanWordToken(entry.word),
+          phonetic: String(entry.phonetic || '').trim(),
+          phoneticUk: String(entry.phoneticUk || '').trim(),
+          syllables: String(entry.syllables || '').trim(),
+          pronunciationNote: String(entry.pronunciationNote || '').trim()
+        });
+        return;
+      }
+      if (dbByKey.has(k)) {
+        const dbMatch = dbByKey.get(k);
+        resolvedByKey.set(k, {
+          word: dbMatch.word,
+          phonetic: dbMatch.phonetic,
+          phoneticUk: dbMatch.phoneticUk,
+          syllables: dbMatch.syllables,
+          pronunciationNote: String(dbMatch.pronunciationNote || '').trim()
+        });
+        return;
+      }
+      if (useCache && cacheObj[k] && hasCompletePronunciation(cacheObj[k])) {
+        const cMatch = cacheObj[k];
+        resolvedByKey.set(k, {
+          word: cMatch.word || entry.word,
+          phonetic: cMatch.phonetic,
+          phoneticUk: cMatch.phoneticUk,
+          syllables: cMatch.syllables,
+          pronunciationNote: String(cMatch.pronunciationNote || '').trim()
+        });
+        return;
+      }
+      if (!seenMissing.has(k)) {
+        seenMissing.add(k);
+        missing.push(entry);
+      }
+    });
+
+    const batchSize = Number(opts.batchSize) > 0 ? Number(opts.batchSize) : DEFAULT_BATCH_SIZE;
+    let apiCalls = 0;
+    let cacheDirty = false;
+    for (let b = 0; b < missing.length; b += batchSize) {
+      const slice = missing.slice(b, b + batchSize);
+      const prompt = buildPronunciationPrompt(slice);
+      apiCalls++;
+      const raw = await callAiProvider(prompt, aiConfig, opts.fetchImpl);
+      const parsed = extractJsonFromAiResponse(raw);
+      slice.forEach(function (src, idx) {
+        const ai = (parsed && parsed[idx]) || {};
+        const key = cleanWordToken(src.word).toLowerCase();
+        const us = String(ai.p || ai.phonetic || src.phonetic || '').trim();
+        const uk = String(ai.pUk || ai.phoneticUk || src.phoneticUk || us || '').trim();
+        const syl = String(ai.syl || ai.syllables || src.syllables || '').trim();
+        const say = String(ai.say || ai.pronunciationNote || src.pronunciationNote || '').trim();
+        const out = {
+          word: cleanWordToken(ai.w || ai.word || src.word),
+          phonetic: us,
+          phoneticUk: uk,
+          syllables: syl,
+          pronunciationNote: say
+        };
+        resolvedByKey.set(key, out);
+        if (useCache && us) {
+          cacheObj[key] = Object.assign({}, cacheObj[key] || {}, out, { cachedAt: Date.now() });
+          cacheDirty = true;
+        }
+      });
+    }
+
+    if (cacheDirty && useCache && !opts.cache) {
+      saveLexiconCache(cacheObj);
+    }
+
+    if (typeof opts.onStats === 'function') {
+      opts.onStats({ total: list.length, sentToAi: missing.length, apiCalls: apiCalls });
+    }
+
+    return list.map(function (entry) {
+      const k = cleanWordToken(entry.word).toLowerCase();
+      return resolvedByKey.get(k) || {
+        word: cleanWordToken(entry.word),
+        phonetic: String(entry.phonetic || '').trim(),
+        phoneticUk: String(entry.phoneticUk || '').trim(),
+        syllables: String(entry.syllables || '').trim(),
+        pronunciationNote: String(entry.pronunciationNote || '').trim()
+      };
+    });
   }
 
   function isPrivateOrLocalHostname(hostname) {
@@ -809,6 +942,9 @@
     extractJsonFromAiResponse: extractJsonFromAiResponse,
     normalizeAiEnrichedItems: normalizeAiEnrichedItems,
     buildEnrichPrompt: buildEnrichPrompt,
+    buildPronunciationPrompt: buildPronunciationPrompt,
+    hasCompletePronunciation: hasCompletePronunciation,
+    resolvePronunciationWithAI: resolvePronunciationWithAI,
     callAiProvider: callAiProvider,
     enrichEntriesWithAI: enrichEntriesWithAI,
     testAiConnection: testAiConnection

@@ -1245,6 +1245,10 @@
               <span>API Key Sozlamasi</span>
               <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400"></i>
             </button>
+            <button type="button" id="batchPronounceBtn" class="staff-only-ui btn-tactile px-4 py-2.5 rounded-2xl glass-panel text-xs font-bold text-indigo-700 dark:text-indigo-300 flex items-center gap-1.5">
+              <i data-lucide="audio-waveform" class="w-3.5 h-3.5"></i>
+              Talaffuzlarni AI bilan aniqlash
+            </button>
             <button type="button" id="txtExportAllBtn" class="btn-tactile px-4 py-2.5 rounded-2xl glass-panel text-xs font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5">
               <i data-lucide="download" class="w-3.5 h-3.5"></i>
               Barcha .TXT Yuklash
@@ -1304,10 +1308,10 @@
                 <div>
                   <h3 class="text-xs sm:text-sm font-extrabold flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300">
                     <i data-lucide="volume-2" class="w-4 h-4"></i>
-                    Ovozli Talaffuz API (Neural TTS — US &amp; UK)
+                    Talaffuz Tizimi: 1. Birlamchi AI (DeepSeek) → 2. Audio TTS (ixtiyoriy)
                   </h3>
                   <p class="text-[11px] text-slate-500 dark:text-slate-400">
-                    Har bir so‘z bir marta API orqali olinib <code class="font-mono-ipa">data/tts-cache/</code> va brauzer keshida saqlanadi (takror tinglash = 0 API sarfi).
+                    <strong>1-qadam:</strong> US/UK IPA, bo‘g‘in-urg‘u va o‘qilish qo‘llanmasi birinchi navbatda <strong>birlamchi AI (DeepSeek)</strong> orqali aniqlanib bazada saqlanadi. <strong>2-qadam (ixtiyoriy):</strong> OpenAI / Gemini / ElevenLabs audio kaliti ulanganda HD MP3/WAV ovoz (<code class="font-mono-ipa">data/tts-cache/</code>) ijro etiladi; aks holda brauzer ovozi ishlaydi.
                   </p>
                 </div>
                 <span id="ttsKeySecurityBadge" class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300">Brauzer fallback</span>

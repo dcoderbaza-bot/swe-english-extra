@@ -86,6 +86,7 @@
       phonetic: String(raw.phonetic || '').trim(),
       phoneticUk: String(raw.phoneticUk || '').trim(),
       syllables: String(raw.syllables || '').trim(),
+      pronunciationNote: String(raw.pronunciationNote || '').trim(),
       partOfSpeech: String(raw.partOfSpeech || 'noun').trim(),
       translation: String(raw.translation || '').trim(),
       definition: String(raw.definition || '').trim(),
@@ -936,6 +937,9 @@
         const current = existingWords[idx];
         existingWords[idx] = Object.assign({}, current, {
           phonetic: normalized.phonetic || current.phonetic,
+          phoneticUk: normalized.phoneticUk || current.phoneticUk || '',
+          syllables: normalized.syllables || current.syllables || '',
+          pronunciationNote: normalized.pronunciationNote || current.pronunciationNote || '',
           partOfSpeech: normalized.partOfSpeech || current.partOfSpeech,
           translation: normalized.translation || current.translation,
           definition: normalized.definition || current.definition,
