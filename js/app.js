@@ -291,25 +291,64 @@
     }, 3000);
   }
 
+  function hasUsableTtsApi(cfg) {
+    const c = cfg || (state && state.aiConfig) || {};
+    if (Speech && typeof Speech.resolveEffectiveTtsConfig === 'function') {
+      return Boolean(Speech.resolveEffectiveTtsConfig(c, state && state.settings && state.settings.accent).hasKey);
+    }
+    return false;
+  }
+
+  function formatWordPronunciation(wordObj) {
+    if (!wordObj) return '';
+    const us = String(wordObj.phonetic || '').trim();
+    const uk = String(wordObj.phoneticUk || '').trim();
+    const syl = String(wordObj.syllables || '').trim();
+    const parts = [];
+    if (us && uk && uk !== us) {
+      parts.push('US ' + us + ' · UK ' + uk);
+    } else if (us || uk) {
+      parts.push(us || uk);
+    }
+    if (syl) {
+      parts.push(syl);
+    }
+    return parts.join(' · ');
+  }
+
   function speakText(text, options) {
     const opts = options || {};
     const accent = opts.accent || state.settings.accent || 'en-US';
     const triggerEl = opts.triggerEl || null;
+    const canUseServerTts = Boolean(Sync && Sync.isServerMode() && hasUsableTtsApi());
 
     const ok = Speech.speak(text, {
       accent: accent,
       rate: opts.rate || 0.96,
-      onStart: function () {
+      useApiTts: opts.testConfig ? true : canUseServerTts,
+      bypassCache: Boolean(opts.bypassCache),
+      strictApiError: Boolean(opts.strictApiError),
+      testConfig: opts.testConfig || null,
+      onStart: function (engine) {
         if (triggerEl) triggerEl.classList.add('audio-speaking');
+        if (typeof opts.onStart === 'function') opts.onStart(engine);
       },
       onEnd: function () {
         if (triggerEl) triggerEl.classList.remove('audio-speaking');
+        if (typeof opts.onEnd === 'function') opts.onEnd();
+      },
+      onApiSuccess: function (res) {
+        if (typeof opts.onApiSuccess === 'function') opts.onApiSuccess(res);
       },
       onUnsupported: function () {
         showToast('Brauzeringiz Web Speech API ovozli talaffuzni qo‘llab-quvvatlamaydi.', 'warning');
       },
-      onError: function () {
-        showToast('Ovozni ijro etishda xatolik yuz berdi.', 'warning');
+      onError: function (err) {
+        if (opts.strictApiError) {
+          showToast((err && err.message) || 'Talaffuz API xatoligi.', 'error');
+        } else {
+          showToast('Ovozni ijro etishda xatolik yuz berdi.', 'warning');
+        }
       }
     });
 
@@ -844,11 +883,12 @@
 
     $('fcPosText').textContent = card.partOfSpeech || 'word';
     $('fcWordText').textContent = card.word;
-    $('fcPhoneticText').textContent = card.phonetic || '';
+    const fcPron = formatWordPronunciation(card);
+    $('fcPhoneticText').textContent = fcPron;
 
     // Back face
     $('fcBackWord').textContent = card.word;
-    $('fcBackPhonetic').textContent = card.phonetic || '';
+    $('fcBackPhonetic').textContent = fcPron;
     $('fcTranslation').textContent = card.translation;
     $('fcDefinition').textContent = card.definition || 'Izoh kiritilmagan.';
 
@@ -1069,7 +1109,7 @@
     $('quizLevelBadge').textContent = q.level;
     $('quizPos').textContent = q.partOfSpeech || '';
     $('quizWord').textContent = q.word;
-    $('quizPhonetic').textContent = q.phonetic || '';
+    $('quizPhonetic').textContent = formatWordPronunciation(q);
 
     const grid = $('quizOptionsGrid');
     grid.innerHTML = '';
@@ -1338,7 +1378,7 @@
         : 'bg-rose-500/10 border-rose-500/30 text-rose-800 dark:text-rose-200');
     fb.innerHTML =
       '<p class="font-extrabold">' + (isCorrect ? 'Barakalla! Mutlaqo to‘g‘ri.' : 'Xato. To‘g‘ri yozilishi: ' + escapeHtml(target.word)) + '</p>' +
-      '<p class="font-mono-ipa text-xs opacity-85">' + escapeHtml(target.phonetic || '') + '</p>';
+      '<p class="font-mono-ipa text-xs opacity-85">' + escapeHtml(formatWordPronunciation(target)) + '</p>';
     fb.classList.remove('hidden');
 
     const nextBtn = $('writeNextBtn');
@@ -1358,7 +1398,9 @@
           ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm'
           : 'text-slate-600 dark:text-slate-300');
     });
-    initListeningSession();
+    if (currentView === 'study' && currentStudyMode === 'listening') {
+      initListeningSession();
+    }
   }
 
   function initListeningSession() {
@@ -1445,7 +1487,7 @@
       input.focus();
     }
 
-    if (autoSpeak) {
+    if (autoSpeak && currentView === 'study' && currentStudyMode === 'listening') {
       speakText(target.word, { triggerEl: $('listenSpeakBtn') });
     }
   }
@@ -2324,8 +2366,8 @@
       tr.innerHTML =
         '<td class="py-3.5 px-5">' +
           '<div class="font-extrabold text-slate-900 dark:text-white">' + escapeHtml(w.word) + '</div>' +
-          '<div class="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">' +
-            '<span class="font-mono-ipa">' + escapeHtml(w.phonetic || '') + '</span>' +
+          '<div class="text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-2">' +
+            '<span class="font-mono-ipa">' + escapeHtml(formatWordPronunciation(w)) + '</span>' +
             '<span class="italic">' + escapeHtml(w.partOfSpeech || '') + '</span>' +
           '</div>' +
         '</td>' +
@@ -2365,7 +2407,7 @@
               '<span class="font-extrabold text-base">' + escapeHtml(w.word) + '</span>' +
               '<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-200 dark:bg-slate-800">' + escapeHtml(w.level) + '</span>' +
             '</div>' +
-            '<p class="font-mono-ipa text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(w.phonetic || '') + ' • ' + escapeHtml(w.partOfSpeech || '') + '</p>' +
+            '<p class="font-mono-ipa text-xs text-slate-500 dark:text-slate-400">' + escapeHtml(formatWordPronunciation(w)) + ' • ' + escapeHtml(w.partOfSpeech || '') + '</p>' +
           '</div>' +
           '<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold border ' + meta.badgeClass + '">' + escapeHtml(meta.label) + '</span>' +
         '</div>' +
@@ -3393,10 +3435,14 @@
 
   function renderTxtAiStatus() {
     const el = $('txtAiStatusIndicator');
+    const ttsEl = $('txtTtsStatusIndicator');
     const secBadge = $('aiKeySecurityBadge');
+    const ttsSecBadge = $('ttsKeySecurityBadge');
     const cfg = state.aiConfig || {};
     const ready = hasSavedAiKey(cfg);
     const canManageKey = Auth.canManageAiConfig(currentRole);
+    const effectiveTts = Speech.resolveEffectiveTtsConfig(cfg, state.settings && state.settings.accent);
+    const ttsReady = Boolean(Sync && Sync.isServerMode() && effectiveTts.provider !== 'browser' && effectiveTts.hasKey);
 
     if (el) {
       if (ready) {
@@ -3409,6 +3455,17 @@
           ? 'API Key kiritilmagan ("API Key Sozlamasi"dan kiriting)'
           : 'API Key kiritilmagan (IT Manager kiritishi kerak)';
         el.className = 'font-bold text-amber-600 dark:text-amber-400';
+      }
+    }
+
+    if (ttsEl) {
+      if (ttsReady) {
+        const ttsPreset = (Speech.TTS_PROVIDER_DEFAULTS && Speech.TTS_PROVIDER_DEFAULTS[effectiveTts.provider]) || {};
+        ttsEl.textContent = 'Ovoz: HD ' + (ttsPreset.label ? ttsPreset.label.split(' ')[0] : effectiveTts.provider.toUpperCase()) + ' API';
+        ttsEl.className = 'text-[11px] font-extrabold text-indigo-600 dark:text-indigo-300';
+      } else {
+        ttsEl.textContent = 'Ovoz: Brauzer Web Speech';
+        ttsEl.className = 'text-[11px] font-bold text-slate-500 dark:text-slate-400';
       }
     }
 
@@ -3425,6 +3482,22 @@
       } else {
         secBadge.textContent = 'Kalit kiritilmagan';
         secBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+      }
+    }
+
+    if (ttsSecBadge) {
+      if (!canManageKey) {
+        ttsSecBadge.textContent = 'Faqat IT Manager uchun';
+        ttsSecBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
+      } else if (ttsReady) {
+        const keyInfo = cfg.ttsApiKeyMasked
+          ? ('Alohida kalit: ' + cfg.ttsApiKeyMasked)
+          : (effectiveTts.sharesPrimaryAiKey ? 'Asosiy API kalitdan' : 'Server TTS kalit himoyalangan');
+        ttsSecBadge.textContent = 'HD TTS Faol (' + effectiveTts.provider.toUpperCase() + ' · ' + keyInfo + ')';
+        ttsSecBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300';
+      } else {
+        ttsSecBadge.textContent = effectiveTts.provider === 'browser' ? 'Brauzer ovozi (0 API)' : 'TTS kalit kutilmoqda -> Brauzer fallback';
+        ttsSecBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-300';
       }
     }
   }
@@ -3675,7 +3748,7 @@
         '</td>' +
         '<td class="py-2.5 px-3 min-w-[170px] space-y-1">' +
           '<input type="text" data-preview-field="word" data-preview-idx="' + idx + '" value="' + escapeHtml(item.word) + '" class="w-full px-2 py-1 rounded-lg bg-white/80 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-extrabold" />' +
-          '<div class="text-[11px] font-mono-ipa text-slate-500 dark:text-slate-400">' + escapeHtml(item.phonetic || '—') + ' · ' + escapeHtml(item.partOfSpeech || 'word') + '</div>' +
+          '<div class="text-[11px] font-mono-ipa text-slate-500 dark:text-slate-400">' + escapeHtml(formatWordPronunciation(item) || '—') + ' · ' + escapeHtml(item.partOfSpeech || 'word') + '</div>' +
         '</td>' +
         '<td class="py-2.5 px-3 min-w-[190px] space-y-1">' +
           '<input type="text" data-preview-field="translation" data-preview-idx="' + idx + '" value="' + escapeHtml(item.translation) + '" placeholder="O‘zbekcha tarjima..." class="w-full px-2 py-1 rounded-lg bg-white/80 dark:bg-slate-900 border ' + (item.translation ? 'border-slate-200 dark:border-slate-700' : 'border-amber-400') + ' text-xs font-semibold" />' +
@@ -3748,6 +3821,7 @@
     if (!Auth.canManageAiConfig(currentRole)) {
       if ($('aiSettingsDrawer')) $('aiSettingsDrawer').classList.add('hidden');
       if ($('aiApiKeyInput')) $('aiApiKeyInput').value = '';
+      if ($('ttsApiKeyInput')) $('ttsApiKeyInput').value = '';
       return;
     }
     const cfg = state.aiConfig || Storage.createDefaultAiConfig();
@@ -3763,6 +3837,20 @@
         : 'sk-...';
     }
     if ($('aiCustomUrlWrap')) $('aiCustomUrlWrap').classList.toggle('hidden', provider !== 'custom');
+
+    const ttsProvider = cfg.ttsProvider || 'auto';
+    if ($('ttsProviderSelect')) $('ttsProviderSelect').value = ttsProvider;
+    if ($('ttsModelInput')) $('ttsModelInput').value = cfg.ttsModel || '';
+    if ($('ttsVoiceUsInput')) $('ttsVoiceUsInput').value = cfg.ttsVoiceUs || '';
+    if ($('ttsVoiceUkInput')) $('ttsVoiceUkInput').value = cfg.ttsVoiceUk || '';
+    if ($('ttsCustomUrlInput')) $('ttsCustomUrlInput').value = cfg.ttsCustomUrl || '';
+    if ($('ttsCustomUrlWrap')) $('ttsCustomUrlWrap').classList.toggle('hidden', ttsProvider !== 'custom');
+    if ($('ttsApiKeyInput')) {
+      $('ttsApiKeyInput').value = cfg.ttsApiKey || '';
+      $('ttsApiKeyInput').placeholder = (Sync && Sync.isServerMode() && cfg.ttsApiKeyMasked)
+        ? ('Saqlangan: ' + cfg.ttsApiKeyMasked + ' (o‘zgartirish uchun yozing)')
+        : 'Bo‘sh = asosiy OpenAI/Gemini kaliti ishlaydi';
+    }
   }
 
   function collectAiConfigFromForm() {
@@ -3770,13 +3858,24 @@
     const defaults = (AiTxt.PROVIDER_DEFAULTS && AiTxt.PROVIDER_DEFAULTS[provider]) || { model: 'deepseek-chat' };
     const prev = state.aiConfig || {};
     const enteredKey = $('aiApiKeyInput').value.trim();
+    const ttsProvider = $('ttsProviderSelect') ? ($('ttsProviderSelect').value || 'auto') : (prev.ttsProvider || 'auto');
+    const enteredTtsKey = $('ttsApiKeyInput') ? $('ttsApiKeyInput').value.trim() : '';
+
     return {
       provider: provider,
       model: $('aiModelInput').value.trim() || defaults.model,
       customUrl: $('aiCustomUrlInput').value.trim(),
       apiKey: enteredKey,
       hasApiKey: Boolean(enteredKey || (Sync && Sync.isServerMode() && prev.hasApiKey)),
-      apiKeyMasked: (!enteredKey && prev.apiKeyMasked) ? prev.apiKeyMasked : ''
+      apiKeyMasked: (!enteredKey && prev.apiKeyMasked) ? prev.apiKeyMasked : '',
+      ttsProvider: ttsProvider,
+      ttsModel: $('ttsModelInput') ? $('ttsModelInput').value.trim() : '',
+      ttsCustomUrl: $('ttsCustomUrlInput') ? $('ttsCustomUrlInput').value.trim() : '',
+      ttsVoiceUs: $('ttsVoiceUsInput') ? $('ttsVoiceUsInput').value.trim() : '',
+      ttsVoiceUk: $('ttsVoiceUkInput') ? $('ttsVoiceUkInput').value.trim() : '',
+      ttsApiKey: enteredTtsKey,
+      hasTtsKey: Boolean(enteredTtsKey || (Sync && Sync.isServerMode() && prev.hasTtsKey && Boolean(prev.ttsApiKeyMasked))),
+      ttsApiKeyMasked: (!enteredTtsKey && prev.ttsApiKeyMasked) ? prev.ttsApiKeyMasked : ''
     };
   }
 
@@ -3809,21 +3908,30 @@
         return;
       }
     }
+    if (nextCfg.ttsProvider === 'custom' || nextCfg.ttsCustomUrl) {
+      try {
+        AiTxt.validateAiEndpoint(nextCfg.ttsCustomUrl);
+      } catch (ttsUrlErr) {
+        showToast(ttsUrlErr.message, 'error');
+        return;
+      }
+    }
 
     const synced = await syncAiConfigToServer(nextCfg);
     if (!synced) return;
 
     if (!(Sync && Sync.isServerMode())) {
       state.aiConfig = nextCfg;
-      recordAudit('AI_CONFIG', nextCfg.provider + ' (' + nextCfg.model + ') saqlandi');
+      recordAudit('AI_CONFIG', nextCfg.provider + ' (' + nextCfg.model + ') · TTS: ' + nextCfg.ttsProvider + ' saqlandi');
       persist('ai-config');
     } else {
       Storage.saveState(state);
     }
 
+    Speech.clearCache();
     renderAiConfigForm();
     renderTxtAiStatus();
-    showToast('AI sozlamalari va API Key xavfsiz saqlandi!', 'success');
+    showToast('AI va Talaffuz API sozlamalari xavfsiz saqlandi!', 'success');
   }
 
   async function handleTestAi() {
@@ -3895,6 +4003,76 @@
     showToast('API Key xavfsiz o‘chirildi.', 'info');
   }
 
+  async function handleClearTtsKey() {
+    if (!Auth.canManageAiConfig(currentRole)) {
+      showToast('API kalit sozlamalarini faqat IT Manager boshqaradi!', 'error');
+      return;
+    }
+    const baseCfg = collectAiConfigFromForm();
+    const clearPayload = Object.assign({}, baseCfg, { ttsApiKey: '', clearTtsKey: true });
+    await syncAiConfigToServer(clearPayload);
+
+    state.aiConfig = Object.assign({}, state.aiConfig || Storage.createDefaultAiConfig(), {
+      ttsApiKey: '',
+      hasTtsKey: false,
+      ttsApiKeyMasked: ''
+    });
+    if ($('ttsApiKeyInput')) $('ttsApiKeyInput').value = '';
+    Speech.clearCache();
+    if (!(Sync && Sync.isServerMode())) {
+      recordAudit('TTS_KEY_CLEAR', 'TTS API Key xavfsiz o‘chirildi');
+      persist('ai-config');
+    }
+    renderAiConfigForm();
+    renderTxtAiStatus();
+    showToast('TTS API Key xavfsiz o‘chirildi.', 'info');
+  }
+
+  async function handleTestTts() {
+    if (!Auth.canManageAiConfig(currentRole)) {
+      showToast('API kalit sozlamalarini faqat IT Manager boshqaradi!', 'error');
+      return;
+    }
+    if (!(Sync && Sync.isServerMode())) {
+      showToast('TTS API faqat Node Server rejimida ishlaydi (`node server.js`). Hozir brauzer ovozi ijro etiladi.', 'info');
+      speakText('ubiquitous', { useApiTts: false, triggerEl: $('testTtsBtn') });
+      return;
+    }
+
+    const tempCfg = collectAiConfigFromForm();
+    if (tempCfg.ttsProvider === 'custom' || tempCfg.ttsCustomUrl) {
+      try {
+        AiTxt.validateAiEndpoint(tempCfg.ttsCustomUrl);
+      } catch (err) {
+        showToast(err.message, 'error');
+        return;
+      }
+    }
+    const eff = Speech.resolveEffectiveTtsConfig(tempCfg, state.settings.accent);
+    if (eff.provider === 'browser' || !eff.hasKey) {
+      showToast('Avval OpenAI/Gemini/ElevenLabs TTS kalitini kiriting (yoki OpenAI/Gemini asosiy kalitini saqlang).', 'warning');
+      return;
+    }
+
+    const btn = $('testTtsBtn');
+    if (btn) btn.disabled = true;
+    speakText('ubiquitous', {
+      triggerEl: btn,
+      bypassCache: true,
+      strictApiError: true,
+      testConfig: tempCfg,
+      onApiSuccess: function (res) {
+        showToast('Talaffuz API ishlayapti (' + (res.provider || eff.provider).toUpperCase() + ')!', 'success');
+      },
+      onEnd: function () {
+        if (btn) btn.disabled = false;
+      }
+    });
+    setTimeout(function () {
+      if (btn) btn.disabled = false;
+    }, 5000);
+  }
+
   async function handleEnrichIncompleteWords() {
     if (!Auth.canManageAiConfig(currentRole)) {
       showToast('Ushbu amal faqat IT Manager uchun!', 'error');
@@ -3953,6 +4131,8 @@
         updatedCount++;
         return Object.assign({}, w, {
           phonetic: w.phonetic || ai.phonetic,
+          phoneticUk: w.phoneticUk || ai.phoneticUk || '',
+          syllables: w.syllables || ai.syllables || '',
           partOfSpeech: (!w.partOfSpeech || w.partOfSpeech === 'word') ? ai.partOfSpeech : w.partOfSpeech,
           definition: w.definition || ai.definition,
           examples: (Array.isArray(w.examples) && w.examples.length >= 2) ? w.examples : ai.examples,
@@ -4658,6 +4838,23 @@
         modelInput.value = nextDefaults.model;
       }
     });
+    if ($('ttsProviderSelect')) {
+      $('ttsProviderSelect').addEventListener('change', function (e) {
+        const ttsProv = e.target.value;
+        if ($('ttsCustomUrlWrap')) $('ttsCustomUrlWrap').classList.toggle('hidden', ttsProv !== 'custom');
+        const ttsModelInp = $('ttsModelInput');
+        if (ttsModelInp) {
+          const cur = ttsModelInp.value.trim();
+          const knownTts = ['gpt-4o-mini-tts', 'tts-1', 'gemini-2.5-flash-preview-tts', 'eleven_flash_v2_5'];
+          if (!cur || knownTts.indexOf(cur) !== -1) {
+            const d = Speech.TTS_PROVIDER_DEFAULTS && Speech.TTS_PROVIDER_DEFAULTS[ttsProv];
+            ttsModelInp.value = (d && d.defaultModel) || '';
+          }
+        }
+      });
+    }
+    if ($('testTtsBtn')) $('testTtsBtn').addEventListener('click', handleTestTts);
+    if ($('clearTtsKeyBtn')) $('clearTtsKeyBtn').addEventListener('click', handleClearTtsKey);
     $('toggleApiKeyBtn').addEventListener('click', function () {
       const inp = $('aiApiKeyInput');
       inp.type = inp.type === 'password' ? 'text' : 'password';
@@ -4752,6 +4949,10 @@
       } else if (currentView === 'study' && currentStudyMode === 'exam') {
         renderExamViewFromState();
       }
+      if (reason === 'ai-config' && Speech && typeof Speech.clearCache === 'function') {
+        Speech.clearCache();
+        renderTxtAiStatus();
+      }
     }, 150);
   }
 
@@ -4759,6 +4960,15 @@
     applyTheme(state.settings.theme);
     applyAccentUI();
     bindEvents();
+
+    if (Speech && typeof Speech.setRemoteTtsHandler === 'function') {
+      Speech.setRemoteTtsHandler(async function (reqPayload) {
+        if (Sync && Sync.isServerMode()) {
+          return Sync.fetchTtsAudio(reqPayload);
+        }
+        return { mode: 'browser-fallback' };
+      });
+    }
 
     if (Sync) {
       Sync.startLocalListeners(Storage);

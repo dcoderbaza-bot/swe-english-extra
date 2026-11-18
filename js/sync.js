@@ -309,6 +309,41 @@
     return data.content;
   }
 
+  async function fetchTtsAudio(payload) {
+    const token = getSessionToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+
+    const res = await fetch(resolveApiUrl('/api/tts'), {
+      method: 'POST',
+      cache: 'no-store',
+      headers: headers,
+      body: JSON.stringify(payload || {})
+    });
+
+    const ct = String(res.headers.get('content-type') || '').toLowerCase();
+    if (res.ok && ct.indexOf('audio/') === 0) {
+      const blob = await res.blob();
+      return {
+        mode: 'audio',
+        blob: blob,
+        mime: ct.split(';')[0].trim(),
+        source: res.headers.get('x-tts-source') || 'api',
+        provider: res.headers.get('x-tts-provider') || 'api'
+      };
+    }
+
+    const data = await res.json().catch(function () { return {}; });
+    if (res.ok && data && data.mode === 'browser-fallback') {
+      return { mode: 'browser-fallback' };
+    }
+    return {
+      mode: 'error',
+      status: res.status,
+      error: (data && data.error) || ('TTS HTTP ' + res.status)
+    };
+  }
+
   const api = {
     SYNC_CHANNEL_NAME: SYNC_CHANNEL_NAME,
     isServerMode: isServerMode,
@@ -333,7 +368,8 @@
     pushAiConfigRemote: pushAiConfigRemote,
     pushSecurityRemote: pushSecurityRemote,
     pushExamActionRemote: pushExamActionRemote,
-    proxyAiRequest: proxyAiRequest
+    proxyAiRequest: proxyAiRequest,
+    fetchTtsAudio: fetchTtsAudio
   };
 
   if (typeof module !== 'undefined' && module.exports) {

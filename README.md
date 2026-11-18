@@ -86,10 +86,10 @@ swe-english-extra/
 │   ├── storage.js        # v3 sxema, per-student SRS/telemetriya/finalExam, API kalit maskalash va CWE-1236 CSV himoyasi
 │   ├── ai-txt.js         # .TXT parser/exporter, HTTPS/SSRF validator va DeepSeek/Gemini/OpenAI/Custom AI boyitish
 │   ├── sync.js           # Gibrid sinxronizatsiya (tokenli SSE /api/stream + REST va BroadcastChannel)
-│   ├── speech.js         # Web Speech API (US/UK) ovozli tizim
+│   ├── speech.js         # API-Key Neural TTS (OpenAI/Gemini/ElevenLabs/Custom) + PCM->WAV + Web Speech zaxira tizimi
 │   └── app.js            # UI kontroller, saralangan rol menyulari, drag-and-drop .TXT, anti-cheat proctoring va jonli monitoring
 ├── tests/
-│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik, minimal-API va yopiq imtihon testlari (15 ta suite)
+│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik, minimal-API, TTS va yopiq imtihon testlari (16 ta suite)
 ├── README.md             # Loyiha hujjati
 ├── ARCHITECTURE.md       # Texnik arxitektura va ma'lumotlar modeli
 └── WORK_LOG.md           # Bajarilgan ishlar va tekshiruv hisoboti

@@ -17,6 +17,7 @@ const Auth = require('./js/auth.js');
 const Storage = require('./js/storage.js');
 const AiTxt = require('./js/ai-txt.js');
 const Exam = require('./js/exam.js');
+const Speech = require('./js/speech.js');
 
 const DEFAULT_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const SERVER_MAX_LOGIN_ATTEMPTS = 5;
@@ -143,6 +144,9 @@ function sanitizeDbForSession(db, session) {
     return { unauthenticated: true, version: 3 };
   }
 
+  const rawAi = db.aiConfig || {};
+  const effectiveTts = Speech.resolveEffectiveTtsConfig(rawAi, 'en-US');
+
   if (session.role === 'student') {
     const ownProgress = {};
     if (db.studentProgress && db.studentProgress[session.userId]) {
@@ -159,21 +163,28 @@ function sanitizeDbForSession(db, session) {
       stats: Storage.createEmptyStats(Date.now()),
       settings: db.settings,
       aiConfig: {
-        provider: (db.aiConfig && db.aiConfig.provider) || 'deepseek',
-        model: (db.aiConfig && db.aiConfig.model) || 'deepseek-chat',
+        provider: rawAi.provider || 'deepseek',
+        model: rawAi.model || 'deepseek-chat',
         apiKey: '',
         customUrl: '',
         hasApiKey: false,
-        apiKeyMasked: ''
+        apiKeyMasked: '',
+        ttsProvider: rawAi.ttsProvider || 'auto',
+        ttsModel: '',
+        ttsCustomUrl: '',
+        ttsApiKey: '',
+        ttsVoiceUs: '',
+        ttsVoiceUk: '',
+        hasTtsKey: Boolean(effectiveTts.hasKey),
+        ttsApiKeyMasked: ''
       },
       auth: { hashes: {}, updatedAt: null },
       auditLog: []
     };
   }
 
-  // Teacher receives AI readiness status without API key/endpoint settings; IT Manager receives masked metadata
+  // Teacher receives AI/TTS readiness status without keys/endpoints; IT Manager receives masked metadata
   const safeStudents = (db.students || []).map(Auth.sanitizeStudentForClient);
-  const rawAi = db.aiConfig || {};
   const canSeeAiSettings = Auth.canManageAiConfig(session.role);
   return {
     version: 3,
@@ -191,7 +202,15 @@ function sanitizeDbForSession(db, session) {
       customUrl: canSeeAiSettings ? (rawAi.customUrl || '') : '',
       apiKey: '',
       hasApiKey: Boolean(rawAi.apiKey),
-      apiKeyMasked: canSeeAiSettings ? maskApiKey(rawAi.apiKey) : ''
+      apiKeyMasked: canSeeAiSettings ? maskApiKey(rawAi.apiKey) : '',
+      ttsProvider: rawAi.ttsProvider || 'auto',
+      ttsModel: canSeeAiSettings ? (rawAi.ttsModel || '') : '',
+      ttsCustomUrl: canSeeAiSettings ? (rawAi.ttsCustomUrl || '') : '',
+      ttsApiKey: '',
+      ttsVoiceUs: canSeeAiSettings ? (rawAi.ttsVoiceUs || '') : '',
+      ttsVoiceUk: canSeeAiSettings ? (rawAi.ttsVoiceUk || '') : '',
+      hasTtsKey: Boolean(rawAi.ttsApiKey || effectiveTts.hasKey),
+      ttsApiKeyMasked: canSeeAiSettings ? maskApiKey(rawAi.ttsApiKey) : ''
     },
     auth: { hashes: {}, updatedAt: (db.auth && db.auth.updatedAt) || null },
     auditLog: db.auditLog || []
@@ -251,6 +270,172 @@ function createAppServer(options) {
   const aiInFlight = new Map();
   const AI_PROXY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
   const AI_PROXY_CACHE_MAX = 150;
+  const ttsCacheDir = path.join(path.dirname(dataFilePath), 'tts-cache');
+  const ttsInFlight = new Map();
+  const TTS_DISK_CACHE_MAX = 2000;
+
+  function readTtsDiskCache(cacheHash) {
+    if (!/^[a-f0-9]{64}$/.test(cacheHash)) return null;
+    const candidates = [
+      { ext: '.mp3', mime: 'audio/mpeg' },
+      { ext: '.wav', mime: 'audio/wav' }
+    ];
+    for (let i = 0; i < candidates.length; i++) {
+      const filePath = path.join(ttsCacheDir, cacheHash + candidates[i].ext);
+      if (fs.existsSync(filePath)) {
+        try {
+          return { buffer: fs.readFileSync(filePath), mime: candidates[i].mime };
+        } catch (e) {
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  function writeTtsDiskCache(cacheHash, mime, buf) {
+    if (!/^[a-f0-9]{64}$/.test(cacheHash) || !buf || buf.length < 32) return;
+    try {
+      if (!fs.existsSync(ttsCacheDir)) {
+        fs.mkdirSync(ttsCacheDir, { recursive: true });
+      }
+      const existing = fs.readdirSync(ttsCacheDir);
+      if (existing.length >= TTS_DISK_CACHE_MAX) {
+        const removeSlice = existing.slice(0, Math.max(1, existing.length - TTS_DISK_CACHE_MAX + 50));
+        removeSlice.forEach(function (name) {
+          try { fs.unlinkSync(path.join(ttsCacheDir, name)); } catch (e) {}
+        });
+      }
+      const ext = mime === 'audio/wav' ? '.wav' : '.mp3';
+      fs.writeFileSync(path.join(ttsCacheDir, cacheHash + ext), buf);
+    } catch (e) {
+      // Ignore non-fatal cache write errors
+    }
+  }
+
+  async function synthesizeViaProvider(text, accent, effectiveTts) {
+    const provider = effectiveTts.provider;
+    const model = effectiveTts.model;
+    const voice = effectiveTts.voice;
+    const apiKey = effectiveTts.apiKey;
+    const accentLabel = accent === 'en-GB'
+      ? 'standard British Received Pronunciation (UK English)'
+      : 'standard General American (US English)';
+
+    if (provider === 'openai' || provider === 'custom') {
+      const rawUrl = provider === 'custom'
+        ? effectiveTts.customUrl
+        : (effectiveTts.customUrl || Speech.TTS_PROVIDER_DEFAULTS.openai.endpoint);
+      const safeEndpoint = AiTxt.validateAiEndpoint(rawUrl);
+      const bodyObj = {
+        model: model || 'gpt-4o-mini-tts',
+        input: text,
+        voice: voice || 'coral',
+        response_format: 'mp3',
+        speed: 1.0
+      };
+      if (String(bodyObj.model).indexOf('gpt-4o-mini-tts') === 0) {
+        bodyObj.instructions = 'Pronounce clearly, naturally, and articulately in ' + accentLabel + '.';
+      }
+      const ttsRes = await fetcher(safeEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + apiKey
+        },
+        redirect: 'error',
+        body: JSON.stringify(bodyObj)
+      });
+      if (!ttsRes.ok) {
+        const errData = await ttsRes.json().catch(function () { return {}; });
+        const msg = (errData && errData.error && errData.error.message) || ('HTTP ' + ttsRes.status);
+        throw new Error('TTS API xatosi: ' + msg);
+      }
+      const arrBuf = await ttsRes.arrayBuffer();
+      const ct = String(ttsRes.headers.get('content-type') || 'audio/mpeg').split(';')[0].trim();
+      return { buffer: Buffer.from(arrBuf), mime: ct.indexOf('wav') !== -1 ? 'audio/wav' : 'audio/mpeg' };
+    }
+
+    if (provider === 'gemini') {
+      const gemModel = model || Speech.TTS_PROVIDER_DEFAULTS.gemini.defaultModel;
+      const safeEndpoint = AiTxt.validateAiEndpoint(
+        'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(gemModel) + ':generateContent'
+      );
+      const ttsRes = await fetcher(safeEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
+        redirect: 'error',
+        body: JSON.stringify({
+          contents: [{
+            role: 'user',
+            parts: [{ text: 'Pronounce clearly and naturally in ' + accentLabel + ': ' + text }]
+          }],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: { voiceName: voice || 'Kore' }
+              }
+            }
+          }
+        })
+      });
+      const gemData = await ttsRes.json().catch(function () { return {}; });
+      if (!ttsRes.ok) {
+        const msg = (gemData && gemData.error && gemData.error.message) || ('HTTP ' + ttsRes.status);
+        throw new Error('Gemini TTS API xatosi: ' + msg);
+      }
+      let audioPart = null;
+      const parts = gemData && gemData.candidates && gemData.candidates[0] &&
+        gemData.candidates[0].content && gemData.candidates[0].content.parts;
+      if (Array.isArray(parts)) {
+        audioPart = parts.find(function (p) { return p && (p.inlineData || p.inline_data); });
+      }
+      const inline = audioPart && (audioPart.inlineData || audioPart.inline_data);
+      if (!inline || !inline.data) {
+        throw new Error('Gemini TTS bo‘sh audio qaytardi.');
+      }
+      const rawBytes = Buffer.from(inline.data, 'base64');
+      const inlineMime = String(inline.mimeType || inline.mime_type || 'audio/L16;codec=pcm;rate=24000').toLowerCase();
+      if (inlineMime.indexOf('l16') !== -1 || inlineMime.indexOf('pcm') !== -1) {
+        const wavBytes = Speech.pcm16ToWavUint8Array(rawBytes, inlineMime);
+        return { buffer: Buffer.from(wavBytes), mime: 'audio/wav' };
+      }
+      return { buffer: rawBytes, mime: inlineMime.indexOf('mp3') !== -1 || inlineMime.indexOf('mpeg') !== -1 ? 'audio/mpeg' : 'audio/wav' };
+    }
+
+    if (provider === 'elevenlabs') {
+      const voiceId = voice || Speech.TTS_PROVIDER_DEFAULTS.elevenlabs.voiceUs;
+      const safeEndpoint = AiTxt.validateAiEndpoint(
+        'https://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(voiceId)
+      );
+      const ttsRes = await fetcher(safeEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'audio/mpeg',
+          'xi-api-key': apiKey
+        },
+        redirect: 'error',
+        body: JSON.stringify({
+          text: text,
+          model_id: model || Speech.TTS_PROVIDER_DEFAULTS.elevenlabs.defaultModel
+        })
+      });
+      if (!ttsRes.ok) {
+        const errData = await ttsRes.json().catch(function () { return {}; });
+        const msg = (errData && (errData.detail && errData.detail.message || errData.detail || errData.error && errData.error.message)) || ('HTTP ' + ttsRes.status);
+        throw new Error('ElevenLabs TTS xatosi: ' + msg);
+      }
+      const arrBuf = await ttsRes.arrayBuffer();
+      return { buffer: Buffer.from(arrBuf), mime: 'audio/mpeg' };
+    }
+
+    throw new Error('Qo‘llab-quvvatlanmagan TTS provayder.');
+  }
 
   function pruneSecurityMaps(nowMs) {
     const ts = typeof nowMs === 'number' ? nowMs : Date.now();
@@ -789,33 +974,174 @@ function createAppServer(options) {
             return;
           }
         }
+        const ttsCustomUrl = String(cfg.ttsCustomUrl || '').trim();
+        if (ttsCustomUrl) {
+          try {
+            AiTxt.validateAiEndpoint(ttsCustomUrl);
+          } catch (ttsUrlErr) {
+            sendJson(res, 400, { ok: false, error: ttsUrlErr.message });
+            return;
+          }
+        }
 
+        const prevAi = db.aiConfig || {};
         const rawSubmittedKey = String(cfg.apiKey || '').trim();
         const isMaskedSubmit = rawSubmittedKey.indexOf('••') !== -1;
-        let nextApiKey = (db.aiConfig && db.aiConfig.apiKey) || '';
+        let nextApiKey = prevAi.apiKey || '';
         if (cfg.clearKey === true) {
           nextApiKey = '';
         } else if (rawSubmittedKey && !isMaskedSubmit) {
           nextApiKey = rawSubmittedKey;
         }
 
+        const rawTtsKey = String(cfg.ttsApiKey || '').trim();
+        const isTtsMasked = rawTtsKey.indexOf('••') !== -1;
+        let nextTtsKey = prevAi.ttsApiKey || '';
+        if (cfg.clearTtsKey === true) {
+          nextTtsKey = '';
+        } else if (rawTtsKey && !isTtsMasked) {
+          nextTtsKey = rawTtsKey;
+        }
+
         db.aiConfig = {
           provider: String(cfg.provider || 'deepseek'),
           model: String(cfg.model || 'deepseek-chat'),
           customUrl: customUrl,
-          apiKey: nextApiKey
+          apiKey: nextApiKey,
+          ttsProvider: String(cfg.ttsProvider || 'auto'),
+          ttsModel: String(cfg.ttsModel || '').trim(),
+          ttsCustomUrl: ttsCustomUrl,
+          ttsApiKey: nextTtsKey,
+          ttsVoiceUs: String(cfg.ttsVoiceUs || '').trim(),
+          ttsVoiceUk: String(cfg.ttsVoiceUk || '').trim()
         };
         db.auditLog = Auth.appendAuditLog(
           db.auditLog,
           session.role,
           'AI_CONFIG',
-          db.aiConfig.provider + ' (' + db.aiConfig.model + ') sozlandi' + (nextApiKey ? ' [API Key himoyalangan]' : ' [API Key tozalangan]'),
+          db.aiConfig.provider + ' (' + db.aiConfig.model + ') · TTS: ' + db.aiConfig.ttsProvider + ' sozlandi',
           Date.now()
         );
         saveDb();
         broadcastSse('ai-config');
         sendJson(res, 200, { ok: true, state: sanitizeDbForSession(db, session) });
         return;
+      }
+
+      if (pathname === '/api/tts' && req.method === 'POST') {
+        const session = getSessionFromRequest(req, parsedUrl);
+        if (!session) {
+          sendJson(res, 401, { ok: false, error: 'Avval tizimga kiring.' });
+          return;
+        }
+        if (session.role === 'student') {
+          const existsActive = (db.students || []).some(function (s) {
+            return s.id === session.userId && s.active !== false;
+          });
+          if (!existsActive) {
+            sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti faol emas.' });
+            return;
+          }
+        }
+        if (!fetcher) {
+          sendJson(res, 500, { ok: false, error: 'Serverda fetch API mavjud emas.' });
+          return;
+        }
+
+        const body = await readJsonBody(req);
+        const text = String(body.text || '').replace(/\s+/g, ' ').trim().slice(0, 320);
+        if (!text) {
+          sendJson(res, 400, { ok: false, error: 'Talaffuz uchun matn kiritilmadi.' });
+          return;
+        }
+        const accent = body.accent === 'en-GB' ? 'en-GB' : 'en-US';
+
+        // Only IT Manager can test unsaved ttsConfig overrides
+        let rawCfg = db.aiConfig || {};
+        let useDiskCache = true;
+        if (body.testConfig && typeof body.testConfig === 'object' && Auth.canManageAiConfig(session.role)) {
+          useDiskCache = false;
+          const tc = body.testConfig;
+          const rawTestKey = String(tc.ttsApiKey || '').trim();
+          const rawPrimaryTestKey = String(tc.apiKey || '').trim();
+          rawCfg = {
+            provider: String(tc.provider || rawCfg.provider || 'deepseek'),
+            model: String(tc.model || rawCfg.model || 'deepseek-chat'),
+            apiKey: (rawPrimaryTestKey && rawPrimaryTestKey.indexOf('••') === -1) ? rawPrimaryTestKey : (rawCfg.apiKey || ''),
+            customUrl: String(tc.customUrl || rawCfg.customUrl || ''),
+            ttsProvider: String(tc.ttsProvider || 'auto'),
+            ttsModel: String(tc.ttsModel || '').trim(),
+            ttsCustomUrl: String(tc.ttsCustomUrl || '').trim(),
+            ttsApiKey: (rawTestKey && rawTestKey.indexOf('••') === -1) ? rawTestKey : (tc.clearTtsKey ? '' : (rawCfg.ttsApiKey || '')),
+            ttsVoiceUs: String(tc.ttsVoiceUs || '').trim(),
+            ttsVoiceUk: String(tc.ttsVoiceUk || '').trim()
+          };
+        }
+
+        const effectiveTts = Speech.resolveEffectiveTtsConfig(rawCfg, accent);
+        if (effectiveTts.provider === 'browser' || !effectiveTts.apiKey) {
+          sendJson(res, 200, { ok: true, mode: 'browser-fallback' });
+          return;
+        }
+
+        if (effectiveTts.provider === 'custom' && !effectiveTts.customUrl) {
+          sendJson(res, 400, { ok: false, error: 'Custom TTS uchun HTTPS Endpoint URL kiriting.' });
+          return;
+        }
+        if (effectiveTts.customUrl) {
+          try {
+            AiTxt.validateAiEndpoint(effectiveTts.customUrl);
+          } catch (ttsUrlErr) {
+            sendJson(res, 400, { ok: false, error: ttsUrlErr.message });
+            return;
+          }
+        }
+
+        const cacheHash = crypto.createHash('sha256')
+          .update([effectiveTts.provider, effectiveTts.model, effectiveTts.voice, accent, text.toLowerCase()].join('|'))
+          .digest('hex');
+
+        if (useDiskCache) {
+          const cachedAudio = readTtsDiskCache(cacheHash);
+          if (cachedAudio && cachedAudio.buffer) {
+            res.writeHead(200, Object.assign({
+              'Content-Type': cachedAudio.mime,
+              'Cache-Control': 'private, max-age=86400',
+              'X-TTS-Source': 'cache',
+              'X-TTS-Provider': effectiveTts.provider
+            }, getCorsHeaders(), getSecurityHeaders(false, isTrustworthyRequest(req))));
+            res.end(cachedAudio.buffer);
+            return;
+          }
+        }
+
+        try {
+          let pending = ttsInFlight.get(cacheHash);
+          if (!pending) {
+            pending = synthesizeViaProvider(text, accent, effectiveTts).then(function (result) {
+              if (useDiskCache && result && result.buffer) {
+                writeTtsDiskCache(cacheHash, result.mime, result.buffer);
+              }
+              return result;
+            }).finally(function () {
+              ttsInFlight.delete(cacheHash);
+            });
+            ttsInFlight.set(cacheHash, pending);
+          }
+
+          const synth = await pending;
+          res.writeHead(200, Object.assign({
+            'Content-Type': synth.mime,
+            'Cache-Control': 'private, max-age=86400',
+            'X-TTS-Source': 'api',
+            'X-TTS-Provider': effectiveTts.provider
+          }, getCorsHeaders(), getSecurityHeaders(false, isTrustworthyRequest(req))));
+          res.end(synth.buffer);
+          return;
+        } catch (ttsErr) {
+          sendJson(res, 502, { ok: false, error: (ttsErr && ttsErr.message) || 'Talaffuz audio olishda xatolik.' });
+          return;
+        }
       }
 
       if (pathname === '/api/ai-proxy' && req.method === 'POST') {

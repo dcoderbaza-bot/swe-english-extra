@@ -103,7 +103,13 @@ Baholash qoidalari (`SWESRS.applyReviewRating`):
     "provider": "deepseek",
     "model": "deepseek-chat",
     "customUrl": "",
-    "apiKey": ""
+    "apiKey": "",
+    "ttsProvider": "auto",
+    "ttsModel": "",
+    "ttsCustomUrl": "",
+    "ttsApiKey": "",
+    "ttsVoiceUs": "",
+    "ttsVoiceUk": ""
   },
   "auth": {
     "hashes": {

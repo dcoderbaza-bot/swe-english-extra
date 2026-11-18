@@ -11,6 +11,7 @@ const Storage = require('../js/storage.js');
 const AiTxt = require('../js/ai-txt.js');
 const Exam = require('../js/exam.js');
 const Sync = require('../js/sync.js');
+const Speech = require('../js/speech.js');
 const { createAppServer, signSessionToken, verifySessionToken, getSecurityHeaders, maskApiKey } = require('../server.js');
 
 function createMockLocalStorage() {
@@ -1448,6 +1449,210 @@ async function runAsyncTests() {
           // Host firewall/loopback routing may restrict local hairpinning in sandboxed environments
         }
       }
+    } finally {
+      server.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  await testAsync('Perfected Pronunciation: US/UK IPA + syllables, Speech PCM->WAV wrapper & server /api/tts caching', async () => {
+    // 1. Default words include US IPA, UK IPA, and syllable stress guide
+    Data.DEFAULT_WORDS.forEach((w) => {
+      assert.ok(w.phonetic && w.phonetic.startsWith('/'));
+      assert.ok(w.phoneticUk && w.phoneticUk.startsWith('/'));
+      assert.ok(w.syllables && w.syllables.length >= 3);
+    });
+
+    // 2. AiTxt parses compact pUk & syl keys from AI output cleanly
+    const norm = AiTxt.normalizeAiEnrichedItems([{
+      w: 'schedule',
+      p: '/ˈskedʒ.uːl/',
+      pUk: '/ˈʃedʒ.uːl/',
+      syl: 'SKED·yool',
+      pos: 'noun',
+      tr: 'jadval',
+      d: 'A plan of activities.',
+      ex: ['Follow the **schedule**.', 'Check your **schedule**.'],
+      syn: ['timetable'],
+      ant: ['disorder'],
+      m: 'sked-plan',
+      lvl: 'B2'
+    }], [{ word: 'schedule', lesson: '1-dars: Academic Foundations' }], {});
+    assert.equal(norm[0].phonetic, '/ˈskedʒ.uːl/');
+    assert.equal(norm[0].phoneticUk, '/ˈʃedʒ.uːl/');
+    assert.equal(norm[0].syllables, 'SKED·yool');
+
+    // 3. Speech PCM16->WAV & TTS config resolver
+    const samplePcm = new Uint8Array([1, 0, 2, 0, 3, 0, 4, 0]);
+    const wav = Speech.pcm16ToWavUint8Array(samplePcm, 'audio/L16;codec=pcm;rate=24000');
+    assert.equal(String.fromCharCode(wav[0], wav[1], wav[2], wav[3]), 'RIFF');
+    assert.equal(String.fromCharCode(wav[8], wav[9], wav[10], wav[11]), 'WAVE');
+    assert.equal(wav.length, 44 + samplePcm.length);
+
+    const effShared = Speech.resolveEffectiveTtsConfig({ provider: 'openai', apiKey: 'sk-ai', ttsProvider: 'auto' }, 'en-GB');
+    assert.equal(effShared.provider, 'openai');
+    assert.equal(effShared.voice, 'fable');
+    assert.equal(effShared.apiKey, 'sk-ai');
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-tts-v6-'));
+    const dataFilePath = path.join(tmpDir, 'db.json');
+    const secretFilePath = path.join(tmpDir, '.secret');
+
+    const now = Date.now();
+    let seedState = Storage.createDefaultState(now);
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'teacher', 'TtsTeach#2026!');
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'it_manager', 'TtsAdmin#2026!');
+    const stuRes = Auth.createStudentAccount(seedState.students, 'it_manager', {
+      username: 'ttsstu',
+      fullName: 'TTS Student',
+      group: 'TTS',
+      password: 'TtsStudent#2026!'
+    }, now);
+    seedState.students = stuRes.students;
+    seedState.studentProgress = Storage.ensureStudentProgress(seedState, stuRes.created.id, now);
+    fs.writeFileSync(dataFilePath, JSON.stringify(seedState, null, 2), 'utf8');
+
+    let ttsFetchCount = 0;
+    let lastTtsReq = null;
+    const mockTtsFetch = async (url, init) => {
+      ttsFetchCount++;
+      lastTtsReq = { url, init };
+      if (String(url).includes('generativelanguage.googleapis.com')) {
+        const fakePcmB64 = Buffer.from([10, 0, 20, 0, 30, 0, 40, 0, 50, 0, 60, 0, 70, 0, 80, 0, 90, 0, 100, 0, 110, 0, 120, 0, 130, 0, 140, 0, 150, 0, 160, 0]).toString('base64');
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            candidates: [{
+              content: {
+                parts: [{ inlineData: { mimeType: 'audio/L16;codec=pcm;rate=24000', data: fakePcmB64 } }]
+              }
+            }]
+          })
+        };
+      }
+      const fakeMp3 = Buffer.from('ID3_FAKE_MP3_STREAM_0123456789_0123456789');
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (name) => (String(name).toLowerCase() === 'content-type' ? 'audio/mpeg' : '') },
+        arrayBuffer: async () => fakeMp3.buffer.slice(fakeMp3.byteOffset, fakeMp3.byteOffset + fakeMp3.byteLength)
+      };
+    };
+
+    const server = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath,
+      secretFilePath,
+      fetchImpl: mockTtsFetch
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+      // Unauthenticated /api/tts blocked (401)
+      assert.equal((await fetch(`${baseUrl}/api/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: 'ubiquitous', accent: 'en-US' })
+      })).status, 401);
+
+      const itToken = (await (await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'it_manager', password: 'TtsAdmin#2026!' })
+      })).json()).token;
+
+      const stuToken = (await (await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'student', username: 'ttsstu', password: 'TtsStudent#2026!' })
+      })).json()).token;
+
+      // Without TTS key configured, returns clean 200 browser-fallback
+      const fbRes = await (await fetch(`${baseUrl}/api/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuToken}` },
+        body: JSON.stringify({ text: 'ubiquitous', accent: 'en-US' })
+      })).json();
+      assert.equal(fbRes.mode, 'browser-fallback');
+
+      // SSRF block on ttsCustomUrl
+      const ssrfTts = await fetch(`${baseUrl}/api/ai-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${itToken}` },
+        body: JSON.stringify({
+          aiConfig: { provider: 'deepseek', ttsProvider: 'custom', ttsCustomUrl: 'https://127.0.0.1/v1/audio/speech' }
+        })
+      });
+      assert.equal(ssrfTts.status, 400);
+
+      // IT Manager saves DeepSeek primary key + separate OpenAI TTS key
+      const saveCfgRes = await fetch(`${baseUrl}/api/ai-config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${itToken}` },
+        body: JSON.stringify({
+          aiConfig: {
+            provider: 'deepseek',
+            model: 'deepseek-chat',
+            apiKey: 'sk-deepseek-secret-1111',
+            ttsProvider: 'openai',
+            ttsModel: 'gpt-4o-mini-tts',
+            ttsApiKey: 'sk-openai-tts-secret-9999'
+          }
+        })
+      });
+      assert.equal(saveCfgRes.status, 200);
+      const itCfgJson = await saveCfgRes.json();
+      assert.equal(itCfgJson.state.aiConfig.hasTtsKey, true);
+      assert.equal(itCfgJson.state.aiConfig.ttsApiKeyMasked, 'sk-o••••9999');
+
+      // Student receives hasTtsKey: true but ZERO API keys or masked keys
+      const stuState = (await (await fetch(`${baseUrl}/api/state`, {
+        headers: { 'Authorization': `Bearer ${stuToken}` }
+      })).json()).state;
+      assert.equal(stuState.aiConfig.hasTtsKey, true);
+      assert.equal(stuState.aiConfig.ttsApiKey, '');
+      assert.equal(stuState.aiConfig.ttsApiKeyMasked, '');
+
+      // 1st TTS request hits upstream OpenAI TTS once and caches to data/tts-cache/
+      const tts1Res = await fetch(`${baseUrl}/api/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuToken}` },
+        body: JSON.stringify({ text: 'ubiquitous', accent: 'en-US' })
+      });
+      assert.equal(tts1Res.status, 200);
+      assert.equal(tts1Res.headers.get('content-type'), 'audio/mpeg');
+      assert.equal(tts1Res.headers.get('x-tts-source'), 'api');
+      assert.equal(ttsFetchCount, 1);
+      assert.ok(String(lastTtsReq.url).includes('https://api.openai.com/v1/audio/speech'));
+      assert.equal(lastTtsReq.init.headers.Authorization, 'Bearer sk-openai-tts-secret-9999');
+
+      // 2nd identical request MUST serve from disk cache with 0 new API calls
+      const tts2Res = await fetch(`${baseUrl}/api/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${stuToken}` },
+        body: JSON.stringify({ text: 'ubiquitous', accent: 'en-US' })
+      });
+      assert.equal(tts2Res.status, 200);
+      assert.equal(tts2Res.headers.get('x-tts-source'), 'cache');
+      assert.equal(ttsFetchCount, 1);
+
+      // IT Manager tests Gemini TTS -> returns valid WAV bytes
+      const gemTestRes = await fetch(`${baseUrl}/api/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${itToken}` },
+        body: JSON.stringify({
+          text: 'coherent',
+          accent: 'en-GB',
+          testConfig: { ttsProvider: 'gemini', ttsApiKey: 'AIzaTestGeminiKey' }
+        })
+      });
+      assert.equal(gemTestRes.status, 200);
+      assert.equal(gemTestRes.headers.get('content-type'), 'audio/wav');
+      const gemBuf = Buffer.from(await gemTestRes.arrayBuffer());
+      assert.equal(gemBuf.slice(0, 4).toString('ascii'), 'RIFF');
+      assert.equal(gemBuf.slice(8, 12).toString('ascii'), 'WAVE');
     } finally {
       server.close();
       fs.rmSync(tmpDir, { recursive: true, force: true });

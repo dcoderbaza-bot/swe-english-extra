@@ -84,6 +84,8 @@
       id: raw.id ? String(raw.id) : ('w-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7)),
       word: wordText,
       phonetic: String(raw.phonetic || '').trim(),
+      phoneticUk: String(raw.phoneticUk || '').trim(),
+      syllables: String(raw.syllables || '').trim(),
       partOfSpeech: String(raw.partOfSpeech || 'noun').trim(),
       translation: String(raw.translation || '').trim(),
       definition: String(raw.definition || '').trim(),
@@ -114,7 +116,13 @@
       provider: 'deepseek',
       model: 'deepseek-chat',
       apiKey: '',
-      customUrl: ''
+      customUrl: '',
+      ttsProvider: 'auto',
+      ttsModel: '',
+      ttsApiKey: '',
+      ttsCustomUrl: '',
+      ttsVoiceUs: '',
+      ttsVoiceUk: ''
     };
   }
 
@@ -619,9 +627,18 @@
       customUrl: '',
       apiKey: '',
       hasApiKey: false,
-      apiKeyMasked: ''
+      apiKeyMasked: '',
+      ttsProvider: 'auto',
+      ttsModel: '',
+      ttsApiKey: '',
+      ttsCustomUrl: '',
+      ttsVoiceUs: '',
+      ttsVoiceUk: '',
+      hasTtsKey: false,
+      ttsApiKeyMasked: ''
     }, defaults.aiConfig, parsed.aiConfig || {});
     mergedAi.hasApiKey = Boolean(mergedAi.hasApiKey || mergedAi.apiKey);
+    mergedAi.hasTtsKey = Boolean(mergedAi.hasTtsKey || mergedAi.ttsApiKey);
 
     return {
       version: 3,

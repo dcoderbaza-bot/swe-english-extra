@@ -155,3 +155,21 @@
 - `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
 - `node tests/verify.js`: **15/15** test to‘plami muvaffaqiyatli o‘tdi (`0.0.0.0` bind, CORS `OPTIONS`, cross-origin `localhost`/`127.0.0.1`/LAN IP login va mobil bo‘sh joy toleransi testlari bilan).
 - Jonli brauzer QA (`http://127.0.0.1:4177`, `http://192.168.1.15:4177`, `http://localhost:4177`): IT Manager parolni yangilagandan so‘ng boshqa IP (`192.168.1.15:4177`) orqali Teacher kirishi va `localhost` dan `Server IP` ulash orqali `student1` kirishi tasdiqlandi.
+
+---
+
+## 9. 8-bosqich yangilanishlari (API Key orqali Neural Talaffuz va Mukammal IPA / Bo‘g‘in-Urg‘u Tizimi)
+
+### Qo‘shilgan imkoniyatlar
+- **Server-side Neural TTS Proksi va Disk Kesh (`server.js`, `js/speech.js`, `js/sync.js`):**
+  - `POST /api/tts` endpointi qo‘shildi (`OpenAI tts-1 / gpt-4o-mini-tts` MP3, `Google Gemini gemini-2.5-flash-preview-tts` PCM16 -> 44-baytli RIFF/WAV `pcm16ToWavUint8Array`, `ElevenLabs`, `Custom HTTPS TTS`, hamda `browser-fallback` Web Speech).
+  - Har bir `(provider, model, voice, accent, word)` audio javobi `data/tts-cache/<sha256>` da diskka va mijozda `audioBlobCache` (max 240 ta Blob) ga saqlanadi; sekin (`0.72x`) va oddiy tezlik bitta keshlangan audiodan `playbackRate` orqali ijro etiladi — takror tinglashda **0 ta qo‘shimcha API so‘rovi** ketadi.
+  - TTS API kalitlari ham faqat IT Manager’ga ko‘rinadi/o‘zgartiriladi (`hasTtsKey`, `ttsApiKeyMasked`), Teacher va Studentlarga aslo uzatilmaydi; `ttsCustomUrl` esa `validateAiEndpoint` HTTPS/SSRF himoyasidan o‘tkaziladi.
+- **Mukammal Yozma Talaffuz (`js/default-data.js`, `js/ai-txt.js`, `js/storage.js`, `js/app.js`, `index.html`):**
+  - So‘zlar modeliga `phoneticUk` (US dan farqli Britaniya IPA) va `syllables` (`in·DEV·er`, `ig·ZAS·er·bayt`, urg‘uli bo‘g‘in katta harfda) qo‘shildi; boshlang‘ich 15 ta so‘z va AI `.TXT` prompt (`p`, `pUk`, `syl`) bilan boyitildi hamda Flashcards, Quiz, Yozma/Listening va Lug‘atlarda `formatWordPronunciation` bilan ko‘rsatildi.
+  - `setListeningType` / `renderListeningQuestion` ga `currentView === 'study' && currentStudyMode === 'listening'` cheklovi qo‘yilib, sahifa yuklanganda yashirin fonda avtomatik `/api/tts` chaqiruvi ketishining oldi olindi.
+
+### 8-bosqich tekshiruv natijalari
+- `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
+- `node tests/verify.js`: **16/16** test to‘plami o‘tdi (US/UK IPA + `syllables`, `pcm16ToWavUint8Array`, OpenAI TTS disk-kesh `0 API`, Gemini WAV va IT-only masking / SSRF testlari bilan).
+- Jonli brauzer E2E QA (`http://127.0.0.1:4178` & `4179`): IT Manager TTS API kalitini saqlash/reload/maskalash/tozalash, sahifa yuklanganda `0` ta avtomatik `/api/tts` chaqiruvi, va `student1` Flashcard’da `US /ɪnˈdev.ər/ · UK /ɪnˈdev.ə(r)/ · in·DEV·er` ko‘rinishi `0` konsol/sahifa/HTTP xatosi bilan tasdiqlandi.

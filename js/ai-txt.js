@@ -202,7 +202,9 @@
           const ipaPart = w.phonetic ? (' ' + w.phonetic) : '';
           lines.push((idx + 1) + '. ' + w.word + ipaPart + ' — ' + w.translation);
         } else {
-          lines.push((idx + 1) + '. ' + w.word + (w.phonetic ? ' ' + w.phonetic : '') + ' [' + (w.partOfSpeech || 'word') + ', ' + (w.level || 'B2') + ', ' + (w.category || 'IELTS') + ']');
+          const ukPart = (w.phoneticUk && w.phoneticUk !== w.phonetic) ? (' | UK: ' + w.phoneticUk) : '';
+          const sylPart = w.syllables ? (' (' + w.syllables + ')') : '';
+          lines.push((idx + 1) + '. ' + w.word + (w.phonetic ? ' ' + w.phonetic : '') + ukPart + sylPart + ' [' + (w.partOfSpeech || 'word') + ', ' + (w.level || 'B2') + ', ' + (w.category || 'IELTS') + ']');
           lines.push('   Tarjima: ' + w.translation);
           if (w.definition) lines.push('   Izoh: ' + w.definition);
           if (Array.isArray(w.examples) && w.examples.length) {
@@ -334,6 +336,8 @@
     return {
       word: cleanWordToken(rec.word || (srcEntry && srcEntry.word) || ''),
       phonetic: srcPhonetic || String(rec.phonetic || '').trim(),
+      phoneticUk: String(rec.phoneticUk || '').trim(),
+      syllables: String(rec.syllables || '').trim(),
       partOfSpeech: String(rec.partOfSpeech || 'word').trim(),
       translation: srcTranslation || String(rec.translation || '').trim(),
       definition: String(rec.definition || '').trim(),
@@ -459,6 +463,8 @@
       return {
         word: finalWord,
         phonetic: String(ai.p || ai.phonetic || src.phonetic || '').trim(),
+        phoneticUk: String(ai.pUk || ai.phoneticUk || src.phoneticUk || '').trim(),
+        syllables: String(ai.syl || ai.syllables || src.syllables || '').trim(),
         partOfSpeech: String(ai.pos || ai.partOfSpeech || 'word').trim(),
         translation: String(ai.tr || ai.translation || src.translation || '').trim(),
         definition: String(ai.d || ai.definition || '').trim(),
@@ -492,7 +498,7 @@
 
     return [
       'Return ONLY a JSON array matching input count & order. Fix spelling if needed. Keep Uzbek values in Latin Uzbek (o‘,g‘,sh,ch).',
-      'Keys per item: "w":word,"p":IPA "/.../","pos":partOfSpeech,"tr":Uzbek translation,"d":concise English def,"ex":[2 short sentences with **w**],"syn":[2 synonyms],"ant":[1 antonym],"m":short mnemonic,"lvl":A1-C2' + catRule + '.',
+      'Keys per item: "w":word,"p":US IPA "/.../","pUk":UK IPA "/.../" (or "" if same as US),"syl":syllables with CAPS stress e.g. "u·BIQ·ui·tous","pos":partOfSpeech,"tr":Uzbek translation,"d":concise English def,"ex":[2 short sentences with **w**],"syn":[2 synonyms],"ant":[1 antonym],"m":short mnemonic,"lvl":A1-C2' + catRule + '.',
       'Input:' + JSON.stringify(compactInput)
     ].join('\n');
   }
