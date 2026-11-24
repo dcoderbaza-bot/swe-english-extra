@@ -11,6 +11,7 @@ const Auth = require('../js/auth.js');
 const Storage = require('../js/storage.js');
 const AiTxt = require('../js/ai-txt.js');
 const Exam = require('../js/exam.js');
+const Irregular = require('../js/irregular-verbs.js');
 const Sync = require('../js/sync.js');
 const Speech = require('../js/speech.js');
 const { createAppServer, signSessionToken, verifySessionToken, getSecurityHeaders, maskApiKey } = require('../server.js');
@@ -2241,7 +2242,7 @@ async function runAsyncTests() {
     sandboxWin.globalThis = sandboxWin;
 
     try {
-      ['default-data.js', 'srs.js', 'auth.js', 'exam.js', 'storage.js', 'ai-txt.js'].forEach((fname) => {
+      ['default-data.js', 'srs.js', 'auth.js', 'exam.js', 'irregular-verbs.js', 'storage.js', 'ai-txt.js'].forEach((fname) => {
         vm.runInNewContext(fs.readFileSync(path.join(rootPath, 'js', fname), 'utf8'), sandboxWin);
       });
       vm.runInNewContext(appCode, sandboxWin);
@@ -2332,6 +2333,22 @@ async function runAsyncTests() {
       await new Promise((r) => setTimeout(r, 20));
       const endedExamState = JSON.parse(mockLS.getItem(Storage.STORAGE_KEY));
       assert.equal(endedExamState.studentProgress[stuCreated.created.id].finalExam.status, 'completed');
+
+      // 6. Irregular Verbs view: renders 45 starter rows, switches to Practice, and grades V2/V3 drill
+      doc.querySelector('[data-nav-view="irregular"]').click();
+      assert.equal(byId.get('view-irregular').classList.contains('hidden'), false);
+      assert.equal(byId.get('irregTableBody').children.length, 45);
+      byId.get('irregStartPracticeBtn').click();
+      assert.equal(byId.get('irregPracticePanel').classList.contains('hidden'), false);
+      const v1Shown = byId.get('irregPracticeV1').textContent;
+      const targetVerb = Irregular.DEFAULT_IRREGULAR_VERBS.find((v) => v.v1 === v1Shown);
+      assert.ok(targetVerb, 'Practice verb must exist in starter list');
+      byId.get('irregDrillV2Input').value = targetVerb.v2.split('/')[0];
+      byId.get('irregDrillV3Input').value = targetVerb.v3.split('/')[0];
+      byId.get('irregFormsDrillForm').dispatchEvent({ type: 'submit' });
+      assert.equal(byId.get('irregPracticeScore').textContent, 'To‘g‘ri: 1');
+      doc.dispatchEvent({ type: 'keydown', key: 'Enter', target: doc.body });
+      assert.ok(byId.get('irregPracticeCounter').textContent.startsWith('Fe’l 2 /'));
 
       byId.get('headerLogoutBtn').click();
       await new Promise((r) => setTimeout(r, 15));
@@ -2452,6 +2469,113 @@ async function runAsyncTests() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: 'shohruh_karimov', password: '2026' })
       })).status, 200);
+    } finally {
+      server.closeAllSse();
+      await new Promise((resolve) => server.close(resolve));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  await testAsync('Topic-by-topic Irregular Verbs (V1/V2/V3/Uzbek): 151-165 starter verbs, multi-format bulk parser, slash grading & server sync', async () => {
+    // 1. Starter dataset has 4 topics and 45 verbs including exact 151-165 verbs
+    assert.equal(Irregular.DEFAULT_IRREGULAR_TOPICS.length, 4);
+    assert.equal(Irregular.DEFAULT_IRREGULAR_VERBS.length, 45);
+    const topic4 = Irregular.DEFAULT_IRREGULAR_VERBS.filter((v) => v.topic.startsWith('4-mavzu'));
+    assert.equal(topic4.length, 15);
+    assert.deepEqual(
+      topic4.slice(0, 5).map((v) => [v.v1, v.v2, v.v3, v.translation]),
+      [
+        ['spin', 'spun', 'spun', 'aylanmoq'],
+        ['spit', 'spat/spit', 'spat/spit', 'tupurmoq'],
+        ['spoil', 'spoilt/spoiled', 'spoilt/spoiled', 'buzmoq'],
+        ['swell', 'swelled', 'swollen/swelled', 'shishmoq'],
+        ['swing', 'swung', 'swung', 'tebranmoq']
+      ]
+    );
+    assert.equal(topic4[14].v1, 'behold');
+    assert.equal(topic4[14].v2, 'beheld');
+    assert.equal(topic4[14].v3, 'beheld');
+
+    // 2. Variant-aware V2/V3 grading ('spoilt' OR 'spoiled' OR 'spoilt/spoiled')
+    const spoilVerb = topic4.find((v) => v.v1 === 'spoil');
+    assert.equal(Irregular.gradeIrregularPair('spoilt', 'spoiled', spoilVerb).allOk, true);
+    assert.equal(Irregular.gradeIrregularPair('spoilt/spoiled', 'spoilt', spoilVerb).allOk, true);
+    assert.equal(Irregular.gradeIrregularPair('spoil', 'spoiled', spoilVerb).allOk, false);
+
+    // 3. Multi-format bulk topic-by-topic parser (pipes, dashes, tabs, and OCR/table whitespace rows)
+    const rawPaste = [
+      'NO.\tV1\tV2\tV3\tO\'ZBEKCHA',
+      '# 5-mavzu: Sinov Mavzusi',
+      '151\tforbid\tforbade/forbad\tforbidden\ttaqiqlamoq',
+      '152 | freeze | froze | frozen | muzlamoq',
+      '3. seek - sought - sought - qidirmoq',
+      '163 backslide backslid backslid/backslidden eski yomon odatga qaytmoq',
+      '# 6-mavzu: Ikkinchi Mavzu',
+      'strive | strove/strived | striven/strived | intilmoq'
+    ].join('\n');
+    const parsed = Irregular.parseIrregularBulkText(rawPaste, { fallbackTopic: 'Default' });
+    assert.equal(parsed.topics.length, 2);
+    assert.equal(parsed.entries.length, 5);
+    assert.equal(parsed.entries[0].v1, 'forbid');
+    assert.equal(parsed.entries[0].topic, '5-mavzu: Sinov Mavzusi');
+    assert.equal(parsed.entries[3].v1, 'backslide');
+    assert.equal(parsed.entries[3].v3, 'backslid/backslidden');
+    assert.equal(parsed.entries[3].translation, 'eski yomon odatga qaytmoq');
+    assert.equal(parsed.entries[4].topic, '6-mavzu: Ikkinchi Mavzu');
+
+    // 4. Server /api/curriculum syncs new irregular topics & verbs to student phones
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-irreg-srv-'));
+    const dataFilePath = path.join(tmpDir, 'db.json');
+    const secretFilePath = path.join(tmpDir, '.secret');
+    let seedState = Storage.createDefaultState(Date.now());
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'teacher', 'IrregTeach#2026!');
+    fs.writeFileSync(dataFilePath, JSON.stringify(seedState, null, 2), 'utf8');
+
+    const server = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath,
+      secretFilePath
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+      const teachToken = (await (await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'IrregTeach#2026!' })
+      })).json()).token;
+
+      const merged = Irregular.mergeIrregularEntries(
+        seedState.irregularTopics,
+        seedState.irregularVerbs,
+        parsed.topics,
+        parsed.entries,
+        Date.now()
+      );
+      const saveRes = await (await fetch(`${baseUrl}/api/curriculum`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${teachToken}` },
+        body: JSON.stringify({
+          irregularTopics: merged.irregularTopics,
+          irregularVerbs: merged.irregularVerbs,
+          auditAction: 'IRREG_BULK_IMPORT',
+          auditDetail: '5 ta fe’l'
+        })
+      })).json();
+      assert.equal(saveRes.ok, true);
+      assert.equal(saveRes.state.irregularTopics.length, 6);
+      assert.equal(saveRes.state.irregularVerbs.length, 50);
+
+      // Student joining from phone receives all 6 topics & 50 irregular verbs immediately
+      const stuJoin = await (await fetch(`${baseUrl}/api/student-join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'Madina Telefon', password: '' })
+      })).json();
+      assert.equal(stuJoin.ok, true);
+      assert.equal(stuJoin.state.irregularTopics.length, 6);
+      assert.equal(stuJoin.state.irregularVerbs.length, 50);
     } finally {
       server.closeAllSse();
       await new Promise((resolve) => server.close(resolve));

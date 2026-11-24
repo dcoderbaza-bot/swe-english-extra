@@ -10,6 +10,7 @@
   const DefaultData = window.SWEData;
   const Auth = window.SWEAuth;
   const Exam = window.SWEExam;
+  const Irregular = window.SWEIrregular;
   const AiTxt = window.SWEAiTxt;
   const Sync = window.SWESync;
 
@@ -86,6 +87,22 @@
     answered: false,
     currentOptions: [],
     wrongWords: []
+  };
+
+  // Irregular Verbs UI & Practice session state
+  let irregState = {
+    subTab: 'table', // 'table' | 'practice'
+    activeTopic: 'ALL',
+    hideForms: false,
+    hideUz: false,
+    practiceMode: 'forms', // 'forms' | 'quiz'
+    practiceScopeKey: '',
+    practiceItems: [],
+    practiceIndex: 0,
+    practiceScore: 0,
+    practiceAnswered: false,
+    practiceOptions: [],
+    practiceWrong: []
   };
 
   let confirmCallback = null;
@@ -227,6 +244,8 @@
         words: state.words,
         categories: state.categories,
         lessons: state.lessons,
+        irregularTopics: state.irregularTopics || [],
+        irregularVerbs: state.irregularVerbs || [],
         auditAction: auditAction || '',
         auditDetail: auditDetail || ''
       }).then(function (res) {
@@ -529,7 +548,7 @@
     }
 
     currentView = viewName;
-    ['monitor', 'dashboard', 'study', 'vocabulary', 'txt-import', 'students', 'security'].forEach(function (v) {
+    ['monitor', 'dashboard', 'study', 'vocabulary', 'irregular', 'txt-import', 'students', 'security'].forEach(function (v) {
       const el = $('view-' + v);
       if (el) el.classList.toggle('hidden', v !== viewName);
     });
@@ -545,12 +564,13 @@
       const viewLabels = {
         dashboard: 'Bosh sahifaga kirdi',
         study: 'Mashq bo‘limiga o‘tdi',
-        vocabulary: 'Lug‘at ro‘yxatini ochdi'
+        vocabulary: 'Lug‘at ro‘yxatini ochdi',
+        irregular: 'Noto‘g‘ri fe’llar bo‘limini ochdi'
       };
       emitStudentTelemetry({
         type: 'VIEW_CHANGE',
         view: viewName,
-        mode: viewName === 'study' ? currentStudyMode : '',
+        mode: viewName === 'study' ? currentStudyMode : (viewName === 'irregular' ? irregState.subTab : ''),
         lesson: activeLesson !== 'ALL' ? activeLesson : '',
         deck: activeDeck !== 'ALL' ? activeDeck : '',
         detail: viewLabels[viewName] || ('Bo‘lim: ' + viewName)
@@ -567,6 +587,11 @@
     } else if (viewName === 'vocabulary') {
       syncDeckSelects();
       renderVocabulary();
+    } else if (viewName === 'irregular') {
+      if (opts.irregSubTab) {
+        irregState.subTab = opts.irregSubTab;
+      }
+      renderIrregularView({ restartPractice: Boolean(opts.restartPractice) });
     } else if (viewName === 'txt-import') {
       syncDeckSelects();
       renderTxtAiStatus();
@@ -620,6 +645,12 @@
     $('breakdownLearning').textContent = String(learning);
     $('breakdownReview').textContent = String(review);
     $('breakdownMastered').textContent = String(mastered);
+
+    if ($('dashIrregularCountText')) {
+      const irTopicsCount = Array.isArray(state.irregularTopics) ? state.irregularTopics.length : 0;
+      const irVerbsCount = Array.isArray(state.irregularVerbs) ? state.irregularVerbs.length : 0;
+      $('dashIrregularCountText').textContent = irTopicsCount + ' ta mavzu · ' + irVerbsCount + ' ta noto‘g‘ri fe’l (V1 · V2 · V3 · O‘zbekcha)';
+    }
 
     renderLessonsGrid(now, words);
     renderDecksGrid(now, words);
@@ -2828,6 +2859,7 @@
     if (currentView === 'dashboard') renderDashboard();
     if (currentView === 'study') startCurrentStudyMode();
     if (currentView === 'vocabulary') renderVocabulary();
+    if (currentView === 'irregular') renderIrregularView({ restartPractice: false });
     if (currentView === 'txt-import') {
       syncDeckSelects();
       renderTxtAiStatus();
@@ -2859,6 +2891,852 @@
       : 'swe-english-extra-all-lessons.txt';
     downloadFile(filename, content, 'text/plain;charset=utf-8');
     showToast('Barcha darslik lug‘atlari .TXT faylga yuklab olindi!', 'success');
+  }
+
+  /* ==================== IRREGULAR VERBS (TOPIC-BY-TOPIC V1 / V2 / V3 / O'ZBEKCHA) ==================== */
+
+  function getIrregularTopics() {
+    return Array.isArray(state.irregularTopics) ? state.irregularTopics : [];
+  }
+
+  function getIrregularVerbs() {
+    return Array.isArray(state.irregularVerbs) ? state.irregularVerbs : [];
+  }
+
+  function ensureValidActiveIrregTopic() {
+    if (irregState.activeTopic === 'ALL') return;
+    const exists = getIrregularTopics().some(function (t) {
+      return (t.name || '').toLowerCase() === irregState.activeTopic.toLowerCase();
+    });
+    if (!exists) {
+      irregState.activeTopic = 'ALL';
+    }
+  }
+
+  function syncIrregTopicSelects() {
+    ensureValidActiveIrregTopic();
+    const topics = getIrregularTopics();
+    const targetSel = $('irregTargetTopicSelect');
+    const practiceSel = $('irregPracticeTopicSelect');
+
+    if (targetSel) {
+      const prev = targetSel.value;
+      targetSel.innerHTML = '';
+      topics.forEach(function (t) {
+        const opt = document.createElement('option');
+        opt.value = t.name;
+        opt.textContent = t.name;
+        targetSel.appendChild(opt);
+      });
+      const newOpt = document.createElement('option');
+      newOpt.value = '__NEW__';
+      newOpt.textContent = '+ Yangi mavzu yaratish...';
+      targetSel.appendChild(newOpt);
+
+      if (prev === '__NEW__' || topics.some(function (t) { return t.name === prev; })) {
+        targetSel.value = prev;
+      } else if (irregState.activeTopic !== 'ALL' && topics.some(function (t) { return t.name === irregState.activeTopic; })) {
+        targetSel.value = irregState.activeTopic;
+      } else if (topics[0]) {
+        targetSel.value = topics[0].name;
+      } else {
+        targetSel.value = '__NEW__';
+      }
+
+      if ($('irregNewTopicWrap')) {
+        $('irregNewTopicWrap').classList.toggle('hidden', targetSel.value !== '__NEW__');
+      }
+    }
+
+    if (practiceSel) {
+      practiceSel.innerHTML = '<option value="ALL">Barcha mavzular (' + getIrregularVerbs().length + ')</option>';
+      topics.forEach(function (t) {
+        const cnt = getIrregularVerbs().filter(function (v) {
+          return (v.topic || '').toLowerCase() === (t.name || '').toLowerCase();
+        }).length;
+        const opt = document.createElement('option');
+        opt.value = t.name;
+        opt.textContent = t.name + ' (' + cnt + ')';
+        practiceSel.appendChild(opt);
+      });
+      practiceSel.value = irregState.activeTopic;
+    }
+  }
+
+  function applyIrregSubTabUI() {
+    const isPractice = irregState.subTab === 'practice';
+    if ($('irregTablePanel')) $('irregTablePanel').classList.toggle('hidden', isPractice);
+    if ($('irregPracticePanel')) $('irregPracticePanel').classList.toggle('hidden', !isPractice);
+
+    document.querySelectorAll('[data-irreg-tab]').forEach(function (btn) {
+      const active = btn.getAttribute('data-irreg-tab') === irregState.subTab;
+      btn.className = 'irreg-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition-all ' +
+        (active
+          ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm'
+          : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600');
+    });
+
+    document.querySelectorAll('[data-irreg-practice-mode]').forEach(function (btn) {
+      const active = btn.getAttribute('data-irreg-practice-mode') === irregState.practiceMode;
+      btn.className = 'irreg-pmode-btn px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all ' +
+        (active
+          ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm'
+          : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600');
+    });
+
+    if ($('irregHideFormsBtn')) {
+      $('irregHideFormsBtn').className = 'btn-tactile px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ' +
+        (irregState.hideForms
+          ? 'bg-amber-500 text-white shadow-sm'
+          : 'glass-panel text-slate-700 dark:text-slate-200');
+    }
+    if ($('irregHideUzBtn')) {
+      $('irregHideUzBtn').className = 'btn-tactile px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 ' +
+        (irregState.hideUz
+          ? 'bg-emerald-600 text-white shadow-sm'
+          : 'glass-panel text-slate-700 dark:text-slate-200');
+    }
+  }
+
+  function renderIrregularTopicsStrip() {
+    const pillsWrap = $('irregTopicPills');
+    const descEl = $('irregActiveTopicDesc');
+    const badgeEl = $('irregStatsBadge');
+    const topics = getIrregularTopics();
+    const verbs = getIrregularVerbs();
+    const staffCanEdit = isStaff();
+
+    if (badgeEl) {
+      badgeEl.textContent = topics.length + ' mavzu · ' + verbs.length + ' ta fe’l';
+    }
+    if (!pillsWrap) return;
+    pillsWrap.innerHTML = '';
+
+    const allBtn = document.createElement('button');
+    const isAll = irregState.activeTopic === 'ALL';
+    allBtn.type = 'button';
+    allBtn.className = 'btn-tactile inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-extrabold border transition-all ' +
+      (isAll
+        ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-500/20'
+        : 'bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200');
+    allBtn.innerHTML =
+      '<span>Barcha mavzular</span>' +
+      '<span class="px-1.5 py-0.5 rounded-full text-[10px] tabular-nums ' + (isAll ? 'bg-white/20 text-white' : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300') + '">' + verbs.length + '</span>';
+    allBtn.addEventListener('click', function () {
+      irregState.activeTopic = 'ALL';
+      renderIrregularView({ restartPractice: true });
+    });
+    pillsWrap.appendChild(allBtn);
+
+    topics.forEach(function (topic) {
+      const count = verbs.filter(function (v) {
+        return (v.topic || '').toLowerCase() === (topic.name || '').toLowerCase();
+      }).length;
+      const isSelected = irregState.activeTopic.toLowerCase() === (topic.name || '').toLowerCase();
+
+      const chip = document.createElement('div');
+      chip.className = 'inline-flex items-center gap-1.5 pl-3.5 ' + (staffCanEdit ? 'pr-1.5' : 'pr-3') + ' py-1.5 rounded-full text-xs font-extrabold border transition-all ' +
+        (isSelected
+          ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white border-indigo-500 shadow-md shadow-indigo-500/20'
+          : 'bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200');
+
+      chip.innerHTML =
+        '<button type="button" data-select-irreg-topic class="inline-flex items-center gap-1.5 hover:opacity-90 text-left">' +
+          '<span>' + escapeHtml(topic.name) + '</span>' +
+          '<span class="px-1.5 py-0.5 rounded-full text-[10px] tabular-nums ' + (isSelected ? 'bg-white/20 text-white' : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300') + '">' + count + '</span>' +
+        '</button>' +
+        (staffCanEdit
+          ? '<button type="button" data-delete-irreg-topic class="p-1 rounded-full hover:bg-rose-500/20 ' + (isSelected ? 'text-rose-200 hover:text-white' : 'text-rose-500') + '" title="' + escapeHtml(topic.name) + ' mavzusini o‘chirish">' +
+              '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>' +
+            '</button>'
+          : '');
+
+      chip.querySelector('[data-select-irreg-topic]').addEventListener('click', function () {
+        irregState.activeTopic = isSelected ? 'ALL' : topic.name;
+        if ($('irregTargetTopicSelect') && irregState.activeTopic !== 'ALL') {
+          $('irregTargetTopicSelect').value = topic.name;
+          if ($('irregNewTopicWrap')) $('irregNewTopicWrap').classList.add('hidden');
+        }
+        renderIrregularView({ restartPractice: true });
+      });
+
+      const delBtn = chip.querySelector('[data-delete-irreg-topic]');
+      if (delBtn) {
+        delBtn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          deleteIrregularTopic(topic.name);
+        });
+      }
+      pillsWrap.appendChild(chip);
+    });
+
+    if (descEl) {
+      if (irregState.activeTopic === 'ALL') {
+        descEl.textContent = 'Barcha mavzulardagi noto‘g‘ri fe’llar (' + verbs.length + ' ta)';
+      } else {
+        const found = topics.find(function (t) { return (t.name || '').toLowerCase() === irregState.activeTopic.toLowerCase(); });
+        descEl.textContent = found && found.description ? found.description : found ? found.name : '';
+      }
+    }
+  }
+
+  function getFilteredIrregularVerbs() {
+    const query = ($('irregSearchInput') ? $('irregSearchInput').value : '').trim().toLowerCase();
+    const activeLower = irregState.activeTopic.toLowerCase();
+
+    return getIrregularVerbs().filter(function (v) {
+      if (irregState.activeTopic !== 'ALL' && (v.topic || '').toLowerCase() !== activeLower) {
+        return false;
+      }
+      if (query) {
+        const hay = ((v.v1 || '') + ' ' + (v.v2 || '') + ' ' + (v.v3 || '') + ' ' + (v.translation || '') + ' ' + (v.topic || '')).toLowerCase();
+        if (hay.indexOf(query) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function speakIrregularVerbRow(verbObj, triggerEl) {
+    if (!verbObj) return;
+    const p1 = String(verbObj.v1 || '').split('/')[0].trim();
+    const p2 = String(verbObj.v2 || '').split('/')[0].trim();
+    const p3 = String(verbObj.v3 || '').split('/')[0].trim();
+    speakText([p1, p2, p3].filter(Boolean).join(', '), { triggerEl: triggerEl });
+  }
+
+  function renderIrregularTable() {
+    const tbody = $('irregTableBody');
+    const emptyEl = $('irregEmptyState');
+    if (!tbody || !emptyEl) return;
+
+    const list = getFilteredIrregularVerbs();
+    const staffCanEdit = isStaff();
+    tbody.innerHTML = '';
+
+    if (list.length === 0) {
+      emptyEl.classList.remove('hidden');
+      refreshIcons();
+      return;
+    }
+    emptyEl.classList.add('hidden');
+
+    list.forEach(function (v, idx) {
+      const tr = document.createElement('tr');
+      tr.className = 'irreg-row';
+      const formMaskCls = irregState.hideForms ? 'irreg-masked-cell' : '';
+      const uzMaskCls = irregState.hideUz ? 'irreg-masked-cell' : '';
+
+      tr.innerHTML =
+        '<td class="py-3.5 px-4 font-extrabold text-slate-500 dark:text-slate-400 tabular-nums text-xs sm:text-sm">' + (idx + 1) + '</td>' +
+        '<td class="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white text-sm sm:text-base notranslate" translate="no">' +
+          escapeHtml(v.v1) +
+          (irregState.activeTopic === 'ALL' && v.topic
+            ? '<div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 truncate max-w-[180px]">' + escapeHtml(v.topic) + '</div>'
+            : '') +
+        '</td>' +
+        '<td data-maskable-cell class="py-3.5 px-4 font-semibold text-sky-800 dark:text-sky-300 text-sm sm:text-base notranslate ' + formMaskCls + '" translate="no">' + escapeHtml(v.v2) + '</td>' +
+        '<td data-maskable-cell class="py-3.5 px-4 font-semibold text-sky-800 dark:text-sky-300 text-sm sm:text-base notranslate ' + formMaskCls + '" translate="no">' + escapeHtml(v.v3) + '</td>' +
+        '<td data-maskable-cell class="py-3.5 px-4 font-semibold text-teal-700 dark:text-emerald-300 text-sm sm:text-base ' + uzMaskCls + '">' + escapeHtml(v.translation) + '</td>' +
+        '<td class="py-3.5 px-4 text-right whitespace-nowrap">' +
+          '<div class="inline-flex items-center gap-1">' +
+            '<button type="button" data-irreg-speak class="p-2 rounded-xl hover:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300" title="V1, V2, V3 talaffuzini eshitish"><i data-lucide="volume-2" class="w-4 h-4"></i></button>' +
+            (staffCanEdit
+              ? '<button type="button" data-irreg-edit class="p-2 rounded-xl hover:bg-amber-500/15 text-amber-600 dark:text-amber-300" title="Tahrirlash"><i data-lucide="pencil" class="w-4 h-4"></i></button>' +
+                '<button type="button" data-irreg-delete class="p-2 rounded-xl hover:bg-rose-500/15 text-rose-600 dark:text-rose-400" title="O‘chirish"><i data-lucide="trash-2" class="w-4 h-4"></i></button>'
+              : '') +
+          '</div>' +
+        '</td>';
+
+      tr.querySelectorAll('[data-maskable-cell]').forEach(function (td) {
+        td.addEventListener('click', function () {
+          if (td.classList.contains('irreg-masked-cell')) {
+            td.classList.toggle('is-revealed');
+          }
+        });
+      });
+
+      tr.querySelector('[data-irreg-speak]').addEventListener('click', function (e) {
+        speakIrregularVerbRow(v, e.currentTarget);
+      });
+
+      const editBtn = tr.querySelector('[data-irreg-edit]');
+      if (editBtn) {
+        editBtn.addEventListener('click', function () {
+          startEditIrregularVerb(v);
+        });
+      }
+      const delBtn = tr.querySelector('[data-irreg-delete]');
+      if (delBtn) {
+        delBtn.addEventListener('click', function () {
+          deleteIrregularVerb(v);
+        });
+      }
+
+      tbody.appendChild(tr);
+    });
+
+    refreshIcons();
+  }
+
+  function resetSingleIrregularForm() {
+    if ($('irregEditIdInput')) $('irregEditIdInput').value = '';
+    if ($('irregV1Input')) $('irregV1Input').value = '';
+    if ($('irregV2Input')) $('irregV2Input').value = '';
+    if ($('irregV3Input')) $('irregV3Input').value = '';
+    if ($('irregUzInput')) $('irregUzInput').value = '';
+    if ($('irregFormTitle')) $('irregFormTitle').textContent = '2. Bittalab fe’l qo‘shish (V1 · V2 · V3 · O‘zbekcha)';
+    if ($('irregSingleSubmitBtn')) $('irregSingleSubmitBtn').textContent = '+ Fe’l qo‘shish';
+    if ($('irregSingleCancelBtn')) $('irregSingleCancelBtn').classList.add('hidden');
+  }
+
+  function startEditIrregularVerb(verbObj) {
+    if (!isStaff() || !verbObj) return;
+    if ($('irregEditorPanel')) $('irregEditorPanel').classList.remove('hidden');
+    syncIrregTopicSelects();
+    if ($('irregTargetTopicSelect') && verbObj.topic) {
+      $('irregTargetTopicSelect').value = verbObj.topic;
+      if ($('irregNewTopicWrap')) $('irregNewTopicWrap').classList.add('hidden');
+    }
+    if ($('irregEditIdInput')) $('irregEditIdInput').value = verbObj.id;
+    if ($('irregV1Input')) $('irregV1Input').value = verbObj.v1 || '';
+    if ($('irregV2Input')) $('irregV2Input').value = verbObj.v2 || '';
+    if ($('irregV3Input')) $('irregV3Input').value = verbObj.v3 || '';
+    if ($('irregUzInput')) $('irregUzInput').value = verbObj.translation || '';
+    if ($('irregFormTitle')) $('irregFormTitle').textContent = 'Fe’lni tahrirlash: ' + verbObj.v1;
+    if ($('irregSingleSubmitBtn')) $('irregSingleSubmitBtn').textContent = 'Saqlash';
+    if ($('irregSingleCancelBtn')) $('irregSingleCancelBtn').classList.remove('hidden');
+    if ($('irregV1Input')) $('irregV1Input').focus();
+  }
+
+  function resolveTargetIrregularTopicOrCreate() {
+    const sel = $('irregTargetTopicSelect');
+    if (!sel) return (getIrregularTopics()[0] && getIrregularTopics()[0].name) || '1-mavzu';
+    if (sel.value !== '__NEW__') {
+      return sel.value;
+    }
+    const newName = ($('irregNewTopicNameInput') ? $('irregNewTopicNameInput').value : '').trim();
+    const newDesc = ($('irregNewTopicDescInput') ? $('irregNewTopicDescInput').value : '').trim();
+    if (!newName) {
+      showToast('Yangi mavzu nomini kiriting!', 'warning');
+      if ($('irregNewTopicNameInput')) $('irregNewTopicNameInput').focus();
+      return '';
+    }
+    const topics = getIrregularTopics().slice();
+    const existing = topics.find(function (t) { return (t.name || '').toLowerCase() === newName.toLowerCase(); });
+    if (!existing) {
+      const created = Irregular.normalizeTopicRecord({
+        name: newName,
+        description: newDesc,
+        order: topics.length + 1
+      }, topics.length);
+      topics.push(created);
+      state.irregularTopics = topics;
+    }
+    irregState.activeTopic = existing ? existing.name : newName;
+    if ($('irregNewTopicNameInput')) $('irregNewTopicNameInput').value = '';
+    if ($('irregNewTopicDescInput')) $('irregNewTopicDescInput').value = '';
+    syncIrregTopicSelects();
+    if ($('irregTargetTopicSelect')) $('irregTargetTopicSelect').value = irregState.activeTopic;
+    if ($('irregNewTopicWrap')) $('irregNewTopicWrap').classList.add('hidden');
+    return irregState.activeTopic;
+  }
+
+  function handleCreateIrregularTopic() {
+    if (!isStaff()) return;
+    const topicName = resolveTargetIrregularTopicOrCreate();
+    if (!topicName) return;
+    persistCurriculum('IRREG_TOPIC_CREATE', topicName);
+    renderIrregularView({ restartPractice: true });
+    showToast('"' + topicName + '" mavzusi tayyor! Endi unga fe’llar kiritishingiz mumkin.', 'success');
+  }
+
+  function handleSingleIrregularSubmit(e) {
+    e.preventDefault();
+    if (!isStaff() || !Irregular) return;
+
+    const topicName = resolveTargetIrregularTopicOrCreate();
+    if (!topicName) return;
+
+    const editId = ($('irregEditIdInput') ? $('irregEditIdInput').value : '').trim();
+    const v1 = Irregular.cleanFormString($('irregV1Input') ? $('irregV1Input').value : '').toLowerCase();
+    const v2 = Irregular.cleanFormString($('irregV2Input') ? $('irregV2Input').value : '').toLowerCase();
+    const v3 = Irregular.cleanFormString($('irregV3Input') ? $('irregV3Input').value : '').toLowerCase();
+    const translation = String($('irregUzInput') ? $('irregUzInput').value : '').trim();
+
+    if (!v1 || !v2 || !v3 || !translation) {
+      showToast('V1, V2, V3 va O‘zbekcha ma’noni to‘liq kiriting!', 'warning');
+      return;
+    }
+
+    const now = Date.now();
+    if (editId) {
+      state.irregularVerbs = getIrregularVerbs().map(function (item) {
+        if (item.id !== editId) return item;
+        return Object.assign({}, item, {
+          v1: v1,
+          v2: v2,
+          v3: v3,
+          translation: translation,
+          topic: topicName,
+          updatedAt: now
+        });
+      });
+      persistCurriculum('IRREG_VERB_EDIT', v1 + ' (' + topicName + ')');
+      showToast('"' + v1 + '" muvaffaqiyatli yangilandi!', 'success');
+    } else {
+      const merged = Irregular.mergeIrregularEntries(
+        state.irregularTopics,
+        state.irregularVerbs,
+        [{ name: topicName }],
+        [{ v1: v1, v2: v2, v3: v3, translation: translation, topic: topicName }],
+        now
+      );
+      state.irregularTopics = merged.irregularTopics;
+      state.irregularVerbs = merged.irregularVerbs;
+      persistCurriculum('IRREG_VERB_ADD', v1 + ' -> ' + v2 + ' / ' + v3 + ' (' + topicName + ')');
+      showToast('"' + v1 + '" (' + topicName + ') ro‘yxatga qo‘shildi!', 'success');
+    }
+
+    irregState.activeTopic = topicName;
+    resetSingleIrregularForm();
+    renderIrregularView({ restartPractice: true });
+    if ($('irregV1Input')) $('irregV1Input').focus();
+  }
+
+  function handleBulkIrregularSave() {
+    if (!isStaff() || !Irregular) return;
+    const raw = ($('irregBulkInput') ? $('irregBulkInput').value : '').trim();
+    if (!raw) {
+      showToast('Avval noto‘g‘ri fe’llar ro‘yxatini yozing yoki .TXT fayl yuklang!', 'warning');
+      return;
+    }
+
+    let fallbackTopic = (getIrregularTopics()[0] && getIrregularTopics()[0].name) || '1-mavzu';
+    const sel = $('irregTargetTopicSelect');
+    if (sel) {
+      if (sel.value === '__NEW__') {
+        const typedNew = ($('irregNewTopicNameInput') ? $('irregNewTopicNameInput').value : '').trim();
+        if (typedNew) fallbackTopic = typedNew;
+      } else if (sel.value) {
+        fallbackTopic = sel.value;
+      }
+    }
+
+    const parsed = Irregular.parseIrregularBulkText(raw, { fallbackTopic: fallbackTopic });
+    if (!parsed.entries.length) {
+      showToast('Matndan V1 | V2 | V3 | O‘zbekcha formatidagi qatorlar topilmadi.', 'error');
+      return;
+    }
+
+    const merged = Irregular.mergeIrregularEntries(
+      state.irregularTopics,
+      state.irregularVerbs,
+      parsed.topics,
+      parsed.entries,
+      Date.now()
+    );
+    state.irregularTopics = merged.irregularTopics;
+    state.irregularVerbs = merged.irregularVerbs;
+
+    if (parsed.topics.length === 1) {
+      irregState.activeTopic = parsed.topics[0].name;
+    } else if (parsed.topics.length > 1) {
+      irregState.activeTopic = parsed.topics[parsed.topics.length - 1].name;
+    }
+
+    if ($('irregBulkInput')) $('irregBulkInput').value = '';
+    if ($('irregNewTopicNameInput')) $('irregNewTopicNameInput').value = '';
+    if ($('irregNewTopicDescInput')) $('irregNewTopicDescInput').value = '';
+
+    persistCurriculum(
+      'IRREG_BULK_IMPORT',
+      merged.summary.added + ' yangi, ' + merged.summary.updated + ' yangilandi (' + parsed.topics.length + ' mavzu)'
+    );
+    renderIrregularView({ restartPractice: true });
+    showToast(
+      merged.summary.added + ' ta yangi noto‘g‘ri fe’l qo‘shildi' +
+        (merged.summary.updated ? ', ' + merged.summary.updated + ' tasi yangilandi' : '') + '!',
+      'success'
+    );
+  }
+
+  function handleIrregularFilesSelected(e) {
+    const files = e.target && e.target.files ? Array.from(e.target.files) : [];
+    if (!files.length) return;
+    Promise.all(files.map(function (file) {
+      return new Promise(function (resolve) {
+        const reader = new FileReader();
+        reader.onload = function () {
+          const baseTitle = String(file.name || '').replace(/\.txt$/i, '').trim();
+          const content = String(reader.result || '').trim();
+          if (content && !/^#/.test(content) && baseTitle) {
+            resolve('# ' + baseTitle + '\n' + content);
+          } else {
+            resolve(content);
+          }
+        };
+        reader.onerror = function () { resolve(''); };
+        reader.readAsText(file, 'utf-8');
+      });
+    })).then(function (chunks) {
+      const combined = chunks.filter(Boolean).join('\n\n');
+      if ($('irregBulkInput')) {
+        $('irregBulkInput').value = combined;
+      }
+      showToast(files.length + ' ta .TXT fayl o‘qildi. "Mavzularga saqlash" tugmasini bosing.', 'info');
+    });
+    e.target.value = '';
+  }
+
+  function deleteIrregularVerb(verbObj) {
+    if (!isStaff() || !verbObj) return;
+    openConfirm(
+      'Noto‘g‘ri fe’lni o‘chirish',
+      '"' + verbObj.v1 + ' (' + verbObj.v2 + ' / ' + verbObj.v3 + ')" fe’lini ro‘yxatdan o‘chirmoqchimisiz?',
+      function () {
+        state.irregularVerbs = getIrregularVerbs().filter(function (v) { return v.id !== verbObj.id; });
+        persistCurriculum('IRREG_VERB_DELETE', verbObj.v1 + ' (' + (verbObj.topic || '') + ')');
+        renderIrregularView({ restartPractice: true });
+        showToast('"' + verbObj.v1 + '" o‘chirildi.', 'info');
+      }
+    );
+  }
+
+  function deleteIrregularTopic(topicName) {
+    if (!isStaff()) return;
+    const clean = String(topicName || '').trim();
+    if (!clean || clean === 'ALL') return;
+    const lower = clean.toLowerCase();
+    const affected = getIrregularVerbs().filter(function (v) {
+      return (v.topic || '').toLowerCase() === lower;
+    });
+
+    openConfirm(
+      'Mavzuni o‘chirish',
+      '"' + clean + '" mavzusi va uning barcha ' + affected.length + ' ta noto‘g‘ri fe’lini butunlay o‘chirmoqchimisiz?',
+      function () {
+        state.irregularVerbs = getIrregularVerbs().filter(function (v) {
+          return (v.topic || '').toLowerCase() !== lower;
+        });
+        state.irregularTopics = getIrregularTopics().filter(function (t) {
+          return (t.name || '').toLowerCase() !== lower;
+        });
+        if (irregState.activeTopic.toLowerCase() === lower) {
+          irregState.activeTopic = 'ALL';
+        }
+        persistCurriculum('IRREG_TOPIC_DELETE', clean + ' (' + affected.length + ' ta fe’l)');
+        renderIrregularView({ restartPractice: true });
+        showToast('"' + clean + '" mavzusi o‘chirildi.', 'info');
+      }
+    );
+  }
+
+  function handleExportIrregularTxt() {
+    if (!Irregular) return;
+    const txt = Irregular.exportIrregularToTXT(getIrregularTopics(), getIrregularVerbs());
+    downloadFile('swe-notogri-fellar-mavzular.txt', txt, 'text/plain;charset=utf-8');
+    showToast('Noto‘g‘ri fe’llar mavzular bo‘yicha .TXT faylga yuklandi!', 'success');
+  }
+
+  function getIrregularPracticePool() {
+    const lower = irregState.activeTopic.toLowerCase();
+    return getIrregularVerbs().filter(function (v) {
+      return irregState.activeTopic === 'ALL' || (v.topic || '').toLowerCase() === lower;
+    });
+  }
+
+  function buildIrregularQuizOptions(targetVerb) {
+    const all = getIrregularVerbs();
+    const targetLabel = targetVerb.v2 + '  →  ' + targetVerb.v3;
+    const usedLabels = new Set([targetLabel.toLowerCase()]);
+    const distractors = [];
+
+    const candidates = SRS.shuffle(all.filter(function (v) { return v.id !== targetVerb.id; }));
+    for (let i = 0; i < candidates.length && distractors.length < 3; i++) {
+      const lbl = candidates[i].v2 + '  →  ' + candidates[i].v3;
+      if (!usedLabels.has(lbl.toLowerCase())) {
+        usedLabels.add(lbl.toLowerCase());
+        distractors.push({ label: lbl, isCorrect: false });
+      }
+    }
+
+    const fallbacks = [
+      targetVerb.v1 + 'ed  →  ' + targetVerb.v1 + 'ed',
+      targetVerb.v1 + '  →  ' + targetVerb.v1 + 'en',
+      targetVerb.v2 + '  →  ' + targetVerb.v1 + 'ed'
+    ];
+    for (let f = 0; f < fallbacks.length && distractors.length < 3; f++) {
+      if (!usedLabels.has(fallbacks[f].toLowerCase())) {
+        usedLabels.add(fallbacks[f].toLowerCase());
+        distractors.push({ label: fallbacks[f], isCorrect: false });
+      }
+    }
+
+    return SRS.shuffle([{ label: targetLabel, isCorrect: true }].concat(distractors));
+  }
+
+  function initIrregularPractice() {
+    const pool = getIrregularPracticePool();
+    const scopeKey = irregState.activeTopic.toLowerCase() + '|' + irregState.practiceMode;
+    irregState.practiceScopeKey = scopeKey;
+    irregState.practiceItems = SRS.shuffle(pool).slice(0, Math.min(20, pool.length));
+    irregState.practiceIndex = 0;
+    irregState.practiceScore = 0;
+    irregState.practiceAnswered = false;
+    irregState.practiceOptions = [];
+    irregState.practiceWrong = [];
+    renderIrregularPracticeStep();
+  }
+
+  function renderIrregularPracticeStep() {
+    const emptyWrap = $('irregPracticeEmptyWrap');
+    const activeWrap = $('irregPracticeActiveWrap');
+    const summaryWrap = $('irregPracticeSummaryWrap');
+    if (!emptyWrap || !activeWrap || !summaryWrap) return;
+
+    const total = irregState.practiceItems.length;
+    if (total === 0) {
+      emptyWrap.classList.remove('hidden');
+      activeWrap.classList.add('hidden');
+      summaryWrap.classList.add('hidden');
+      return;
+    }
+
+    emptyWrap.classList.add('hidden');
+
+    if (irregState.practiceIndex >= total) {
+      activeWrap.classList.add('hidden');
+      summaryWrap.classList.remove('hidden');
+      const pct = Math.round((irregState.practiceScore / total) * 100);
+      if ($('irregSummaryScore')) {
+        $('irregSummaryScore').textContent = 'Natija: ' + irregState.practiceScore + ' / ' + total + ' (' + pct + '%)';
+      }
+      if ($('irregSummaryDetail')) {
+        $('irregSummaryDetail').textContent = (irregState.activeTopic === 'ALL' ? 'Barcha mavzular' : irregState.activeTopic) + ' bo‘yicha mashq yakunlandi.';
+      }
+      const wrongWrap = $('irregSummaryWrongWrap');
+      const wrongList = $('irregSummaryWrongList');
+      if (wrongWrap && wrongList) {
+        wrongList.innerHTML = '';
+        if (irregState.practiceWrong.length > 0) {
+          wrongWrap.classList.remove('hidden');
+          irregState.practiceWrong.forEach(function (w) {
+            const row = document.createElement('div');
+            row.className = 'p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 flex flex-wrap items-center justify-between gap-2';
+            row.innerHTML =
+              '<span class="font-mono-ipa font-extrabold text-slate-900 dark:text-white">' + escapeHtml(w.v1 + ' → ' + w.v2 + ' → ' + w.v3) + '</span>' +
+              '<span class="font-semibold text-slate-600 dark:text-slate-300">' + escapeHtml(w.translation) + '</span>';
+            wrongList.appendChild(row);
+          });
+        } else {
+          wrongWrap.classList.add('hidden');
+        }
+      }
+
+      emitStudentTelemetry({
+        type: 'IRREGULAR_FINISH',
+        view: 'irregular',
+        mode: 'irregular-' + irregState.practiceMode,
+        lesson: irregState.activeTopic !== 'ALL' ? irregState.activeTopic : '',
+        irregularFinished: true,
+        detail: 'Noto‘g‘ri fe’llar mashqini yakunladi: ' + irregState.practiceScore + '/' + total + ' (' + pct + '%)'
+      });
+      refreshIcons();
+      return;
+    }
+
+    summaryWrap.classList.add('hidden');
+    activeWrap.classList.remove('hidden');
+
+    const item = irregState.practiceItems[irregState.practiceIndex];
+    irregState.practiceAnswered = false;
+
+    if ($('irregPracticeCounter')) $('irregPracticeCounter').textContent = 'Fe’l ' + (irregState.practiceIndex + 1) + ' / ' + total;
+    if ($('irregPracticeScore')) $('irregPracticeScore').textContent = 'To‘g‘ri: ' + irregState.practiceScore;
+    if ($('irregPracticeBar')) $('irregPracticeBar').style.width = Math.round((irregState.practiceIndex / total) * 100) + '%';
+    if ($('irregPracticeTopicBadge')) $('irregPracticeTopicBadge').textContent = item.topic || 'Noto‘g‘ri fe’l';
+    if ($('irregPracticeUz')) $('irregPracticeUz').textContent = item.translation;
+    if ($('irregPracticeV1')) $('irregPracticeV1').textContent = item.v1;
+    if ($('irregPracticeFeedback')) {
+      $('irregPracticeFeedback').classList.add('hidden');
+      $('irregPracticeFeedback').textContent = '';
+    }
+    if ($('irregPracticeNextBtn')) $('irregPracticeNextBtn').classList.add('hidden');
+
+    const isForms = irregState.practiceMode === 'forms';
+    if ($('irregFormsDrillForm')) $('irregFormsDrillForm').classList.toggle('hidden', !isForms);
+    if ($('irregQuizOptionsGrid')) $('irregQuizOptionsGrid').classList.toggle('hidden', isForms);
+
+    if (isForms) {
+      const v2Inp = $('irregDrillV2Input');
+      const v3Inp = $('irregDrillV3Input');
+      if (v2Inp) {
+        v2Inp.value = '';
+        v2Inp.disabled = false;
+        v2Inp.className = 'w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 text-base font-extrabold font-mono-ipa notranslate';
+      }
+      if (v3Inp) {
+        v3Inp.value = '';
+        v3Inp.disabled = false;
+        v3Inp.className = 'w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 text-base font-extrabold font-mono-ipa notranslate';
+      }
+      if ($('irregDrillSubmitBtn')) $('irregDrillSubmitBtn').classList.remove('hidden');
+      if (v2Inp) v2Inp.focus();
+    } else {
+      irregState.practiceOptions = buildIrregularQuizOptions(item);
+      const grid = $('irregQuizOptionsGrid');
+      if (grid) {
+        grid.innerHTML = '';
+        irregState.practiceOptions.forEach(function (opt, idx) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn-tactile p-4 rounded-2xl bg-white/85 dark:bg-slate-900/85 border-2 border-slate-200 dark:border-slate-700 hover:border-indigo-400 text-left font-mono-ipa font-extrabold text-sm flex items-center gap-2.5 notranslate';
+          btn.setAttribute('translate', 'no');
+          btn.innerHTML =
+            '<span class="w-6 h-6 rounded-lg bg-slate-200/80 dark:bg-slate-800 text-xs font-extrabold inline-flex items-center justify-center shrink-0">' + (idx + 1) + '</span>' +
+            '<span>' + escapeHtml(opt.label) + '</span>';
+          btn.addEventListener('click', function () {
+            selectIrregularQuizOption(idx);
+          });
+          grid.appendChild(btn);
+        });
+      }
+    }
+
+    refreshIcons();
+  }
+
+  function showIrregularPracticeFeedback(item, isAllOk, detailText) {
+    const fb = $('irregPracticeFeedback');
+    if (fb) {
+      fb.classList.remove('hidden');
+      fb.className = 'p-4 rounded-2xl text-xs sm:text-sm font-bold ' +
+        (isAllOk
+          ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-800 dark:text-emerald-200'
+          : 'bg-rose-500/15 border border-rose-500/30 text-rose-800 dark:text-rose-200');
+      fb.textContent = detailText;
+    }
+    const nextBtn = $('irregPracticeNextBtn');
+    if (nextBtn) {
+      nextBtn.textContent = (irregState.practiceIndex + 1 >= irregState.practiceItems.length)
+        ? 'Natijani ko‘rish →'
+        : 'Keyingi fe’l →';
+      nextBtn.classList.remove('hidden');
+    }
+    speakIrregularVerbRow(item, $('irregPracticeSpeakBtn'));
+
+    emitStudentTelemetry({
+      type: 'IRREGULAR_PRACTICE',
+      view: 'irregular',
+      mode: 'irregular-' + irregState.practiceMode,
+      lesson: item.topic || '',
+      word: item.v1,
+      isCorrect: isAllOk,
+      irregularCorrectDelta: isAllOk ? 1 : 0,
+      irregularTotalDelta: 1,
+      countAsStudyActivity: true,
+      detail: 'Noto‘g‘ri fe’l "' + item.v1 + '" (' + item.v2 + ' / ' + item.v3 + '): ' + (isAllOk ? 'To‘g‘ri' : 'Xato')
+    });
+  }
+
+  function checkIrregularFormsDrill(e) {
+    e.preventDefault();
+    if (irregState.practiceAnswered || !Irregular) return;
+    const item = irregState.practiceItems[irregState.practiceIndex];
+    if (!item) return;
+
+    const v2Inp = $('irregDrillV2Input');
+    const v3Inp = $('irregDrillV3Input');
+    const userV2 = v2Inp ? v2Inp.value.trim() : '';
+    const userV3 = v3Inp ? v3Inp.value.trim() : '';
+
+    if (!userV2 || !userV3) {
+      showToast('Iltimos, V2 va V3 shakllarini yozing!', 'warning');
+      if (!userV2 && v2Inp) v2Inp.focus();
+      else if (v3Inp) v3Inp.focus();
+      return;
+    }
+
+    const grade = Irregular.gradeIrregularPair(userV2, userV3, item);
+    irregState.practiceAnswered = true;
+    if (grade.allOk) {
+      irregState.practiceScore++;
+    } else {
+      irregState.practiceWrong.push(item);
+    }
+
+    if (v2Inp) {
+      v2Inp.disabled = true;
+      v2Inp.className = 'w-full px-4 py-3 rounded-2xl border-2 text-base font-extrabold font-mono-ipa notranslate ' +
+        (grade.v2Ok ? 'bg-emerald-500/10 border-emerald-500 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/10 border-rose-500 text-rose-700 dark:text-rose-300');
+    }
+    if (v3Inp) {
+      v3Inp.disabled = true;
+      v3Inp.className = 'w-full px-4 py-3 rounded-2xl border-2 text-base font-extrabold font-mono-ipa notranslate ' +
+        (grade.v3Ok ? 'bg-emerald-500/10 border-emerald-500 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/10 border-rose-500 text-rose-700 dark:text-rose-300');
+    }
+    if ($('irregDrillSubmitBtn')) $('irregDrillSubmitBtn').classList.add('hidden');
+    if ($('irregPracticeScore')) $('irregPracticeScore').textContent = 'To‘g‘ri: ' + irregState.practiceScore;
+
+    const msg = grade.allOk
+      ? ('Barakalla! ' + item.v1 + ' → ' + item.v2 + ' → ' + item.v3 + ' (' + item.translation + ')')
+      : ('To‘g‘ri shakl: ' + item.v1 + ' → ' + item.v2 + ' → ' + item.v3 + ' (' + item.translation + ')');
+    showIrregularPracticeFeedback(item, grade.allOk, msg);
+  }
+
+  function selectIrregularQuizOption(optIdx) {
+    if (irregState.practiceAnswered) return;
+    const item = irregState.practiceItems[irregState.practiceIndex];
+    const chosen = irregState.practiceOptions[optIdx];
+    if (!item || !chosen) return;
+
+    irregState.practiceAnswered = true;
+    if (chosen.isCorrect) {
+      irregState.practiceScore++;
+    } else {
+      irregState.practiceWrong.push(item);
+    }
+
+    const grid = $('irregQuizOptionsGrid');
+    if (grid) {
+      Array.from(grid.children).forEach(function (btn, idx) {
+        const opt = irregState.practiceOptions[idx];
+        btn.disabled = true;
+        if (opt && opt.isCorrect) {
+          btn.className = 'p-4 rounded-2xl bg-emerald-500/15 border-2 border-emerald-500 text-emerald-800 dark:text-emerald-200 text-left font-mono-ipa font-extrabold text-sm flex items-center gap-2.5 notranslate';
+        } else if (idx === optIdx) {
+          btn.className = 'p-4 rounded-2xl bg-rose-500/15 border-2 border-rose-500 text-rose-800 dark:text-rose-200 text-left font-mono-ipa font-extrabold text-sm flex items-center gap-2.5 notranslate';
+        }
+      });
+    }
+    if ($('irregPracticeScore')) $('irregPracticeScore').textContent = 'To‘g‘ri: ' + irregState.practiceScore;
+
+    const msg = chosen.isCorrect
+      ? ('To‘g‘ri! ' + item.v1 + ' → ' + item.v2 + ' → ' + item.v3)
+      : ('Xato! To‘g‘ri javob: ' + item.v1 + ' → ' + item.v2 + ' → ' + item.v3);
+    showIrregularPracticeFeedback(item, chosen.isCorrect, msg);
+  }
+
+  function renderIrregularView(options) {
+    const opts = options || {};
+    syncIrregTopicSelects();
+    applyIrregSubTabUI();
+    renderIrregularTopicsStrip();
+    renderIrregularTable();
+
+    if (irregState.subTab === 'practice') {
+      const expectedScope = irregState.activeTopic.toLowerCase() + '|' + irregState.practiceMode;
+      const hasOngoing = irregState.practiceItems.length > 0 &&
+        irregState.practiceIndex < irregState.practiceItems.length &&
+        irregState.practiceScopeKey === expectedScope;
+      if (opts.restartPractice || !hasOngoing) {
+        initIrregularPractice();
+      } else {
+        renderIrregularPracticeStep();
+      }
+    } else {
+      refreshIcons();
+    }
   }
 
   /* ==================== AUTH GATE, ROLES & LIVE SYNC ==================== */
@@ -4949,6 +5827,29 @@
       return;
     }
 
+    if (currentView === 'irregular' && irregState.subTab === 'practice') {
+      if ((e.key === 's' || e.key === 'S') && tag !== 'INPUT' && tag !== 'TEXTAREA') {
+        const curIr = irregState.practiceItems[irregState.practiceIndex];
+        if (curIr) {
+          e.preventDefault();
+          speakText(curIr.v1, { triggerEl: $('irregPracticeSpeakBtn') });
+        }
+        return;
+      }
+      if (irregState.practiceMode === 'quiz' && !irregState.practiceAnswered && ['1', '2', '3', '4'].indexOf(e.key) !== -1 && irregState.practiceIndex < irregState.practiceItems.length) {
+        e.preventDefault();
+        selectIrregularQuizOption(Number(e.key) - 1);
+        return;
+      }
+      if ((e.key === 'ArrowRight' || (e.key === 'Enter' && tag !== 'BUTTON')) && irregState.practiceAnswered && irregState.practiceIndex < irregState.practiceItems.length) {
+        e.preventDefault();
+        irregState.practiceIndex++;
+        renderIrregularPracticeStep();
+        return;
+      }
+      return;
+    }
+
     if (currentView !== 'study') return;
 
     // 'S' speaks the current word across active practice modes (disabled during closed exam)
@@ -5122,6 +6023,17 @@
       currentStudyMode = 'flashcards';
       switchView('study', { restartStudy: true });
     });
+
+    if ($('dashOpenIrregularBtn')) {
+      $('dashOpenIrregularBtn').addEventListener('click', function () {
+        switchView('irregular', { irregSubTab: 'table' });
+      });
+    }
+    if ($('dashPracticeIrregularBtn')) {
+      $('dashPracticeIrregularBtn').addEventListener('click', function () {
+        switchView('irregular', { irregSubTab: 'practice', restartPractice: true });
+      });
+    }
 
     // User badge & Logout
     if ($('userBadgeBtn')) {
@@ -5420,6 +6332,109 @@
       });
     }
 
+    // Irregular Verbs View (Table + Topic Input Studio + Practice)
+    document.querySelectorAll('[data-irreg-tab]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        irregState.subTab = btn.getAttribute('data-irreg-tab') || 'table';
+        renderIrregularView({ restartPractice: false });
+      });
+    });
+    document.querySelectorAll('[data-irreg-practice-mode]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        irregState.practiceMode = btn.getAttribute('data-irreg-practice-mode') || 'forms';
+        initIrregularPractice();
+        applyIrregSubTabUI();
+      });
+    });
+    if ($('toggleIrregEditorBtn')) {
+      $('toggleIrregEditorBtn').addEventListener('click', function () {
+        if (!isStaff() || !$('irregEditorPanel')) return;
+        $('irregEditorPanel').classList.toggle('hidden');
+        syncIrregTopicSelects();
+        refreshIcons();
+      });
+    }
+    if ($('irregExportTxtBtn')) {
+      $('irregExportTxtBtn').addEventListener('click', handleExportIrregularTxt);
+    }
+    if ($('irregTargetTopicSelect')) {
+      $('irregTargetTopicSelect').addEventListener('change', function (e) {
+        if ($('irregNewTopicWrap')) {
+          $('irregNewTopicWrap').classList.toggle('hidden', e.target.value !== '__NEW__');
+        }
+      });
+    }
+    if ($('irregCreateTopicBtn')) {
+      $('irregCreateTopicBtn').addEventListener('click', handleCreateIrregularTopic);
+    }
+    if ($('irregSingleForm')) {
+      $('irregSingleForm').addEventListener('submit', handleSingleIrregularSubmit);
+    }
+    if ($('irregSingleCancelBtn')) {
+      $('irregSingleCancelBtn').addEventListener('click', resetSingleIrregularForm);
+    }
+    if ($('irregLoadSampleBtn')) {
+      $('irregLoadSampleBtn').addEventListener('click', function () {
+        if ($('irregBulkInput') && Irregular) {
+          $('irregBulkInput').value = Irregular.SAMPLE_IRREGULAR_TXT;
+        }
+      });
+    }
+    if ($('irregFileInput')) {
+      $('irregFileInput').addEventListener('change', handleIrregularFilesSelected);
+    }
+    if ($('irregBulkSaveBtn')) {
+      $('irregBulkSaveBtn').addEventListener('click', handleBulkIrregularSave);
+    }
+    if ($('irregSearchInput')) {
+      $('irregSearchInput').addEventListener('input', renderIrregularTable);
+    }
+    if ($('irregHideFormsBtn')) {
+      $('irregHideFormsBtn').addEventListener('click', function () {
+        irregState.hideForms = !irregState.hideForms;
+        applyIrregSubTabUI();
+        renderIrregularTable();
+      });
+    }
+    if ($('irregHideUzBtn')) {
+      $('irregHideUzBtn').addEventListener('click', function () {
+        irregState.hideUz = !irregState.hideUz;
+        applyIrregSubTabUI();
+        renderIrregularTable();
+      });
+    }
+    if ($('irregStartPracticeBtn')) {
+      $('irregStartPracticeBtn').addEventListener('click', function () {
+        irregState.subTab = 'practice';
+        renderIrregularView({ restartPractice: true });
+      });
+    }
+    if ($('irregPracticeTopicSelect')) {
+      $('irregPracticeTopicSelect').addEventListener('change', function (e) {
+        irregState.activeTopic = e.target.value || 'ALL';
+        renderIrregularView({ restartPractice: true });
+      });
+    }
+    if ($('irregPracticeSpeakBtn')) {
+      $('irregPracticeSpeakBtn').addEventListener('click', function (e) {
+        const cur = irregState.practiceItems[irregState.practiceIndex];
+        if (cur) speakText(cur.v1, { triggerEl: e.currentTarget });
+      });
+    }
+    if ($('irregFormsDrillForm')) {
+      $('irregFormsDrillForm').addEventListener('submit', checkIrregularFormsDrill);
+    }
+    if ($('irregPracticeNextBtn')) {
+      $('irregPracticeNextBtn').addEventListener('click', function () {
+        if (!irregState.practiceAnswered || irregState.practiceIndex >= irregState.practiceItems.length) return;
+        irregState.practiceIndex++;
+        renderIrregularPracticeStep();
+      });
+    }
+    if ($('irregPracticeRestartBtn')) {
+      $('irregPracticeRestartBtn').addEventListener('click', initIrregularPractice);
+    }
+
     // Students View
     if ($('toggleOpenSignupBtn')) {
       $('toggleOpenSignupBtn').addEventListener('click', handleToggleOpenSignup);
@@ -5590,6 +6605,8 @@
       } else if (currentView === 'vocabulary' && (reason === 'curriculum' || reason === 'local')) {
         syncDeckSelects();
         renderVocabulary();
+      } else if (currentView === 'irregular' && (reason === 'curriculum' || reason === 'local')) {
+        renderIrregularView({ restartPractice: false });
       } else if (currentView === 'txt-import') {
         syncDeckSelects();
         renderTxtAiStatus();

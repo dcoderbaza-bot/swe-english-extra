@@ -19,6 +19,7 @@ const Storage = require('./js/storage.js');
 const AiTxt = require('./js/ai-txt.js');
 const Exam = require('./js/exam.js');
 const Speech = require('./js/speech.js');
+const Irregular = require('./js/irregular-verbs.js');
 
 const DEFAULT_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 const SERVER_MAX_LOGIN_ATTEMPTS = 5;
@@ -186,6 +187,8 @@ function sanitizeDbForSession(db, session) {
       words: db.words,
       categories: db.categories,
       lessons: db.lessons,
+      irregularTopics: db.irregularTopics || [],
+      irregularVerbs: db.irregularVerbs || [],
       students: [],
       studentProgress: ownProgress,
       studentActivityLog: [],
@@ -220,6 +223,8 @@ function sanitizeDbForSession(db, session) {
     words: db.words,
     categories: db.categories,
     lessons: db.lessons,
+    irregularTopics: db.irregularTopics || [],
+    irregularVerbs: db.irregularVerbs || [],
     students: safeStudents,
     studentProgress: db.studentProgress || {},
     studentActivityLog: db.studentActivityLog || [],
@@ -1202,6 +1207,17 @@ function createAppServer(options) {
         }
         if (Array.isArray(body.lessons)) {
           db.lessons = body.lessons;
+        }
+        if (Array.isArray(body.irregularTopics)) {
+          db.irregularTopics = body.irregularTopics.map(function (t, idx) {
+            return Irregular.normalizeTopicRecord(t, idx);
+          }).filter(function (t) { return Boolean(t && t.name); });
+        }
+        if (Array.isArray(body.irregularVerbs)) {
+          const fallbackTopic = (db.irregularTopics && db.irregularTopics[0] && db.irregularTopics[0].name) || '';
+          db.irregularVerbs = body.irregularVerbs.map(function (v, idx) {
+            return Irregular.normalizeIrregularVerb(v, fallbackTopic, now, idx + 1);
+          }).filter(function (v) { return Boolean(v && v.v1 && v.v2 && v.v3 && v.translation); });
         }
         if (body.auditAction) {
           db.auditLog = Auth.appendAuditLog(db.auditLog, session.role, body.auditAction, body.auditDetail || '', now);

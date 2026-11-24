@@ -259,3 +259,16 @@
 ### 13-bosqich tekshiruv natijalari
 - `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
 - `node tests/verify.js`: **21/21** test to‘plami muvaffaqiyatli o‘tdi (`v5 Mobile Classroom Architecture` to‘plami bilan birga), `SECRET_HITS=0`.
+
+---
+
+## 15. Mavzu-mavzu Noto‘g‘ri Fe’llar (`V1 · V2 · V3 · O‘ZBEKCHA`) tizimi
+- **`js/irregular-verbs.js` (`SWEIrregular`):**
+  - 4 ta boshlang‘ich mavzu va 45 ta noto‘g‘ri fe’l (shu jumladan foydalanuvchi yuborgan jadvaldagi `151–165` `spin`, `spit`, `spoil`, `swell`, `swing`, `tread`, `thrust`, `undertake`, `uphold`, `wet`, `abide`, `alight`, `backslide`, `befall`, `behold` fe’llari aynan kiritildi).
+  - Ko‘p formatli `parseIrregularBulkText`: `# Mavzu` sarlavhalari, `|` ustunlar, `Tab` (Excel/jadval), `-` chiziqcha va to‘g‘ridan-to‘g‘ri jadvaldan nusxalangan qatorlarni (`163 backslide backslid backslid/backslidden eski yomon odatga qaytmoq`) avtomatik ajratib oladi.
+  - `gradeVerbForm` va `gradeIrregularPair`: ikki variantli fe’llarda (`spoilt/spoiled`, `spat/spit`, `backslid/backslidden`) istalgan to‘g‘ri variantni qabul qiladi.
+- **`js/storage.js`, `server.js`, `index.html`, `css/styles.css`, `js/app.js`:**
+  - Barcha rollar uchun menyuga **«Noto‘g‘ri fe’llar»** (`#view-irregular`) bo‘limi va Dashboard tez o‘tish kartasi qo‘shildi.
+  - Teacher va IT Manager uchun mavzu yaratish, bittalab `V1 · V2 · V3 · O‘zbekcha` qo‘shish/tahrirlash, ko‘plab `.TXT`/jadval kiritish va tasdiqlash orqali fe’l yoki butun mavzuni o‘chirish hamda real-time `/api/curriculum` sinxronizatsiyasi ulandi.
+  - O‘quvchilar uchun rasm uslubidagi `NO. | V1 | V2 | V3 | O‘ZBEKCHA` jadvali (`V2·V3` va `O‘zbekcha` ustunlarini yashirib yodlash + audio talaffuz) hamda `V2 va V3 ni yozish` va `4-variantli Test` interaktiv mashqlari qo‘shildi.
+- `node tests/verify.js`: **22/22** test to‘plami muvaffaqiyatli o‘tdi.

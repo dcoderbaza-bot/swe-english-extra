@@ -171,10 +171,14 @@
           O‘quvchilar
         </button>
 
-        <!-- Shared Vocabulary View -->
+        <!-- Shared Vocabulary & Irregular Verbs Views -->
         <button type="button" data-nav-view="vocabulary" class="nav-pill whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5">
           <i data-lucide="book-marked" class="w-4 h-4"></i>
           Lug‘atlar
+        </button>
+        <button type="button" data-nav-view="irregular" class="nav-pill whitespace-nowrap px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5">
+          <i data-lucide="table-2" class="w-4 h-4"></i>
+          Noto‘g‘ri fe’llar
         </button>
 
         <!-- IT Manager Security View -->
@@ -248,6 +252,10 @@
       <button type="button" data-nav-view="vocabulary" class="nav-pill flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">
         <i data-lucide="book-marked" class="w-3.5 h-3.5"></i>
         Lug‘atlar
+      </button>
+      <button type="button" data-nav-view="irregular" class="nav-pill flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">
+        <i data-lucide="table-2" class="w-3.5 h-3.5"></i>
+        Noto‘g‘ri fe’llar
       </button>
       <button type="button" data-nav-view="security" class="nav-pill it-only-ui hidden flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">
         <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
@@ -384,6 +392,30 @@
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
             Mastered: <span id="breakdownMastered" class="font-bold tabular-nums">0</span>
           </div>
+        </div>
+      </div>
+
+      <!-- Irregular Verbs Quick Launch Card -->
+      <div class="glass-panel rounded-3xl p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-amber-400/30">
+        <div class="space-y-1">
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 text-xs font-extrabold">
+            <i data-lucide="table-2" class="w-3.5 h-3.5"></i>
+            V1 · V2 · V3 · O‘ZBEKCHA
+          </div>
+          <h2 class="text-lg sm:text-xl font-extrabold">Noto‘g‘ri fe’llar (Mavzular bo‘yicha)</h2>
+          <p id="dashIrregularCountText" class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+            Mavzu-mavzu ajratilgan V1, V2, V3 jadvali va yozma/test mashqlari.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button type="button" id="dashOpenIrregularBtn" class="btn-tactile px-4 py-2.5 rounded-2xl glass-panel text-xs sm:text-sm font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+            <i data-lucide="table-2" class="w-4 h-4 text-amber-500"></i>
+            Jadvalni ochish
+          </button>
+          <button type="button" id="dashPracticeIrregularBtn" class="btn-tactile px-5 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:opacity-95 text-white text-xs sm:text-sm font-extrabold shadow-lg shadow-indigo-500/20 flex items-center gap-1.5">
+            <i data-lucide="pen-line" class="w-4 h-4"></i>
+            V2 · V3 Mashq
+          </button>
         </div>
       </div>
 
@@ -1702,6 +1734,301 @@
       </div>
     </section>
 
+    <!-- ==================== VIEW 7: IRREGULAR VERBS (TOPIC-BY-TOPIC V1 / V2 / V3 / O'ZBEKCHA) ==================== -->
+    <section id="view-irregular" class="hidden view-animate space-y-6">
+      <!-- Top Header & Sub-Mode Bar -->
+      <div class="glass-panel rounded-3xl p-5 sm:p-6 space-y-4">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div class="space-y-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/25 text-amber-700 dark:text-amber-300 text-xs font-extrabold">
+                <i data-lucide="table-2" class="w-3.5 h-3.5"></i>
+                V1 · V2 · V3 · O‘ZBEKCHA
+              </span>
+              <span id="irregStatsBadge" class="px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-extrabold tabular-nums">0 mavzu · 0 fe’l</span>
+            </div>
+            <h1 class="text-xl sm:text-2xl font-extrabold">Noto‘g‘ri fe’llar — Mavzular bo‘yicha</h1>
+            <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+              Har bir mavzuni alohida jadval ko‘rinishida o‘rganing, ustunlarni yashirib o‘zingizni tekshiring yoki V2/V3 mashqini bajaring.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Sub-Mode Switcher (Table vs Practice) -->
+            <div class="inline-flex items-center p-1 rounded-2xl bg-slate-200/70 dark:bg-slate-900/80 border border-slate-300/40 dark:border-slate-800">
+              <button type="button" data-irreg-tab="table" class="irreg-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition-all">
+                <i data-lucide="list-ordered" class="w-4 h-4"></i>
+                Jadval (V1·V2·V3)
+              </button>
+              <button type="button" data-irreg-tab="practice" class="irreg-tab-btn px-3.5 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition-all">
+                <i data-lucide="pen-line" class="w-4 h-4"></i>
+                Mashq qilish
+              </button>
+            </div>
+
+            <!-- Teacher / IT Manager Controls -->
+            <button type="button" id="toggleIrregEditorBtn" class="staff-only-ui hidden btn-tactile px-4 py-2.5 rounded-2xl bg-gradient-to-r from-indigo-600 to-emerald-600 hover:opacity-95 text-white text-xs sm:text-sm font-extrabold shadow-lg shadow-indigo-500/20 flex items-center gap-1.5">
+              <i data-lucide="plus-circle" class="w-4 h-4"></i>
+              <span>+ Mavzu / Fe’l Kiritish</span>
+            </button>
+            <button type="button" id="irregExportTxtBtn" class="staff-only-ui hidden btn-tactile px-3.5 py-2.5 rounded-2xl glass-panel text-xs font-extrabold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5" title="Mavzular bo‘yicha .TXT yuklab olish">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i>
+              .TXT Eksport
+            </button>
+          </div>
+        </div>
+
+        <!-- Teacher / IT Manager Collapsible Input Studio (Topic-by-Topic Entry + Bulk Paste/.TXT) -->
+        <div id="irregEditorPanel" class="staff-only-ui hidden pt-5 border-t border-slate-200/70 dark:border-slate-800 space-y-5">
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <!-- Left: Topic Selection / Creation + Single Verb Form -->
+            <div class="lg:col-span-5 p-4 sm:p-5 rounded-2xl bg-white/65 dark:bg-slate-900/65 border border-slate-200/70 dark:border-slate-800 space-y-4">
+              <div class="space-y-2">
+                <label for="irregTargetTopicSelect" class="block text-xs font-extrabold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">
+                  1. Mavzuni tanlang yoki yangi mavzu oching
+                </label>
+                <select id="irregTargetTopicSelect" class="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold"></select>
+              </div>
+
+              <div id="irregNewTopicWrap" class="hidden p-3.5 rounded-2xl bg-indigo-500/5 border border-indigo-400/25 space-y-2.5">
+                <div>
+                  <label for="irregNewTopicNameInput" class="block text-xs font-bold mb-1">Yangi mavzu nomi *</label>
+                  <input id="irregNewTopicNameInput" type="text" placeholder="masalan: 5-mavzu: Kundalik fe’llar (166–180)" class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-semibold" />
+                </div>
+                <div>
+                  <label for="irregNewTopicDescInput" class="block text-xs font-bold mb-1">Qisqacha izoh (ixtiyoriy)</label>
+                  <input id="irregNewTopicDescInput" type="text" placeholder="masalan: IELTS va muloqot uchun zarur fe’llar" class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs" />
+                </div>
+                <button type="button" id="irregCreateTopicBtn" class="btn-tactile px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold">
+                  + Shu mavzuni yaratish
+                </button>
+              </div>
+
+              <form id="irregSingleForm" class="pt-2 border-t border-slate-200/60 dark:border-slate-800 space-y-3">
+                <input type="hidden" id="irregEditIdInput" value="" />
+                <div class="flex items-center justify-between">
+                  <h3 id="irregFormTitle" class="text-xs font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-300">
+                    2. Bittalab fe’l qo‘shish (V1 · V2 · V3 · O‘zbekcha)
+                  </h3>
+                  <button type="button" id="irregSingleCancelBtn" class="hidden text-xs font-bold text-rose-600 hover:underline">Bekor qilish</button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label for="irregV1Input" class="block text-[11px] font-bold mb-1">V1 (Infinitive) *</label>
+                    <input id="irregV1Input" required type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="spin" class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-extrabold font-mono-ipa" />
+                  </div>
+                  <div>
+                    <label for="irregV2Input" class="block text-[11px] font-bold mb-1">V2 (Past Simple) *</label>
+                    <input id="irregV2Input" required type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="spun / spat/spit" class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold font-mono-ipa" />
+                  </div>
+                  <div>
+                    <label for="irregV3Input" class="block text-[11px] font-bold mb-1">V3 (Participle) *</label>
+                    <input id="irregV3Input" required type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="spun / swollen/swelled" class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold font-mono-ipa" />
+                  </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-end gap-2.5">
+                  <div class="flex-1">
+                    <label for="irregUzInput" class="block text-[11px] font-bold mb-1">O‘zbekcha ma’nosi *</label>
+                    <input id="irregUzInput" required type="text" placeholder="aylanmoq" class="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
+                  </div>
+                  <button type="submit" id="irregSingleSubmitBtn" class="btn-tactile px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold shrink-0">
+                    + Fe’l qo‘shish
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Right: Bulk Topic-by-Topic Paste / Table / .TXT Import -->
+            <div class="lg:col-span-7 p-4 sm:p-5 rounded-2xl bg-white/65 dark:bg-slate-900/65 border border-slate-200/70 dark:border-slate-800 flex flex-col justify-between gap-3">
+              <div class="space-y-2">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <label for="irregBulkInput" class="text-xs font-extrabold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+                    3. Mavzu-mavzu ro‘yxat / Jadval / .TXT ko‘chirib tashlash
+                  </label>
+                  <div class="flex items-center gap-2">
+                    <label for="irregFileInput" class="btn-tactile cursor-pointer px-3 py-1.5 rounded-xl glass-panel text-xs font-bold text-indigo-700 dark:text-indigo-300 inline-flex items-center gap-1">
+                      <i data-lucide="file-up" class="w-3.5 h-3.5"></i>
+                      .TXT fayl tanlash
+                    </label>
+                    <input id="irregFileInput" type="file" accept=".txt,text/plain" multiple class="hidden" />
+                    <button type="button" id="irregLoadSampleBtn" class="text-xs font-bold text-indigo-600 dark:text-indigo-300 hover:underline">
+                      Namuna yuklash
+                    </button>
+                  </div>
+                </div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                  Mavzu sarlavhasini <code class="font-mono-ipa"># 5-mavzu: ...</code> ko‘rinishida yozing (yoki chapdagi tanlangan mavzuga tushadi). Qatorlarni <code class="font-mono-ipa">spin | spun | spun | aylanmoq</code>, <code class="font-mono-ipa">spin - spun - spun - aylanmoq</code> yoki jadvaldan to‘g‘ridan-to‘g‘ri nusxalab tashlang (<code class="font-mono-ipa">151 spin spun spun aylanmoq</code>).
+                </p>
+                <textarea id="irregBulkInput" rows="8" placeholder="# 5-mavzu: Kundalik fe’llar&#10;151 spin | spun | spun | aylanmoq&#10;152 spit | spat/spit | spat/spit | tupurmoq&#10;153 spoil | spoilt/spoiled | spoilt/spoiled | buzmoq" class="w-full px-3.5 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-mono-ipa leading-relaxed"></textarea>
+              </div>
+
+              <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <span class="text-[11px] text-slate-500 dark:text-slate-400">Bir vaqtning o‘zida bir nechta <code class="font-mono-ipa"># Mavzu</code> kiritish ham mumkin.</span>
+                <button type="button" id="irregBulkSaveBtn" class="btn-tactile px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-emerald-600 hover:opacity-95 text-white text-xs sm:text-sm font-extrabold shadow-lg shadow-indigo-500/20 flex items-center gap-1.5">
+                  <i data-lucide="check-check" class="w-4 h-4"></i>
+                  Mavzularga saqlash
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Topics (Mavzular) Interactive Strip -->
+      <div class="glass-panel rounded-3xl p-4 sm:p-5 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <span class="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Mavzular (Topics):</span>
+          <span id="irregActiveTopicDesc" class="text-xs font-semibold text-slate-500 dark:text-slate-400"></span>
+        </div>
+        <div id="irregTopicPills" class="flex flex-wrap items-center gap-2"></div>
+      </div>
+
+      <!-- SUB-VIEW A: SCREENSHOT-STYLE IRREGULAR VERBS TABLE -->
+      <div id="irregTablePanel" class="space-y-4">
+        <!-- Search & Self-Study Mask Controls -->
+        <div class="glass-panel rounded-2xl p-3.5 sm:p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div class="relative flex-1 max-w-md">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+            <input id="irregSearchInput" type="search" placeholder="Qidirish: spin, undertook, aylanmoq..." class="w-full pl-10 pr-4 py-2 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm font-semibold" />
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" id="irregHideFormsBtn" class="btn-tactile px-3 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5" title="Yodlash uchun V2 va V3 ustunlarini yashirish (ustiga bosganda ko‘rinadi)">
+              <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
+              <span>V2 · V3 ni yashirish</span>
+            </button>
+            <button type="button" id="irregHideUzBtn" class="btn-tactile px-3 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5" title="Yodlash uchun O‘zbekcha ustunini yashirish (ustiga bosganda ko‘rinadi)">
+              <i data-lucide="eye-off" class="w-3.5 h-3.5"></i>
+              <span>O‘zbekchani yashirish</span>
+            </button>
+            <button type="button" id="irregStartPracticeBtn" class="btn-tactile px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold flex items-center gap-1.5">
+              <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+              Shu mavzudan mashq
+            </button>
+          </div>
+        </div>
+
+        <!-- Clean Striped V1 / V2 / V3 / O'ZBEKCHA Table -->
+        <div class="glass-panel rounded-3xl overflow-hidden border border-slate-200/80 dark:border-slate-800 shadow-xl">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse min-w-[600px]">
+              <thead class="irreg-table-head text-xs sm:text-sm font-extrabold uppercase tracking-wider">
+                <tr>
+                  <th class="py-3.5 px-4 w-16">NO.</th>
+                  <th class="py-3.5 px-4">V1</th>
+                  <th class="py-3.5 px-4">V2</th>
+                  <th class="py-3.5 px-4">V3</th>
+                  <th class="py-3.5 px-4">O‘ZBEKCHA</th>
+                  <th class="py-3.5 px-4 text-right w-28">AMALLAR</th>
+                </tr>
+              </thead>
+              <tbody id="irregTableBody" class="divide-y divide-slate-200/70 dark:divide-slate-800/80 text-sm"></tbody>
+            </table>
+          </div>
+
+          <div id="irregEmptyState" class="hidden p-10 text-center space-y-2">
+            <i data-lucide="inbox" class="w-9 h-9 text-slate-400 mx-auto"></i>
+            <p class="text-sm font-extrabold">Bu mavzuda hozircha fe’llar topilmadi</p>
+            <p class="text-xs text-slate-500 dark:text-slate-400">Boshqa mavzuni tanlang yoki yangi fe’llar kiriting.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUB-VIEW B: INTERACTIVE PRACTICE BY TOPIC (V2 + V3 DRILL & QUIZ) -->
+      <div id="irregPracticePanel" class="hidden max-w-2xl mx-auto space-y-5">
+        <div class="glass-panel rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="inline-flex items-center p-1 rounded-2xl bg-slate-200/70 dark:bg-slate-900/80">
+            <button type="button" data-irreg-practice-mode="forms" class="irreg-pmode-btn px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all">
+              ✍️ V2 va V3 ni yozish
+            </button>
+            <button type="button" data-irreg-practice-mode="quiz" class="irreg-pmode-btn px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all">
+              🎯 4-variantli Test
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <label for="irregPracticeTopicSelect" class="text-xs font-bold text-slate-500 dark:text-slate-400">Mavzu:</label>
+            <select id="irregPracticeTopicSelect" class="px-3 py-2 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold max-w-[230px]"></select>
+          </div>
+        </div>
+
+        <div id="irregPracticeEmptyWrap" class="hidden glass-panel rounded-3xl p-8 text-center space-y-2">
+          <p class="text-base font-extrabold">Mashq uchun kamida 1 ta noto‘g‘ri fe’l kerak</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Mavzuni almashtiring yoki yangi fe’llar qo‘shing.</p>
+        </div>
+
+        <div id="irregPracticeActiveWrap" class="glass-panel-strong rounded-3xl p-6 sm:p-8 space-y-6">
+          <div class="space-y-2">
+            <div class="flex items-center justify-between text-xs font-extrabold">
+              <span id="irregPracticeCounter" class="text-slate-700 dark:text-slate-200 tabular-nums">Fe’l 1 / 15</span>
+              <span id="irregPracticeScore" class="text-emerald-600 dark:text-emerald-400 tabular-nums">To‘g‘ri: 0</span>
+            </div>
+            <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+              <div id="irregPracticeBar" class="h-full rounded-full bg-gradient-to-r from-amber-500 via-indigo-500 to-emerald-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <div class="text-center space-y-2 py-2">
+            <span id="irregPracticeTopicBadge" class="inline-block px-3 py-1 rounded-full bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 text-xs font-bold">Mavzu</span>
+            <p id="irregPracticeUz" class="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-300">aylanmoq</p>
+            <div class="flex items-center justify-center gap-2.5">
+              <h2 id="irregPracticeV1" class="text-3xl sm:text-4xl font-extrabold tracking-tight font-mono-ipa notranslate" translate="no">spin</h2>
+              <button type="button" id="irregPracticeSpeakBtn" class="p-2.5 rounded-2xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-600 dark:text-indigo-300" title="V1 talaffuzini eshitish">
+                <i data-lucide="volume-2" class="w-5 h-5"></i>
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Ikki variantli fe’llarda istalgan birini yozsangiz ham qabul qilinadi (masalan: <code class="font-mono-ipa">spoilt</code> yoki <code class="font-mono-ipa">spoiled</code>).</p>
+          </div>
+
+          <!-- Typing Drill Form (V2 + V3) -->
+          <form id="irregFormsDrillForm" class="space-y-4" autocomplete="off">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label for="irregDrillV2Input" class="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">V2 (Past Simple)</label>
+                <input id="irregDrillV2Input" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="V2 shaklini yozing..." class="w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 text-base font-extrabold font-mono-ipa notranslate" translate="no" />
+              </div>
+              <div>
+                <label for="irregDrillV3Input" class="block text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1.5">V3 (Past Participle)</label>
+                <input id="irregDrillV3Input" type="text" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="V3 shaklini yozing..." class="w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700 text-base font-extrabold font-mono-ipa notranslate" translate="no" />
+              </div>
+            </div>
+            <button type="submit" id="irregDrillSubmitBtn" class="btn-tactile w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:opacity-95 text-white text-sm font-extrabold shadow-lg shadow-indigo-500/20">
+              Tekshirish
+            </button>
+          </form>
+
+          <!-- 4-Option Quiz Grid -->
+          <div id="irregQuizOptionsGrid" class="hidden grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+
+          <!-- Feedback & Next -->
+          <div id="irregPracticeFeedback" class="hidden p-4 rounded-2xl text-xs sm:text-sm font-bold"></div>
+          <button type="button" id="irregPracticeNextBtn" class="hidden btn-tactile w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-extrabold">
+            Keyingi fe’l →
+          </button>
+        </div>
+
+        <!-- Practice Summary Card -->
+        <div id="irregPracticeSummaryWrap" class="hidden glass-panel-strong rounded-3xl p-6 sm:p-8 text-center space-y-5">
+          <div class="w-14 h-14 rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 flex items-center justify-center mx-auto">
+            <i data-lucide="trophy" class="w-7 h-7"></i>
+          </div>
+          <div>
+            <h3 id="irregSummaryScore" class="text-2xl sm:text-3xl font-extrabold">Natija: 0 / 0 (0%)</h3>
+            <p id="irregSummaryDetail" class="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1"></p>
+          </div>
+          <div id="irregSummaryWrongWrap" class="hidden text-left space-y-2">
+            <h4 class="text-xs font-extrabold uppercase tracking-wider text-rose-600 dark:text-rose-400">Takrorlash tavsiya etiladigan fe’llar:</h4>
+            <div id="irregSummaryWrongList" class="space-y-1.5 max-h-48 overflow-y-auto text-xs"></div>
+          </div>
+          <button type="button" id="irregPracticeRestartBtn" class="btn-tactile px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-emerald-600 text-white text-sm font-extrabold">
+            Yana bir marta mashq qilish
+          </button>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- ==================== MODAL: KEYBOARD SHORTCUTS ==================== -->
@@ -1838,6 +2165,7 @@
   <script src="js/srs.js" defer></script>
   <script src="js/auth.js" defer></script>
   <script src="js/exam.js" defer></script>
+  <script src="js/irregular-verbs.js" defer></script>
   <script src="js/storage.js" defer></script>
   <script src="js/ai-txt.js" defer></script>
   <script src="js/speech.js" defer></script>

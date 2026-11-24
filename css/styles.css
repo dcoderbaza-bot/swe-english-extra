@@ -317,3 +317,50 @@ html.dark .flashcard-face {
   -moz-user-select: none;
   -webkit-touch-callout: none;
 }
+
+/* Irregular Verbs Table (Screenshot-inspired clean V1/V2/V3/O'zbekcha layout) */
+.irreg-table-head {
+  background: linear-gradient(90deg, #0d253f 0%, #133153 100%);
+  color: #f8fafc;
+}
+
+.irreg-row {
+  border-left: 4px solid #e07a48;
+  transition: background-color 0.15s ease;
+}
+
+.irreg-row:nth-child(even) {
+  background-color: rgba(226, 238, 248, 0.55);
+}
+
+.irreg-row:nth-child(odd) {
+  background-color: rgba(255, 255, 255, 0.92);
+}
+
+.irreg-row:hover {
+  background-color: rgba(219, 234, 254, 0.72);
+}
+
+html.dark .irreg-row:nth-child(even) {
+  background-color: rgba(30, 41, 59, 0.68);
+}
+
+html.dark .irreg-row:nth-child(odd) {
+  background-color: rgba(15, 23, 42, 0.85);
+}
+
+html.dark .irreg-row:hover {
+  background-color: rgba(30, 58, 138, 0.32);
+}
+
+.irreg-masked-cell {
+  filter: blur(6px);
+  user-select: none;
+  cursor: pointer;
+  transition: filter 0.18s ease;
+}
+
+.irreg-masked-cell:hover,
+.irreg-masked-cell.is-revealed {
+  filter: none;
+}

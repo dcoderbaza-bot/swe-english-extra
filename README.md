@@ -39,9 +39,12 @@
 ### 5. Saralangan Rol Menyulari, O‘quvchi Akkauntlari va Kiberxavfsizlik
 - **Yagona kirish ekrani (`#view-login`):** Rolni tanlab (**O‘quvchi**, **Teacher**, **IT Manager**) kirish hamda Kiberhimoya qalqoni (HMAC · CSP · 5x Lockout). Boshlang‘ich to‘plamda `student1`, `ali`, `madina` nomli namuna o‘quvchi loginlari tayyor bo‘ladi.
 - **Har bir rol uchun alohida saralangan menyu (ichma-ich tablar yo‘q):**
-  - **O‘quvchi:** `Boshqaruv` · `Mashqlar` · `Lug‘atlar`
-  - **Teacher:** `Jonli Kuzatuv` · `.TXT Kiritish` · `O‘quvchilar` · `Lug‘atlar`
-  - **IT Manager:** `Jonli Kuzatuv` · `.TXT Kiritish` · `O‘quvchilar` · `Lug‘atlar` · `Xavfsizlik`
+  - **O‘quvchi:** `Boshqaruv` · `Mashqlar` · `Lug‘atlar` · `Noto‘g‘ri fe’llar`
+  - **Teacher:** `Jonli Kuzatuv` · `.TXT Kiritish` · `O‘quvchilar` · `Lug‘atlar` · `Noto‘g‘ri fe’llar`
+  - **IT Manager:** `Jonli Kuzatuv` · `.TXT Kiritish` · `O‘quvchilar` · `Lug‘atlar` · `Noto‘g‘ri fe’llar` · `Xavfsizlik`
+- **Noto‘g‘ri fe’llar (`#view-irregular` — Mavzu-mavzu `NO. | V1 | V2 | V3 | O‘ZBEKCHA`):**
+  - Teacher va IT Manager yangi mavzular ochib, fe’llarni bittalab (`V1 · V2 · V3 · O‘zbekcha`) yoki jadvaldan/Excel’dan/`.txt` fayldan (`# Mavzu` sarlavhalari bilan) ko‘plab yuklashi, tahrirlashi va tasdiqlash orqali o‘chirishi mumkin.
+  - O‘quvchilar har bir mavzuni jadval ko‘rinishida (ustunlarni yashirib o‘zini sinash va ovozli eshitish bilan) o‘rganadi hamda `V2 va V3 ni yozish` (`spat/spit`, `spoilt/spoiled` kabi ikki variantli fe’llarni aqlli baholash bilan) yoki `4-variantli Test` mashqlarini bajaradi.
 - **Ajratilgan o‘quvchi progressi va Jonli Monitoring (`#view-monitor`):** Har bir o‘quvchining SRS holatlari va `Daily Streak` mustaqil saqlanadi; o‘qituvchi real vaqtda (`SSE /api/stream`) o‘quvchilarning joriy bo‘limi, so‘zi, aniqligi va jonli harakatlar oqimini kuzatadi.
 - **Kiberxavfsizlik (v4):**
   - `swe3:4000:<salt>:<sha256>` ko‘p raundli tuzlangan parol xeshlash + kuchli parol siyosati (min 8 belgi, harf + raqam/belgi, jonli kuch o‘lchagich).
@@ -82,6 +85,7 @@ swe-english-extra/
 │   ├── default-data.js   # 5 ta kategoriya, 3 ta boshlang‘ich darslik va 15 ta B2/C1 so‘z
 │   ├── srs.js            # Spaced Repetition algoritmi
 │   ├── exam.js           # Yakuniy yopiq test baholashi, navbat tuzish va 2-ogohlantirish / CHEATING blokirovkasi
+│   ├── irregular-verbs.js# Mavzu-mavzu Noto‘g‘ri fe’llar (V1/V2/V3/O‘zbekcha) parseri, eksporti va variantli baholash
 │   ├── auth.js           # swe3:4000 tuzlangan xeshlash, brute-force cheklovi, parol kuchi va Student CRUD
 │   ├── storage.js        # v3 sxema, per-student SRS/telemetriya/finalExam, API kalit maskalash va CWE-1236 CSV himoyasi
 │   ├── ai-txt.js         # .TXT parser/exporter, HTTPS/SSRF validator va DeepSeek/Gemini/OpenAI/Custom AI boyitish

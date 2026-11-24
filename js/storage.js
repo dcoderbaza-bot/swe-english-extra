@@ -16,7 +16,10 @@
     const authMod = (typeof module !== 'undefined' && module.exports && typeof require === 'function')
       ? require('./auth.js')
       : root.SWEAuth;
-    return { dataMod: dataMod, srsMod: srsMod, authMod: authMod };
+    const irregularMod = (typeof module !== 'undefined' && module.exports && typeof require === 'function')
+      ? require('./irregular-verbs.js')
+      : root.SWEIrregular;
+    return { dataMod: dataMod, srsMod: srsMod, authMod: authMod, irregularMod: irregularMod };
   }
 
   function getLocalDateKey(dateInput) {
@@ -204,7 +207,10 @@
         writingTotal: 0,
         listeningCompleted: 0,
         listeningCorrect: 0,
-        listeningTotal: 0
+        listeningTotal: 0,
+        irregularCompleted: 0,
+        irregularCorrect: 0,
+        irregularTotal: 0
       },
       finalExam: createDefaultFinalExamRecord(),
       liveStatus: {
@@ -244,6 +250,16 @@
       lessons: (deps.dataMod.DEFAULT_LESSONS || []).map(function (l) {
         return Object.assign({}, l);
       }),
+      irregularTopics: deps.irregularMod && Array.isArray(deps.irregularMod.DEFAULT_IRREGULAR_TOPICS)
+        ? deps.irregularMod.DEFAULT_IRREGULAR_TOPICS.map(function (t, idx) {
+            return deps.irregularMod.normalizeTopicRecord(t, idx);
+          })
+        : [],
+      irregularVerbs: deps.irregularMod && Array.isArray(deps.irregularMod.DEFAULT_IRREGULAR_VERBS)
+        ? deps.irregularMod.DEFAULT_IRREGULAR_VERBS.map(function (v, idx) {
+            return deps.irregularMod.normalizeIrregularVerb(v, v.topic, ts, idx + 1);
+          })
+        : [],
       students: students,
       studentProgress: studentProgress,
       studentActivityLog: [],
@@ -426,6 +442,14 @@
     }
     if (ev.listeningFinished) nextModeStats.listeningCompleted += 1;
 
+    if (ev.irregularCorrectDelta || ev.irregularTotalDelta) {
+      nextModeStats.irregularCorrect = (Number(nextModeStats.irregularCorrect) || 0) + (Number(ev.irregularCorrectDelta) || 0);
+      nextModeStats.irregularTotal = (Number(nextModeStats.irregularTotal) || 0) + (Number(ev.irregularTotalDelta) || 0);
+    }
+    if (ev.irregularFinished) {
+      nextModeStats.irregularCompleted = (Number(nextModeStats.irregularCompleted) || 0) + 1;
+    }
+
     let nextStats = cur.stats;
     if (ev.countAsStudyActivity) {
       nextStats = applyStatsStudyActivity(cur.stats, ts);
@@ -548,8 +572,8 @@
       presence = 'recent';
     }
 
-    const totalAnswered = (Number(mStats.quizTotal) || 0) + (Number(mStats.writingTotal) || 0) + (Number(mStats.listeningTotal) || 0);
-    const totalCorrect = (Number(mStats.quizCorrect) || 0) + (Number(mStats.writingCorrect) || 0) + (Number(mStats.listeningCorrect) || 0);
+    const totalAnswered = (Number(mStats.quizTotal) || 0) + (Number(mStats.writingTotal) || 0) + (Number(mStats.listeningTotal) || 0) + (Number(mStats.irregularTotal) || 0);
+    const totalCorrect = (Number(mStats.quizCorrect) || 0) + (Number(mStats.writingCorrect) || 0) + (Number(mStats.listeningCorrect) || 0) + (Number(mStats.irregularCorrect) || 0);
     const accuracyPct = totalAnswered > 0 ? Math.round((totalCorrect / totalAnswered) * 100) : null;
 
     return {
@@ -642,11 +666,42 @@
     mergedAi.hasApiKey = Boolean(mergedAi.hasApiKey || mergedAi.apiKey);
     mergedAi.hasTtsKey = Boolean(mergedAi.hasTtsKey || mergedAi.ttsApiKey);
 
+    const deps = getDeps();
+    let irregularTopicsList = defaults.irregularTopics.slice();
+    let irregularVerbsList = defaults.irregularVerbs.slice();
+
+    if (Array.isArray(parsed.irregularVerbs)) {
+      irregularTopicsList = Array.isArray(parsed.irregularTopics)
+        ? parsed.irregularTopics.map(function (t, idx) {
+            return deps.irregularMod ? deps.irregularMod.normalizeTopicRecord(t, idx) : Object.assign({}, t);
+          }).filter(function (t) { return Boolean(t && t.name); })
+        : [];
+      const irTopicSet = new Set(irregularTopicsList.map(function (t) { return t.name.toLowerCase(); }));
+      irregularVerbsList = parsed.irregularVerbs.map(function (v, idx) {
+        const nv = deps.irregularMod
+          ? deps.irregularMod.normalizeIrregularVerb(v, (irregularTopicsList[0] && irregularTopicsList[0].name) || '1-mavzu', ts, idx + 1)
+          : Object.assign({}, v);
+        if (nv.topic && !irTopicSet.has(nv.topic.toLowerCase())) {
+          irregularTopicsList.push(deps.irregularMod
+            ? deps.irregularMod.normalizeTopicRecord({ name: nv.topic, order: irregularTopicsList.length + 1 }, irregularTopicsList.length)
+            : { id: 'ir-topic-' + (irregularTopicsList.length + 1), name: nv.topic, description: '', order: irregularTopicsList.length + 1 });
+          irTopicSet.add(nv.topic.toLowerCase());
+        }
+        return nv;
+      }).filter(function (v) { return Boolean(v && v.v1 && v.v2 && v.v3); });
+    } else if (Array.isArray(parsed.irregularTopics) && parsed.irregularTopics.length > 0) {
+      irregularTopicsList = parsed.irregularTopics.map(function (t, idx) {
+        return deps.irregularMod ? deps.irregularMod.normalizeTopicRecord(t, idx) : Object.assign({}, t);
+      }).filter(function (t) { return Boolean(t && t.name); });
+    }
+
     return {
       version: 3,
       words: normalizedWords,
       categories: mergedCategories,
       lessons: lessonsList,
+      irregularTopics: irregularTopicsList,
+      irregularVerbs: irregularVerbsList,
       students: studentsList,
       studentProgress: mergedProgress,
       studentActivityLog: Array.isArray(parsed.studentActivityLog) ? parsed.studentActivityLog.slice(0, 300) : [],
@@ -696,6 +751,8 @@
       exportedAt: new Date().toISOString(),
       categories: state.categories,
       lessons: state.lessons,
+      irregularTopics: state.irregularTopics || [],
+      irregularVerbs: state.irregularVerbs || [],
       words: state.words
     }, null, 2);
   }
