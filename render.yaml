@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: swe-english-extra
+    runtime: node
+    plan: free
+    buildCommand: echo "Zero-dependency build ready"
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NO_TUNNEL
+        value: "1"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATA_DIR
+        value: /tmp/swe-data

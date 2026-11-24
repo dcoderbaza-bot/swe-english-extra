@@ -2954,6 +2954,7 @@
       loginAuthMode = 'login';
     }
     const isSignup = isStudentRole && loginAuthMode === 'signup';
+    const passwordOptional = isStudentRole && openSignup;
 
     if ($('studentAuthModeTabs')) {
       $('studentAuthModeTabs').classList.toggle('hidden', !(isStudentRole && openSignup));
@@ -2967,19 +2968,39 @@
         : 'font-bold text-slate-600 dark:text-slate-300 hover:text-indigo-600');
     }
     if ($('signupExtraWrap')) $('signupExtraWrap').classList.toggle('hidden', !isSignup);
-    if ($('signupPwHint')) $('signupPwHint').classList.toggle('hidden', !isSignup);
+    if ($('signupPwHint')) $('signupPwHint').classList.toggle('hidden', !passwordOptional);
 
     const userWrap = $('loginUsernameWrap');
     if (userWrap) {
       userWrap.classList.toggle('hidden', !isStudentRole);
     }
+    if ($('loginUsernameLabel')) {
+      $('loginUsernameLabel').textContent = isSignup
+        ? 'Login (ixtiyoriy — bo‘sh qolsa ismdan yasaladi)'
+        : (openSignup ? 'Ism-familiya yoki Login *' : 'O‘quvchi logini *');
+    }
+    if ($('loginUsernameInput')) {
+      $('loginUsernameInput').placeholder = isSignup
+        ? 'masalan: azizbek01 (yoki bo‘sh qoldiring)'
+        : (openSignup ? 'masalan: Azizbek Aliyev yoki student1' : 'masalan: student1, ali, madina');
+    }
 
     const roleMeta = Auth.ROLE_META[loginRoleSelection] || Auth.ROLE_META.student;
+    if ($('loginPasswordInput')) {
+      $('loginPasswordInput').required = !passwordOptional;
+      $('loginPasswordInput').placeholder = passwordOptional
+        ? 'Bo‘sh qoldirsa ham kiradi (yoki min 4 belgili kod)...'
+        : 'Parolni kiriting...';
+    }
     if ($('loginPasswordLabel')) {
-      $('loginPasswordLabel').textContent = isSignup ? 'Yangi parol yarating *' : (roleMeta.label + ' paroli *');
+      $('loginPasswordLabel').textContent = passwordOptional
+        ? 'Shaxsiy kod / Parol (ixtiyoriy)'
+        : (roleMeta.label + ' paroli *');
     }
     if ($('loginSubmitBtn')) {
-      $('loginSubmitBtn').textContent = isSignup ? 'Ro‘yxatdan o‘tish va kirish' : (roleMeta.label + ' sifatida kirish');
+      $('loginSubmitBtn').textContent = isStudentRole
+        ? (isSignup ? 'Profil ochish va kirish' : (openSignup ? 'Darsga kirish' : 'O‘quvchi sifatida kirish'))
+        : (roleMeta.label + ' sifatida kirish');
     }
   }
 
@@ -3041,40 +3062,59 @@
         await Sync.detectServer();
         applySyncBadgeUI();
       }
+      const openSignup = isOpenSignupEnabled();
       const isSignup = role === 'student' && loginAuthMode === 'signup';
       let nextSession = null;
-      if (isSignup) {
+
+      if (role === 'student' && (isSignup || openSignup)) {
         const fullName = $('signupFullNameInput') ? $('signupFullNameInput').value.trim() : '';
         const group = $('signupGroupInput') ? $('signupGroupInput').value.trim() : '';
-        if (Sync && Sync.isServerMode()) {
-          const regRes = await Sync.registerStudentRemote({
-            fullName: fullName,
-            group: group,
-            username: username,
-            password: password
-          });
-          mergeRemoteState(regRes.state);
-          nextSession = Auth.setSession(regRes.session);
+        const effectiveUsername = username || fullName;
+
+        if (Sync && Sync.isServerMode() && typeof Sync.joinStudentRemote === 'function') {
+          try {
+            const joinRes = await Sync.joinStudentRemote({
+              username: effectiveUsername,
+              fullName: isSignup ? fullName : '',
+              group: isSignup ? group : '',
+              password: password
+            });
+            mergeRemoteState(joinRes.state);
+            nextSession = Auth.setSession(joinRes.session);
+          } catch (joinErr) {
+            if (joinErr && $('loginPasswordInput') && !password) {
+              $('loginPasswordInput').focus();
+            }
+            throw joinErr;
+          }
         } else {
           state = Storage.loadState();
-          if (state.settings && state.settings.allowOpenSignup === false) {
-            throw new Error('Ochiq ro‘yxatdan o‘tish vaqtincha yopilgan. Teacher dan login so‘rang.');
+          const localJoin = Auth.joinOrAuthenticateStudent({
+            students: state.students,
+            username: effectiveUsername,
+            fullName: isSignup ? fullName : '',
+            group: isSignup ? group : '',
+            password: password,
+            allowOpenSignup: !(state.settings && state.settings.allowOpenSignup === false),
+            enforceRateLimit: true,
+            rateLimitStore: typeof localStorage !== 'undefined' ? localStorage : null,
+            now: Date.now()
+          });
+          if (!localJoin.ok) {
+            if (localJoin.needsPassword && $('loginPasswordInput') && !password) {
+              $('loginPasswordInput').focus();
+            }
+            throw new Error(localJoin.error || 'Kirishda xatolik yuz berdi.');
           }
-          const regOut = Auth.registerStudentSelf(state.students, {
-            fullName: fullName,
-            group: group,
-            username: username,
-            password: password
-          }, Date.now());
-          state.students = regOut.students;
-          state.studentProgress = Storage.ensureStudentProgress(state, regOut.created.id, Date.now());
-          state = Storage.recordStudentEvent(state, regOut.session, {
-            type: 'REGISTER',
+          state.students = localJoin.students;
+          state.studentProgress = Storage.ensureStudentProgress(state, localJoin.session.userId, Date.now());
+          state = Storage.recordStudentEvent(state, localJoin.session, {
+            type: localJoin.mode === 'created' ? 'REGISTER' : 'LOGIN',
             view: 'dashboard',
-            detail: 'Mustaqil ro‘yxatdan o‘tib kirdi'
+            detail: localJoin.mode === 'created' ? 'Tezkor qo‘shilib kirdi' : 'Tizimga kirdi'
           }, Date.now());
-          nextSession = Auth.setSession(regOut.session);
-          persist('students');
+          nextSession = Auth.setSession(localJoin.session);
+          persist(localJoin.mode === 'created' ? 'students' : 'login');
         }
         if ($('signupFullNameInput')) $('signupFullNameInput').value = '';
         if ($('signupGroupInput')) $('signupGroupInput').value = '';
@@ -3214,6 +3254,7 @@
 
     const now = Date.now();
     const isSrv = Boolean(Sync && Sync.isServerMode());
+    refreshPhoneJoinButtonUI();
     if ($('monitorLivePill')) {
       $('monitorLivePill').innerHTML =
         '<span class="w-2 h-2 rounded-full ' + (isSrv ? 'bg-emerald-500 animate-pulse' : 'bg-indigo-500') + '"></span>' +
@@ -3575,7 +3616,7 @@
     if ($('studentDetailModal')) $('studentDetailModal').classList.add('hidden');
   }
 
-  function updatePasswordMeter(password, barId, labelId) {
+  function updatePasswordMeter(password, barId, labelId, isStudentTarget) {
     const bar = $(barId);
     const label = $(labelId);
     if (!bar || !label) return;
@@ -3584,12 +3625,14 @@
     if (!pw) {
       bar.style.width = '0%';
       bar.className = 'pw-meter-fill bg-slate-300';
-      label.textContent = 'Kamida 8 belgi';
+      label.textContent = isStudentTarget ? 'Kamida 4 belgi' : 'Kamida 8 belgi';
       label.className = 'text-[10px] font-bold text-slate-400 whitespace-nowrap';
       return;
     }
 
-    const res = Auth.validatePasswordStrength(pw);
+    const res = (isStudentTarget && typeof Auth.validateStudentPassword === 'function')
+      ? Auth.validateStudentPassword(pw, false)
+      : Auth.validatePasswordStrength(pw);
     const widths = { 1: '25%', 2: '50%', 3: '78%', 4: '100%' };
     const colors = {
       1: 'bg-rose-500',
@@ -3607,6 +3650,73 @@
     bar.className = 'pw-meter-fill ' + (colors[res.score] || 'bg-rose-500');
     label.textContent = res.label;
     label.className = 'text-[10px] font-bold whitespace-nowrap ' + (textColors[res.score] || 'text-rose-500');
+  }
+
+  function refreshPhoneJoinButtonUI() {
+    const btn = $('copyPhoneJoinLinkBtn');
+    const lbl = $('copyPhoneJoinLinkLabel');
+    if (!btn || !lbl) return;
+    const pubUrl = (Sync && typeof Sync.getPublicShareUrl === 'function') ? Sync.getPublicShareUrl() : '';
+    if (pubUrl) {
+      lbl.textContent = '4G/Wi-Fi Havolani Nusxalash';
+      btn.title = pubUrl;
+    } else if (Sync && Sync.isServerMode()) {
+      lbl.textContent = 'Telefon havolasi';
+      btn.title = 'O‘quvchilar telefonidan kirish havolasini olish';
+    } else {
+      lbl.textContent = 'Telefon havolasi (Server o‘chiq)';
+      btn.title = 'Telefonlardan kirish uchun start-server.bat yoki bulutli serverni yoqing';
+    }
+  }
+
+  async function handleCopyPhoneJoinLink() {
+    let shareUrl = (Sync && typeof Sync.getPublicShareUrl === 'function') ? Sync.getPublicShareUrl() : '';
+    if (!shareUrl && Sync && Sync.isServerMode() && typeof Sync.fetchPublicLinkRemote === 'function') {
+      try {
+        const info = await Sync.fetchPublicLinkRemote();
+        if (info && info.publicUrl) {
+          shareUrl = info.publicUrl;
+        } else if (info && info.tunnelStatus === 'connecting') {
+          showToast('Global 4G/5G HTTPS havola ulanmoqda... 3 soniyadan keyin qayta bosing!', 'info');
+          refreshPhoneJoinButtonUI();
+          return;
+        }
+      } catch (_) {}
+    }
+
+    if (!shareUrl) {
+      showToast('Global HTTPS havola topilmadi. start-server.bat ni ishga tushiring yoki bulutga joylang!', 'warning');
+      return;
+    }
+
+    refreshPhoneJoinButtonUI();
+    let copied = false;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(shareUrl);
+        copied = true;
+      }
+    } catch (_) {}
+
+    if (!copied) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = shareUrl;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        copied = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch (_) {}
+    }
+
+    showToast(
+      copied
+        ? ('Telefon kirish havolasi nusxalandi: ' + shareUrl)
+        : ('Telefon kirish havolasi: ' + shareUrl),
+      'success'
+    );
   }
 
   function openStudentResetPwModal(student) {
@@ -4927,11 +5037,11 @@
 
   /* ==================== INITIALIZATION & EVENT WIRING ==================== */
 
-  function bindPasswordMeter(inputId, barId, labelId) {
+  function bindPasswordMeter(inputId, barId, labelId, isStudentTarget) {
     const inp = $(inputId);
     if (!inp) return;
     inp.addEventListener('input', function () {
-      updatePasswordMeter(inp.value, barId, labelId);
+      updatePasswordMeter(inp.value, barId, labelId, Boolean(isStudentTarget));
     });
   }
 
@@ -5028,6 +5138,9 @@
     }
 
     // Monitor View Controls
+    if ($('copyPhoneJoinLinkBtn')) {
+      $('copyPhoneJoinLinkBtn').addEventListener('click', handleCopyPhoneJoinLink);
+    }
     if ($('monitorRefreshBtn')) {
       $('monitorRefreshBtn').addEventListener('click', async function () {
         if (Sync && Sync.isServerMode() && currentSession) {
@@ -5314,8 +5427,8 @@
     if ($('studentCreateForm')) {
       $('studentCreateForm').addEventListener('submit', handleStudentCreateSubmit);
     }
-    bindPasswordMeter('stuPasswordInput', 'stuPwMeterBar', 'stuPwMeterLabel');
-    bindPasswordMeter('stuResetNewPwInput', 'stuResetPwMeterBar', 'stuResetPwMeterLabel');
+    bindPasswordMeter('stuPasswordInput', 'stuPwMeterBar', 'stuPwMeterLabel', true);
+    bindPasswordMeter('stuResetNewPwInput', 'stuResetPwMeterBar', 'stuResetPwMeterLabel', true);
 
     // TXT + AI View & Collapsible DeepSeek Drawer (IT Manager ONLY)
     if ($('toggleAiSettingsBtn')) {
@@ -5492,6 +5605,10 @@
           syncDeckSelects();
           applyUpdatedWordsToStudySessions();
         }
+      }
+      if (reason === 'tunnel' && Sync && Sync.isServerMode() && typeof Sync.fetchPublicLinkRemote === 'function' && isStaff()) {
+        try { await Sync.fetchPublicLinkRemote(); } catch (_) {}
+        refreshPhoneJoinButtonUI();
       }
       if (reason === 'ai-config' && Speech && typeof Speech.clearCache === 'function') {
         Speech.clearCache();

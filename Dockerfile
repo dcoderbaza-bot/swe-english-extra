@@ -1,0 +1,10 @@
+FROM node:20-alpine
+WORKDIR /app
+COPY . .
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=4175
+ENV NO_TUNNEL=1
+ENV TRUST_PROXY=1
+EXPOSE 4175
+CMD ["node", "server.js"]

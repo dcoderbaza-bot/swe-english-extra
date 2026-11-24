@@ -158,11 +158,39 @@
     }).join('');
   }
 
+  const CYRILLIC_MAP = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'ғ': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo',
+    'ж': 'j', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'қ': 'q', 'л': 'l', 'м': 'm',
+    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ў': 'o',
+    'ф': 'f', 'х': 'x', 'ҳ': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sh',
+    'ъ': '', 'ы': 'i', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya'
+  };
+
+  const CYRILLIC_VOWELS = 'аеёиоуўэюяъь';
+
+  function transliterateToAscii(raw) {
+    const lower = String(raw || '').trim().toLowerCase();
+    let out = '';
+    for (let i = 0; i < lower.length; i++) {
+      const ch = lower[i];
+      if (ch === 'е') {
+        const prev = i > 0 ? lower[i - 1] : ' ';
+        out += (prev === ' ' || CYRILLIC_VOWELS.indexOf(prev) !== -1) ? 'ye' : 'e';
+      } else if (Object.prototype.hasOwnProperty.call(CYRILLIC_MAP, ch)) {
+        out += CYRILLIC_MAP[ch];
+      } else {
+        out += ch;
+      }
+    }
+    return out
+      .replace(/[\u2018\u2019\u02BB\u02BC\u02B9\u02BD`´']/g, '')
+      .replace(/\s+/g, '_');
+  }
+
   function normalizeUsername(username) {
-    return String(username || '')
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]/g, '');
+    return transliterateToAscii(username)
+      .replace(/[^a-z0-9._-]/g, '')
+      .replace(/^[_.-]+|[_.-]+$/g, '');
   }
 
   const STRETCH_ROUNDS = 4000;
@@ -523,19 +551,62 @@
     };
   }
 
-  function buildAndInsertStudentRecord(students, payload, now, duplicateMsg) {
-    const cleanUser = normalizeUsername(payload && payload.username);
-    const fullName = String((payload && payload.fullName) || '').trim();
+  function validateStudentPassword(password, allowEmpty) {
+    const pw = String(password || '');
+    const trimmed = pw.trim();
+    if (!trimmed) {
+      if (allowEmpty) {
+        return { ok: true, pinless: true, score: 2, label: 'Kodsiz ochiq kirish', error: '' };
+      }
+      return {
+        ok: false,
+        score: 1,
+        label: 'Bo‘sh',
+        error: 'O‘quvchi paroli yoki kodini kiriting (kamida 4 ta belgi).'
+      };
+    }
+    if (trimmed.length < 4) {
+      return {
+        ok: false,
+        score: 1,
+        label: 'Juda qisqa',
+        error: 'O‘quvchi kodi/paroli kamida 4 ta belgidan iborat bo‘lishi kerak.'
+      };
+    }
+    const strongCheck = validatePasswordStrength(trimmed);
+    return {
+      ok: true,
+      pinless: false,
+      score: strongCheck.ok ? strongCheck.score : 3,
+      label: strongCheck.ok ? strongCheck.label : 'Qulay kod',
+      error: ''
+    };
+  }
+
+  function formatDisplayNameFromInput(fullName, rawIdentifier) {
+    const explicit = String(fullName || '').trim().replace(/\s+/g, ' ');
+    if (explicit.length >= 2) return explicit;
+    const cleaned = String(rawIdentifier || '').trim().replace(/[_.-]+/g, ' ').replace(/\s+/g, ' ');
+    if (!cleaned) return 'O‘quvchi';
+    return cleaned.split(' ').map(function (part) {
+      return part ? (part.charAt(0).toUpperCase() + part.slice(1)) : '';
+    }).join(' ');
+  }
+
+  function buildAndInsertStudentRecord(students, payload, now, duplicateMsg, allowPinless) {
+    const rawUser = (payload && payload.username) || (payload && payload.fullName) || '';
+    const cleanUser = normalizeUsername(rawUser);
+    const fullName = formatDisplayNameFromInput(payload && payload.fullName, rawUser);
     const group = String((payload && payload.group) || 'General').trim() || 'General';
     const password = String((payload && payload.password) || '');
 
-    if (cleanUser.length < 3) {
-      throw new Error('Login kamida 3 ta lotin harf/raqamdan iborat bo‘lishi kerak.');
+    if (cleanUser.length < 2) {
+      throw new Error('Ism yoki login kamida 2 ta harf/raqamdan iborat bo‘lishi kerak.');
     }
-    if (fullName.length < 2) {
-      throw new Error('O‘quvchining ism-familiyasini kiriting.');
+    if (String((payload && payload.fullName) || '').trim().length > 0 && String(payload.fullName).trim().length < 2) {
+      throw new Error('O‘quvchining ism-familiyasini to‘liqroq kiriting.');
     }
-    const policy = validatePasswordStrength(password);
+    const policy = validateStudentPassword(password, Boolean(allowPinless));
     if (!policy.ok) {
       throw new Error(policy.error);
     }
@@ -546,13 +617,15 @@
     }
 
     const ts = typeof now === 'number' ? now : Date.now();
+    const trimmedPw = password.trim();
     const created = {
       id: 'stu-' + cleanUser + '-' + Math.random().toString(36).slice(2, 5),
       username: cleanUser,
       fullName: fullName,
       group: group,
       active: true,
-      passwordHash: hashStudentPassword(cleanUser, password.trim()),
+      openPinless: !trimmedPw,
+      passwordHash: trimmedPw ? hashStudentPassword(cleanUser, trimmedPw) : '',
       createdAt: ts
     };
     list.push(created);
@@ -563,7 +636,10 @@
     if (!canManageStudents(actorRole)) {
       throw new Error('O‘quvchi yaratish uchun Teacher yoki IT Manager huquqi kerak.');
     }
-    return buildAndInsertStudentRecord(students, payload, now);
+    if (!payload || !String(payload.fullName || '').trim() || String(payload.fullName).trim().length < 2) {
+      throw new Error('O‘quvchining ism-familiyasini kiriting.');
+    }
+    return buildAndInsertStudentRecord(students, payload, now, null, false);
   }
 
   function registerStudentSelf(students, payload, now) {
@@ -571,7 +647,8 @@
       students,
       payload,
       now,
-      'Bu login band! Agar avval ro‘yxatdan o‘tgan bo‘lsangiz «Kirish» dan foydalaning yoki boshqa login tanlang.'
+      'Bu login band! Agar avval ro‘yxatdan o‘tgan bo‘lsangiz «Kirish» dan foydalaning yoki boshqa login tanlang.',
+      false
     );
     const ts = typeof now === 'number' ? now : Date.now();
     return {
@@ -588,11 +665,150 @@
     };
   }
 
+  function joinOrAuthenticateStudent(params) {
+    const opts = params || {};
+    const now = typeof opts.now === 'number' ? opts.now : Date.now();
+    const rawIdentifier = String(opts.username || opts.identifier || opts.fullName || '').trim();
+    const rawFullName = String(opts.fullName || '').trim();
+    const rawGroup = String(opts.group || '').trim();
+    const rawPassword = String(opts.password || '');
+    const trimmedPw = rawPassword.trim();
+    const allowOpenSignup = opts.allowOpenSignup !== false;
+    const rlStore = opts.rateLimitStore || null;
+
+    const cleanUser = normalizeUsername(rawIdentifier || rawFullName);
+    if (cleanUser.length < 2) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: 'Ism-familiyangizni yoki loginingizni kiriting (masalan: Azizbek Aliyev).'
+      };
+    }
+
+    const rlBucket = 'student:' + cleanUser;
+    if (rlStore || opts.enforceRateLimit) {
+      const rl = checkLoginRateLimit(rlBucket, now, rlStore);
+      if (!rl.allowed) {
+        return {
+          ok: false,
+          statusCode: 429,
+          rateLimited: true,
+          retryAfterSec: rl.retryAfterSec,
+          error: 'Juda ko‘p xato urinish! ' + rl.retryAfterSec + ' soniyadan keyin qayta urinib ko‘ring.'
+        };
+      }
+    }
+
+    const list = Array.isArray(opts.students) ? opts.students.slice() : [];
+    const targetNameLower = (rawFullName || rawIdentifier).toLowerCase().replace(/\s+/g, ' ').trim();
+    const existingIdx = list.findIndex(function (s) {
+      if (!s) return false;
+      if (normalizeUsername(s.username) === cleanUser) return true;
+      return Boolean(targetNameLower && String(s.fullName || '').toLowerCase().replace(/\s+/g, ' ').trim() === targetNameLower);
+    });
+
+    if (existingIdx !== -1) {
+      const found = list[existingIdx];
+      if (found.active === false) {
+        return { ok: false, statusCode: 403, error: 'Ushbu o‘quvchi akkaunti vaqtincha bloklangan.' };
+      }
+
+      const isPinlessAccount = Boolean(found.openPinless || !found.passwordHash);
+      if (!isPinlessAccount) {
+        if (!trimmedPw) {
+          return {
+            ok: false,
+            statusCode: 401,
+            needsPassword: true,
+            error: '"' + found.fullName + '" (@' + found.username + ') parol bilan himoyalangan — parolingizni kiriting.'
+          };
+        }
+        if (!verifyPasswordWithTrimFallback('student:' + normalizeUsername(found.username), rawPassword, found.passwordHash)) {
+          if (rlStore || opts.enforceRateLimit) recordLoginFailure(rlBucket, now, rlStore);
+          return {
+            ok: false,
+            statusCode: 401,
+            needsPassword: true,
+            error: 'Parol noto‘g‘ri! O‘z kodingizni kiriting yoki Ustozdan parolni yangilashni so‘rang.'
+          };
+        }
+      } else if (trimmedPw) {
+        const pwCheck = validateStudentPassword(trimmedPw, false);
+        if (!pwCheck.ok) {
+          return { ok: false, statusCode: 400, error: pwCheck.error };
+        }
+        list[existingIdx] = Object.assign({}, found, {
+          openPinless: false,
+          passwordHash: hashStudentPassword(found.username, trimmedPw),
+          group: (rawGroup && (!found.group || found.group === 'General')) ? rawGroup : (found.group || 'General')
+        });
+      } else if (rawGroup && (!found.group || found.group === 'General')) {
+        list[existingIdx] = Object.assign({}, found, { group: rawGroup });
+      }
+
+      if (rlStore || opts.enforceRateLimit) clearLoginFailures(rlBucket, rlStore);
+      const updatedStu = list[existingIdx];
+      return {
+        ok: true,
+        mode: 'login',
+        students: list,
+        student: updatedStu,
+        session: {
+          role: 'student',
+          userId: updatedStu.id,
+          username: updatedStu.username,
+          fullName: updatedStu.fullName,
+          group: updatedStu.group || 'General',
+          loginAt: now
+        }
+      };
+    }
+
+    if (!allowOpenSignup) {
+      return {
+        ok: false,
+        statusCode: 403,
+        error: 'Ochiq kirish vaqtincha yopilgan. O‘qituvchingiz bergan aniq login va parol bilan kiring.'
+      };
+    }
+
+    try {
+      const ins = buildAndInsertStudentRecord(list, {
+        username: cleanUser,
+        fullName: rawFullName || rawIdentifier,
+        group: rawGroup || 'General',
+        password: rawPassword
+      }, now, null, true);
+      if (rlStore || opts.enforceRateLimit) clearLoginFailures(rlBucket, rlStore);
+      return {
+        ok: true,
+        mode: 'created',
+        students: ins.students,
+        student: ins.created,
+        created: ins.created,
+        session: {
+          role: 'student',
+          userId: ins.created.id,
+          username: ins.created.username,
+          fullName: ins.created.fullName,
+          group: ins.created.group || 'General',
+          loginAt: now
+        }
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: (err && err.message) || 'Kirishda xatolik yuz berdi.'
+      };
+    }
+  }
+
   function resetStudentPassword(students, actorRole, studentId, newPassword) {
     if (!canManageStudents(actorRole)) {
       throw new Error('Parolni yangilash uchun Teacher yoki IT Manager huquqi kerak.');
     }
-    const policy = validatePasswordStrength(newPassword);
+    const policy = validateStudentPassword(newPassword, false);
     if (!policy.ok) {
       throw new Error(policy.error);
     }
@@ -602,6 +818,7 @@
       if (s.id !== studentId && normalizeUsername(s.username) !== normalizeUsername(studentId)) return s;
       found = true;
       return Object.assign({}, s, {
+        openPinless: false,
         passwordHash: hashStudentPassword(s.username, String(newPassword).trim())
       });
     });
@@ -664,48 +881,103 @@
     return role === 'teacher' || role === 'it_manager';
   }
 
-  function getSession(sessionBackend) {
-    const store = sessionBackend || (typeof sessionStorage !== 'undefined' ? sessionStorage : null);
-    if (!store) return null;
+  let memorySession = null;
+
+  function getSafeBrowserStores() {
+    const stores = [];
     try {
-      const raw = store.getItem(SESSION_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && parsed.role && (isAdminRole(parsed.role) || (parsed.role === 'student' && parsed.userId))) {
-          return parsed;
+      if (typeof sessionStorage !== 'undefined' && sessionStorage) stores.push(sessionStorage);
+    } catch (_) {}
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage && typeof localStorage.getItem === 'function') {
+        stores.push(localStorage);
+      }
+    } catch (_) {}
+    return stores;
+  }
+
+  function isValidSessionObject(parsed) {
+    return Boolean(parsed && parsed.role && (isAdminRole(parsed.role) || (parsed.role === 'student' && parsed.userId)));
+  }
+
+  function getSession(sessionBackend) {
+    if (sessionBackend) {
+      try {
+        const raw = sessionBackend.getItem(SESSION_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (isValidSessionObject(parsed)) return parsed;
         }
-      }
-      const legacyRole = store.getItem(LEGACY_SESSION_KEY);
-      if (isAdminRole(legacyRole)) {
-        return {
-          role: legacyRole,
-          userId: legacyRole,
-          username: legacyRole,
-          fullName: ROLE_META[legacyRole].label,
-          group: 'Staff',
-          loginAt: Date.now()
-        };
-      }
-      return null;
-    } catch (e) {
+        const legacyRole = sessionBackend.getItem(LEGACY_SESSION_KEY);
+        if (isAdminRole(legacyRole)) {
+          return {
+            role: legacyRole,
+            userId: legacyRole,
+            username: legacyRole,
+            fullName: ROLE_META[legacyRole].label,
+            group: 'Staff',
+            loginAt: Date.now()
+          };
+        }
+      } catch (_) {}
       return null;
     }
+
+    const stores = getSafeBrowserStores();
+    for (let i = 0; i < stores.length; i++) {
+      try {
+        const raw = stores[i].getItem(SESSION_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (isValidSessionObject(parsed)) {
+            memorySession = parsed;
+            return parsed;
+          }
+        }
+        const legacyRole = stores[i].getItem(LEGACY_SESSION_KEY);
+        if (isAdminRole(legacyRole)) {
+          const migrated = {
+            role: legacyRole,
+            userId: legacyRole,
+            username: legacyRole,
+            fullName: ROLE_META[legacyRole].label,
+            group: 'Staff',
+            loginAt: Date.now()
+          };
+          memorySession = migrated;
+          return migrated;
+        }
+      } catch (_) {}
+    }
+    return isValidSessionObject(memorySession) ? memorySession : null;
   }
 
   function setSession(sessionObj, sessionBackend) {
-    const store = sessionBackend || (typeof sessionStorage !== 'undefined' ? sessionStorage : null);
-    if (!store) return sessionObj || null;
-    try {
-      store.removeItem(LEGACY_SESSION_KEY);
-      if (!sessionObj) {
-        store.removeItem(SESSION_KEY);
-        return null;
-      }
-      store.setItem(SESSION_KEY, JSON.stringify(sessionObj));
-    } catch (e) {
-      // Ignore storage restriction
+    if (sessionBackend) {
+      try {
+        sessionBackend.removeItem(LEGACY_SESSION_KEY);
+        if (!sessionObj) {
+          sessionBackend.removeItem(SESSION_KEY);
+          return null;
+        }
+        sessionBackend.setItem(SESSION_KEY, JSON.stringify(sessionObj));
+      } catch (_) {}
+      return sessionObj;
     }
-    return sessionObj;
+
+    memorySession = sessionObj || null;
+    const stores = getSafeBrowserStores();
+    for (let i = 0; i < stores.length; i++) {
+      try {
+        stores[i].removeItem(LEGACY_SESSION_KEY);
+        if (!sessionObj) {
+          stores[i].removeItem(SESSION_KEY);
+        } else {
+          stores[i].setItem(SESSION_KEY, JSON.stringify(sessionObj));
+        }
+      } catch (_) {}
+    }
+    return sessionObj || null;
   }
 
   function getSessionRole(sessionBackend) {
@@ -752,11 +1024,13 @@
     sha256Hex: sha256Hex,
     constantTimeEqual: constantTimeEqual,
     normalizeUsername: normalizeUsername,
+    transliterateToAscii: transliterateToAscii,
     hashRolePassword: hashRolePassword,
     hashStudentPassword: hashStudentPassword,
     verifyPasswordHash: verifyPasswordHash,
     isStretchedHash: isStretchedHash,
     validatePasswordStrength: validatePasswordStrength,
+    validateStudentPassword: validateStudentPassword,
     checkLoginRateLimit: checkLoginRateLimit,
     recordLoginFailure: recordLoginFailure,
     clearLoginFailures: clearLoginFailures,
@@ -768,6 +1042,7 @@
     changeRolePassword: changeRolePassword,
     createStudentAccount: createStudentAccount,
     registerStudentSelf: registerStudentSelf,
+    joinOrAuthenticateStudent: joinOrAuthenticateStudent,
     resetStudentPassword: resetStudentPassword,
     toggleStudentActive: toggleStudentActive,
     deleteStudentAccount: deleteStudentAccount,

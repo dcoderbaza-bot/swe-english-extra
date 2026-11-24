@@ -2341,6 +2341,124 @@ async function runAsyncTests() {
     }
   });
 
+  await testAsync('v5 Mobile Classroom Architecture: Cyrillic/Uzbek 1-step /api/student-join, optional PIN upgrade, /api/public-link & static protection', async () => {
+    assert.equal(Auth.normalizeUsername('Азизбек Алиев'), 'azizbek_aliyev');
+    assert.equal(Auth.normalizeUsername("O‘ktam G‘aniyev"), 'oktam_ganiyev');
+    assert.equal(Auth.validateStudentPassword('2026', false).ok, true);
+    assert.equal(Auth.validateStudentPassword('', true).ok, true);
+    assert.equal(Auth.validateStudentPassword('12', false).ok, false);
+
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-v5-mobile-'));
+    const dataFilePath = path.join(tmpDir, 'db.json');
+    const secretFilePath = path.join(tmpDir, '.secret');
+
+    let seedState = Storage.createDefaultState(Date.now());
+    seedState.auth = Auth.changeRolePassword(seedState.auth, 'it_manager', 'teacher', 'MobTeach#2026!');
+    fs.writeFileSync(dataFilePath, JSON.stringify(seedState, null, 2), 'utf8');
+
+    const server = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath,
+      secretFilePath
+    });
+    server.setPublicUrl('https://classroom-demo.app.lhr.life', 'ready');
+    await new Promise((resolve) => server.listen(0, '0.0.0.0', resolve));
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+
+    try {
+      const health = await (await fetch(`${baseUrl}/api/health`)).json();
+      assert.equal(health.version, 5);
+      assert.equal(health.publicUrl, 'https://classroom-demo.app.lhr.life');
+
+      // Deployment files blocked from static exposure
+      for (const blockedFile of ['/package.json', '/Dockerfile', '/render.yaml', '/start-server.bat']) {
+        assert.equal((await fetch(`${baseUrl}${blockedFile}`)).status, 403);
+      }
+
+      // 1. Phone student enters in 1 tap using Cyrillic name & ZERO password
+      const join1 = await (await fetch(`${baseUrl}/api/student-join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '84.54.70.11', 'Host': 'classroom-demo.app.lhr.life' },
+        body: JSON.stringify({ username: 'Шоҳруҳ Каримов', password: '' })
+      })).json();
+      assert.equal(join1.ok, true);
+      assert.equal(join1.mode, 'created');
+      assert.equal(join1.session.username, 'shohruh_karimov');
+      assert.ok(join1.token);
+
+      // 2. Re-entering from phone resumes exact same account
+      const join2 = await (await fetch(`${baseUrl}/api/student-join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'shohruh_karimov', password: '' })
+      })).json();
+      assert.equal(join2.ok, true);
+      assert.equal(join2.mode, 'login');
+      assert.equal(join2.session.userId, join1.session.userId);
+
+      // 3. Student sets a 4-digit PIN ('2026') -> locks profile against passwordless hijack
+      const pinUpgrade = await (await fetch(`${baseUrl}/api/student-join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'shohruh_karimov', password: '2026' })
+      })).json();
+      assert.equal(pinUpgrade.ok, true);
+
+      const hijackAttempt = await fetch(`${baseUrl}/api/student-join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'shohruh_karimov', password: '' })
+      });
+      assert.equal(hijackAttempt.status, 401);
+      assert.equal((await hijackAttempt.json()).needsPassword, true);
+
+      const validPinLogin = await (await fetch(`${baseUrl}/api/student-join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'shohruh_karimov', password: '2026' })
+      })).json();
+      assert.equal(validPinLogin.ok, true);
+
+      // 4. Student blocked from /api/public-link (403); Teacher gets publicUrl (200)
+      assert.equal((await fetch(`${baseUrl}/api/public-link`, {
+        headers: { 'Authorization': `Bearer ${validPinLogin.token}` }
+      })).status, 403);
+
+      const teachToken = (await (await fetch(`${baseUrl}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'teacher', password: 'MobTeach#2026!' })
+      })).json()).token;
+
+      const pubLink = await (await fetch(`${baseUrl}/api/public-link`, {
+        headers: { 'Authorization': `Bearer ${teachToken}` }
+      })).json();
+      assert.equal(pubLink.ok, true);
+      assert.equal(pubLink.publicUrl, 'https://classroom-demo.app.lhr.life');
+
+      // 5. Closing open signup blocks new unknown students (403) while existing students still enter (200)
+      await fetch(`${baseUrl}/api/students`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${teachToken}` },
+        body: JSON.stringify({ action: 'setOpenSignup', allowOpenSignup: false })
+      });
+      assert.equal((await fetch(`${baseUrl}/api/student-join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'Yangi Talaba', password: '' })
+      })).status, 403);
+      assert.equal((await fetch(`${baseUrl}/api/student-join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'shohruh_karimov', password: '2026' })
+      })).status, 200);
+    } finally {
+      server.closeAllSse();
+      await new Promise((resolve) => server.close(resolve));
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   console.log(`\nAll ${passed} test suites passed!`);
 }
 

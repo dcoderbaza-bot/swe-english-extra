@@ -13,8 +13,13 @@
 
   let serverMode = false;
   let serverAllowOpenSignup = true;
+  let serverPublicUrl = '';
   let activeServerBaseUrl = '';
+  let memorySessionToken = '';
   let eventSource = null;
+  let sseConnected = false;
+  let fallbackPollTimerId = null;
+  let lifecycleBound = false;
   let broadcastChannel = null;
   let updateListeners = [];
 
@@ -84,19 +89,42 @@
 
   function getSessionToken() {
     try {
-      return typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem(TOKEN_KEY) || '') : '';
-    } catch (e) {
-      return '';
+      if (typeof sessionStorage !== 'undefined' && sessionStorage) {
+        const sTok = sessionStorage.getItem(TOKEN_KEY);
+        if (sTok) {
+          memorySessionToken = sTok;
+          return sTok;
+        }
+      }
+    } catch (_) {}
+    const ls = getBrowserLocalStorage();
+    if (ls) {
+      try {
+        const lTok = ls.getItem(TOKEN_KEY);
+        if (lTok) {
+          memorySessionToken = lTok;
+          return lTok;
+        }
+      } catch (_) {}
     }
+    return memorySessionToken || '';
   }
 
   function setSessionToken(token) {
+    const clean = String(token || '');
+    memorySessionToken = clean;
     try {
-      if (typeof sessionStorage === 'undefined') return;
-      if (!token) sessionStorage.removeItem(TOKEN_KEY);
-      else sessionStorage.setItem(TOKEN_KEY, token);
-    } catch (e) {
-      // Ignore storage errors
+      if (typeof sessionStorage !== 'undefined' && sessionStorage) {
+        if (!clean) sessionStorage.removeItem(TOKEN_KEY);
+        else sessionStorage.setItem(TOKEN_KEY, clean);
+      }
+    } catch (_) {}
+    const ls = getBrowserLocalStorage();
+    if (ls) {
+      try {
+        if (!clean) ls.removeItem(TOKEN_KEY);
+        else ls.setItem(TOKEN_KEY, clean);
+      } catch (_) {}
     }
   }
 
@@ -150,7 +178,47 @@
     }
   }
 
+  function stopFallbackPolling() {
+    if (fallbackPollTimerId) {
+      clearInterval(fallbackPollTimerId);
+      fallbackPollTimerId = null;
+    }
+  }
+
+  function startFallbackPolling() {
+    if (fallbackPollTimerId || !serverMode || !getSessionToken()) return;
+    fallbackPollTimerId = setInterval(function () {
+      if (!serverMode || !getSessionToken() || sseConnected) {
+        if (sseConnected) stopFallbackPolling();
+        return;
+      }
+      if (typeof document !== 'undefined' && document.hidden) return;
+      emitUpdate({ source: 'poll', reason: 'mobile-poll', timestamp: Date.now() });
+    }, 10000);
+  }
+
+  function bindMobileLifecycleListeners() {
+    if (lifecycleBound || typeof window === 'undefined' || !window.addEventListener) return;
+    lifecycleBound = true;
+    if (typeof document !== 'undefined' && document.addEventListener) {
+      document.addEventListener('visibilitychange', function () {
+        if (!document.hidden && serverMode && getSessionToken()) {
+          if (!sseConnected) startServerStream();
+          emitUpdate({ source: 'wakeup', reason: 'visibility', timestamp: Date.now() });
+        }
+      });
+    }
+    window.addEventListener('online', function () {
+      if (serverMode && getSessionToken()) {
+        startServerStream();
+        emitUpdate({ source: 'wakeup', reason: 'online', timestamp: Date.now() });
+      }
+    });
+  }
+
   function stopServerStream() {
+    sseConnected = false;
+    stopFallbackPolling();
     if (eventSource) {
       try { eventSource.close(); } catch (e) { /* Ignore */ }
       eventSource = null;
@@ -159,26 +227,40 @@
 
   function startServerStream() {
     const token = getSessionToken();
-    if (!serverMode || typeof EventSource === 'undefined' || !token) return;
+    if (!serverMode || !token) return;
+    bindMobileLifecycleListeners();
+    if (typeof EventSource === 'undefined') {
+      startFallbackPolling();
+      return;
+    }
     stopServerStream();
     try {
       eventSource = new EventSource(resolveApiUrl('/api/stream?token=' + encodeURIComponent(token)));
+      eventSource.addEventListener('connected', function () {
+        sseConnected = true;
+        stopFallbackPolling();
+      });
       eventSource.addEventListener('update', function (ev) {
+        sseConnected = true;
+        stopFallbackPolling();
         let payload = {};
         try { payload = JSON.parse(ev.data || '{}'); } catch (e) { payload = {}; }
         emitUpdate({ source: 'server', reason: payload.reason || 'sse', timestamp: payload.timestamp || Date.now() });
       });
       eventSource.onerror = function () {
-        // EventSource automatically reconnects while session token stays valid
+        sseConnected = false;
+        // Mobile carrier proxies / tunnels may drop idle SSE streams; keep live via adaptive polling while EventSource retries
+        startFallbackPolling();
       };
     } catch (e) {
       eventSource = null;
+      startFallbackPolling();
     }
   }
 
   async function probeServerHealth(baseOrigin) {
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller ? setTimeout(function () { controller.abort(); }, 3500) : null;
+    const timer = controller ? setTimeout(function () { controller.abort(); }, 4500) : null;
     try {
       const url = (baseOrigin ? baseOrigin : '') + '/api/health';
       const res = await fetch(url, {
@@ -191,6 +273,7 @@
       const data = await res.json().catch(function () { return null; });
       if (data && data.ok && data.mode === 'server') {
         serverAllowOpenSignup = data.allowOpenSignup !== false;
+        serverPublicUrl = String(data.publicUrl || '').trim();
         return true;
       }
       return false;
@@ -264,6 +347,31 @@
 
   async function registerStudentRemote(payload) {
     return activateSessionFromAuthResponse(await apiRequest('/api/register', 'POST', payload));
+  }
+
+  async function joinStudentRemote(payload) {
+    return activateSessionFromAuthResponse(await apiRequest('/api/student-join', 'POST', payload));
+  }
+
+  async function fetchPublicLinkRemote() {
+    const data = await apiRequest('/api/public-link', 'GET');
+    if (data && typeof data.publicUrl === 'string') {
+      serverPublicUrl = data.publicUrl.trim();
+    }
+    return data;
+  }
+
+  function getPublicShareUrl() {
+    if (serverPublicUrl) return serverPublicUrl;
+    if (typeof window !== 'undefined' && window.location && /^https?:$/i.test(window.location.protocol)) {
+      const host = String(window.location.hostname || '').toLowerCase();
+      const isPrivateOrLocal = host === 'localhost' || host === '127.0.0.1' || host === '[::1]' ||
+        /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+      if (!isPrivateOrLocal) {
+        return window.location.origin;
+      }
+    }
+    return '';
   }
 
   async function fetchNetworkInfoRemote() {
@@ -385,6 +493,9 @@
     onSyncUpdate: onSyncUpdate,
     loginRemote: loginRemote,
     registerStudentRemote: registerStudentRemote,
+    joinStudentRemote: joinStudentRemote,
+    fetchPublicLinkRemote: fetchPublicLinkRemote,
+    getPublicShareUrl: getPublicShareUrl,
     fetchNetworkInfoRemote: fetchNetworkInfoRemote,
     logoutRemote: logoutRemote,
     fetchRemoteState: fetchRemoteState,

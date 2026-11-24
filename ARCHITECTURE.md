@@ -1,9 +1,13 @@
 # Texnik Arxitektura — SWE ENGLISH EXTRA
 
-## 1. Umumiy arxitektura tamoyillari
-Ilova build bosqichisiz (zero-bundler) ham **Local Multi-Tab (`file:///`)**, ham **Live Node.js Server (`server.js`)** rejimlarida bir xil kod bazasi bilan ishlaydi:
-1. Barcha biznes modullari (`IIFE` + `window.*` va Node `module.exports` ikki tomonlama eksporti) ham brauzerda, ham `server.js` va `tests/verify.js` da qayta ishlatiladi.
-2. `SWESync` (`js/sync.js`) ishga tushganda `/api/health` ni tekshiradi: agar Node serveri faol bo‘lsa **REST + Server-Sent Events (`/api/stream`)** rejimi yoqiladi (`data/db.json` persistensiyasi bilan); aks holda **LocalStorage + `BroadcastChannel`** rejimiga avtomatik tushadi.
+## 1. Umumiy arxitektura tamoyillari (`v5` — Universal Mobile & Cloud Classroom)
+Ilova build bosqichisiz (zero-bundler) **3 xil muhitda** yagona kod bazasi bilan ishlaydi:
+1. **Avtomatik Global 4G/5G HTTPS Tunnel + Lokal Wi-Fi Rejimi (`node server.js` / `start-server.bat`):** Server `0.0.0.0:4175` portini tinglash bilan birga o‘rnatilgan OpenSSH orqali avtomatik **`https://*.lhr.life` (`localhost.run`) TLS tunnel** ochadi. Natijada o‘quvchilar kompyuter bilan bitta Wi-Fi da bo‘lishi shart emas — **o‘z telefonlaridagi mobil internet (4G/5G), Telegram ichki brauzeri yoki istalgan tarmoqdan** to‘g‘ridan-to‘g‘ri HTTPS havola orqali kiradi.
+2. **Bulutli 24/7 Deploy Rejimi (`package.json`, `Dockerfile`, `render.yaml`):** Render, Railway, Fly.io yoki Docker muhitida `PORT`, `DATA_DIR`, `PUBLIC_URL` va `TRUST_PROXY=1` orqali doimiy HTTPS domenda ishlaydi.
+3. **Gibrid Sinxronizatsiya va 1-Bosqichli Mobil Kirish (`POST /api/student-join` + `SSE` + `Adaptive Polling`):**
+   - O‘quvchilar kirill/lotin/o‘zbek yozuvida ism-familiyasi (va ixtiyoriy 4+ belgili shaxsiy kodi) bilan **bir bosishda** darsga kiradi (`Auth.joinOrAuthenticateStudent`); parolli profilga begona shaxs kodsiz kira olmaydi (`needsPassword: true`).
+   - Sessiya va JWT tokenlar 3 qatlamli xotirada (`sessionStorage` + `localStorage` + `memory` zaxirasi) saqlanadi (Telegram/Safari WebView tab yopilganda ham sessiya uzilmaydi).
+   - `SWESync` (`js/sync.js`) **Server-Sent Events (`/api/stream`, `X-Accel-Buffering: no`)** orqali jonli oqim yuritadi; mobil proksi SSE ni uzsa avtomatik **10s adaptive polling** hamda telefon ekrani yoqilganda (`visibilitychange` / `online`) tezkor sinxronizatsiyaga o‘tadi.
 
 ## 2. Modullar taqsimoti
 

@@ -87,23 +87,28 @@ swe-english-extra/
 │   ├── ai-txt.js         # .TXT parser/exporter, HTTPS/SSRF validator va DeepSeek/Gemini/OpenAI/Custom AI boyitish
 │   ├── sync.js           # Gibrid sinxronizatsiya (tokenli SSE /api/stream + REST va BroadcastChannel)
 │   ├── speech.js         # API-Key Neural TTS (OpenAI/Gemini/ElevenLabs/Custom) + PCM->WAV + Web Speech zaxira tizimi
-│   └── app.js            # UI kontroller, saralangan rol menyulari, drag-and-drop .TXT, anti-cheat proctoring va jonli monitoring
-├── start-server.bat      # Windows uchun bir klik bilan 0.0.0.0:4175 serverni ishga tushirish skripti
+│   └── app.js            # UI kontroller, 1-bosqichli mobil kirish, anti-cheat proctoring va jonli monitoring
+├── start-server.bat      # Windows uchun bir klikda Wi-Fi + Global 4G/5G HTTPS tunnelni ishga tushirish skripti
+├── package.json          # Node >= 18 start/test skriptlari (Render / Railway / Cloud deploy uchun)
+├── Dockerfile            # Konteyner orqali bulutga joylash konfiguratsiyasi
+├── render.yaml           # Render.com 1-klik bulutli deploy spetsifikatsiyasi
 ├── tests/
-│   └── verify.js         # Node.js avtomatlashtirilgan unit, kiberxavfsizlik, minimal-API, TTS, DeepSeek-talaffuz, ochiq ro‘yxatdan o‘tish, mashqlar DOM va yopiq imtihon testlari (20 ta suite)
+│   └── verify.js         # Avtomatlashtirilgan unit, kiberxavfsizlik, v5 mobil kirish, DOM va imtihon testlari (21 ta suite)
 ├── README.md             # Loyiha hujjati
 ├── ARCHITECTURE.md       # Texnik arxitektura va ma'lumotlar modeli
 └── WORK_LOG.md           # Bajarilgan ishlar va tekshiruv hisoboti
 ```
 
-## Ishga tushirish va Tekshirish
-1. **Real-Time ko‘p qurilmali rejim (Istalgan telefon, IP va qurilma uchun — Tavsiya etiladi):**
+## Ishga tushirish va O‘quvchilarning Telefonidan Kirishi (4G / 5G / Wi-Fi)
+1. **Kompyuterda bir klikda Global HTTPS + Wi-Fi serverni yoqish (Tavsiya etiladi):**
    ```bash
    node server.js
    ```
    *(Yoki Windows’da [`start-server.bat`](start-server.bat) faylini ikki marta bosing.)*
-   Server standart holatda **`0.0.0.0:4175`** da ishga tushadi va konsolda lokal (`http://127.0.0.1:4175`) hamda telefonlar uchun Wi-Fi / Hotspot manzillarini (`Phone/Wi-Fi (Wi-Fi): http://<KOMPYUTER-IP>:4175`) chiqaradi. O‘quvchilar kompyuter bilan **bitta Wi-Fi (yoki Hotspot)** ga ulanib o‘sha `Phone/Wi-Fi` havolasini telefon brauzerida ochsin va **"Ro‘yxatdan o‘tish"** tugmasi orqali darhol o‘z login/parolini yaratib kirishi mumkin (Teacher `O‘quvchilar` bo‘limidan ochiq ro‘yxatdan o‘tishni yoqib/yopishi mumkin). *(Eslatma: agar telefon boshqa mobil tarmoq / 4G da bo‘lsa, `192.168.x.x` lokal IP ishlamaydi — bir xil Wi-Fi/Hotspot yoki ommaviy HTTPS tunnel/hosting kerak bo‘ladi.)*
-2. **Yoki** `index.html` faylini to‘g‘ridan-to‘g‘ri brauzerda oching (`Local Multi-Tab` rejimida ishlaydi — parollar faqat o‘sha brauzer/qurilma xotirasida saqlanadi).
+   - Server `0.0.0.0:4175` da ishga tushadi va avtomatik ravishda **Global 4G/5G HTTPS havolasini** (`https://xxxx.app.lhr.life`) yaratadi.
+   - Teacher tizimga kirib **Jonli Kuzatuv** bo‘limidagi **«Telefon havolasi»** (`#copyPhoneJoinLinkBtn`) tugmasini bosadi va nusxalangan `https://...` havolani Telegram guruhga tashlaydi.
+   - O‘quvchilar **o‘z telefonlaridan (4G/5G mobil internet yoki istalgan Wi-Fi)** havolani ochib, ism-familiyasini yozib **«Darsga kirish»** tugmasini bosadi — murakkab parolsiz bir zumda darsga qo‘shiladi (xohlasa 4+ belgili shaxsiy kod qo‘yishi mumkin).
+2. **24/7 Bulutga joylash (Render / Railway / Docker):** Repozitoriyda tayyor `package.json`, `render.yaml` va `Dockerfile` mavjud — GitHub ulansa doimiy `https://...` manzilda 24/7 ishlaydi.
 3. Avtomatlashtirilgan testlarni ishga tushirish:
    ```bash
    node tests/verify.js

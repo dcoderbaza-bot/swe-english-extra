@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { spawn } = require('node:child_process');
 
 const Data = require('./js/default-data.js');
 const SRS = require('./js/srs.js');
@@ -283,12 +284,15 @@ function sendJson(res, statusCode, payload, extraHeaders) {
 function createAppServer(options) {
   const opts = options || {};
   const rootDir = path.resolve(opts.rootDir || __dirname);
-  const dataFilePath = path.resolve(opts.dataFilePath || path.join(rootDir, 'data', 'db.json'));
+  const defaultDataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(rootDir, 'data');
+  const dataFilePath = path.resolve(opts.dataFilePath || path.join(defaultDataDir, 'db.json'));
   const secretFilePath = path.resolve(opts.secretFilePath || path.join(path.dirname(dataFilePath), '.session-secret'));
   const tokenTtlMs = typeof opts.tokenTtlMs === 'number' && opts.tokenTtlMs > 0 ? opts.tokenTtlMs : DEFAULT_TOKEN_TTL_MS;
   const maxAttempts = typeof opts.maxLoginAttempts === 'number' && opts.maxLoginAttempts > 0 ? opts.maxLoginAttempts : SERVER_MAX_LOGIN_ATTEMPTS;
   const lockoutMs = typeof opts.lockoutMs === 'number' && opts.lockoutMs > 0 ? opts.lockoutMs : SERVER_LOCKOUT_MS;
   const fetcher = opts.fetchImpl || (typeof fetch === 'function' ? fetch : null);
+  let publicUrl = String(opts.publicUrl || process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  let tunnelStatus = publicUrl ? 'ready' : 'idle';
 
   const sessionSecret = readOrCreateSecret(secretFilePath);
   const sseClients = new Set();
@@ -567,8 +571,23 @@ function createAppServer(options) {
     });
   }
 
+  function isProxiedTunnelRequest(req) {
+    if (!req || !req.headers) return false;
+    const host = String(req.headers.host || '').toLowerCase();
+    return Boolean(
+      opts.trustProxy ||
+      process.env.TRUST_PROXY === '1' ||
+      host.endsWith('.lhr.life') ||
+      host.endsWith('.localhost.run') ||
+      host.endsWith('.onrender.com') ||
+      host.endsWith('.up.railway.app') ||
+      host.endsWith('.fly.dev') ||
+      host.endsWith('.trycloudflare.com')
+    );
+  }
+
   function getClientIp(req) {
-    if ((opts.trustProxy || process.env.TRUST_PROXY === '1') && req && req.headers && req.headers['x-forwarded-for']) {
+    if (isProxiedTunnelRequest(req) && req && req.headers && req.headers['x-forwarded-for']) {
       const fwd = String(req.headers['x-forwarded-for']).split(',')[0].trim();
       if (fwd) return fwd.replace(/^::ffff:/, '');
     }
@@ -700,6 +719,9 @@ function createAppServer(options) {
       relFromRoot === 'server.js' ||
       relFromRoot === '.gitignore' ||
       relFromRoot === 'package.json' ||
+      relFromRoot === 'Dockerfile' ||
+      relFromRoot === 'render.yaml' ||
+      relFromRoot === 'start-server.bat' ||
       relFromRoot === 'data' ||
       relFromRoot.startsWith('data/') ||
       relFromRoot === 'tests' ||
@@ -739,7 +761,122 @@ function createAppServer(options) {
 
       if (pathname === '/api/health' && req.method === 'GET') {
         const openSignup = !(db.settings && db.settings.allowOpenSignup === false);
-        sendJson(res, 200, { ok: true, mode: 'server', version: 4, allowOpenSignup: openSignup, timestamp: Date.now() });
+        sendJson(res, 200, {
+          ok: true,
+          mode: 'server',
+          version: 5,
+          allowOpenSignup: openSignup,
+          publicUrl: publicUrl || '',
+          tunnelStatus: tunnelStatus,
+          timestamp: Date.now()
+        });
+        return;
+      }
+
+      if (pathname === '/api/public-link' && req.method === 'GET') {
+        const session = getSessionFromRequest(req, parsedUrl);
+        if (!session || !Auth.isAdminRole(session.role)) {
+          sendJson(res, 403, { ok: false, error: 'Kirish havolasini faqat Teacher yoki IT Manager ko‘ra oladi.' });
+          return;
+        }
+        const allowOpenSignup = !(db.settings && db.settings.allowOpenSignup === false);
+        sendJson(res, 200, {
+          ok: true,
+          publicUrl: publicUrl || '',
+          tunnelStatus: tunnelStatus,
+          allowOpenSignup: allowOpenSignup
+        });
+        return;
+      }
+
+      if (pathname === '/api/student-join' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const now = Date.now();
+        const allowOpenSignup = !(db.settings && db.settings.allowOpenSignup === false);
+        const rawIdent = String(body.username || body.identifier || body.fullName || '').trim();
+        const rlBucket = getLoginBucketKey(req, 'student', rawIdent);
+        const rlCheck = checkServerRateLimit(rlBucket, now);
+
+        if (!rlCheck.allowed) {
+          sendJson(
+            res,
+            429,
+            {
+              ok: false,
+              rateLimited: true,
+              retryAfterSec: rlCheck.retryAfterSec,
+              error: 'Juda ko‘p xato urinish! ' + rlCheck.retryAfterSec + ' soniyadan keyin qayta urinib ko‘ring.'
+            },
+            { 'Retry-After': String(rlCheck.retryAfterSec) }
+          );
+          return;
+        }
+
+        const joinRes = Auth.joinOrAuthenticateStudent({
+          students: db.students,
+          username: body.username || '',
+          fullName: body.fullName || '',
+          group: body.group || '',
+          password: body.password || '',
+          allowOpenSignup: allowOpenSignup,
+          now: now
+        });
+
+        if (!joinRes.ok) {
+          if (joinRes.statusCode === 401 && String(body.password || '').trim()) {
+            const failState = recordServerFailure(rlBucket, now);
+            if (failState.locked) {
+              db.auditLog = Auth.appendAuditLog(
+                db.auditLog,
+                'student',
+                'AUTH_LOCKOUT',
+                'Brute-force himoya: ' + rlBucket + ' vaqtincha bloklandi (' + maxAttempts + ' xato urinish)',
+                now
+              );
+              saveDb();
+              sendJson(
+                res,
+                429,
+                {
+                  ok: false,
+                  rateLimited: true,
+                  retryAfterSec: failState.retryAfterSec,
+                  error: 'Juda ko‘p xato urinish! ' + failState.retryAfterSec + ' soniyadan keyin qayta urinib ko‘ring.'
+                },
+                { 'Retry-After': String(failState.retryAfterSec) }
+              );
+              return;
+            }
+          }
+          sendJson(res, joinRes.statusCode || 400, {
+            ok: false,
+            needsPassword: Boolean(joinRes.needsPassword),
+            error: joinRes.error || 'Kirishda xatolik yuz berdi.'
+          });
+          return;
+        }
+
+        rateLimitMap.delete(rlBucket);
+        db.students = joinRes.students;
+        db.studentProgress = Storage.ensureStudentProgress(db, joinRes.session.userId, now);
+        db = Storage.recordStudentEvent(db, joinRes.session, {
+          type: joinRes.mode === 'created' ? 'REGISTER' : 'LOGIN',
+          view: 'dashboard',
+          detail: joinRes.mode === 'created'
+            ? 'Telefondan tezkor qo‘shilib kirdi'
+            : 'Telefondan tizimga kirdi'
+        }, now);
+        saveDb();
+        broadcastSse(joinRes.mode === 'created' ? 'students' : 'login');
+
+        const token = signSessionToken(joinRes.session, sessionSecret, tokenTtlMs, now);
+        sendJson(res, 200, {
+          ok: true,
+          mode: joinRes.mode,
+          token: token,
+          session: joinRes.session,
+          state: sanitizeDbForSession(db, joinRes.session)
+        });
         return;
       }
 
@@ -771,7 +908,7 @@ function createAppServer(options) {
         const now = Date.now();
         const clientIp = getClientIp(req);
         const regRec = registerLimitMap.get(clientIp);
-        if (regRec && (now - regRec.firstAt) <= SERVER_ATTEMPT_WINDOW_MS && regRec.count >= 30) {
+        if (regRec && (now - regRec.firstAt) <= SERVER_ATTEMPT_WINDOW_MS && regRec.count >= 120) {
           sendJson(res, 429, { ok: false, error: 'Ushbu tarmoqdan juda ko‘p ro‘yxatdan o‘tish bo‘ldi. Birozdan so‘ng qayta urining.' });
           return;
         }
@@ -827,8 +964,9 @@ function createAppServer(options) {
         }
         res.writeHead(200, Object.assign({
           'Content-Type': 'text/event-stream; charset=utf-8',
-          'Cache-Control': 'no-store',
-          'Connection': 'keep-alive'
+          'Cache-Control': 'no-store, no-transform',
+          'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no'
         }, getCorsHeaders(), getSecurityHeaders(false)));
         res.write('event: connected\ndata: {"ok":true}\n\n');
         sseClients.add(res);
@@ -1541,6 +1679,15 @@ function createAppServer(options) {
   });
 
   server.getDbSnapshot = function () { return db; };
+  server.setPublicUrl = function (nextUrl, status) {
+    const cleaned = String(nextUrl || '').trim().replace(/\/+$/, '');
+    const changed = cleaned !== publicUrl || (status && status !== tunnelStatus);
+    publicUrl = cleaned;
+    if (status) tunnelStatus = status;
+    else tunnelStatus = cleaned ? 'ready' : 'idle';
+    if (changed) broadcastSse('tunnel');
+  };
+  server.getPublicUrl = function () { return publicUrl; };
   server.closeAllSse = function () {
     sseClients.forEach(function (clientRes) {
       try { clientRes.end(); } catch (e) { /* Ignore */ }
@@ -1551,22 +1698,127 @@ function createAppServer(options) {
   return server;
 }
 
+function shouldAutoStartTunnel() {
+  if (process.env.NO_TUNNEL === '1' || process.env.NO_TUNNEL === 'true') return false;
+  if (process.env.PUBLIC_URL) return false;
+  if (process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.FLY_APP_NAME || process.env.KOYEB_SERVICE_NAME || process.env.DYNO) {
+    return false;
+  }
+  return true;
+}
+
+function startPublicSshTunnel(port, serverInstance) {
+  let child = null;
+  let stopped = false;
+  let retryTimer = null;
+
+  function launch() {
+    if (stopped) return;
+    serverInstance.setPublicUrl('', 'connecting');
+    let streamTail = '';
+    const args = [
+      '-T',
+      '-o', 'StrictHostKeyChecking=accept-new',
+      '-o', 'ExitOnForwardFailure=yes',
+      '-o', 'ServerAliveInterval=30',
+      '-o', 'ServerAliveCountMax=3',
+      '-R', '80:127.0.0.1:' + port,
+      'nokey@localhost.run'
+    ];
+    try {
+      // Keep stdin as an open pipe so localhost.run does not close the session on immediate EOF
+      child = spawn('ssh', args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    } catch (err) {
+      serverInstance.setPublicUrl('', 'unavailable');
+      return;
+    }
+
+    function inspectChunk(chunk) {
+      const clean = String(chunk || '').replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
+      const combined = streamTail + clean;
+      streamTail = combined.slice(-512);
+      const matches = combined.match(/https:\/\/[a-z0-9-]+\.(?:[a-z0-9-]+\.)?lhr\.life\b/gi);
+      if (matches && matches.length > 0) {
+        const detected = matches[matches.length - 1].trim();
+        if (detected !== serverInstance.getPublicUrl()) {
+          serverInstance.setPublicUrl(detected, 'ready');
+          console.log('\n====================================================================');
+          console.log('  GLOBAL TELEFON HAVOLASI (4G / 5G / Wi-Fi — Hamma kira oladi!):');
+          console.log('  ' + detected);
+          console.log('====================================================================\n');
+        }
+      }
+    }
+
+    if (child.stdout) child.stdout.on('data', inspectChunk);
+    if (child.stderr) child.stderr.on('data', inspectChunk);
+
+    child.on('error', function () {
+      serverInstance.setPublicUrl('', 'unavailable');
+    });
+
+    child.on('close', function () {
+      child = null;
+      if (stopped) return;
+      serverInstance.setPublicUrl('', 'reconnecting');
+      retryTimer = setTimeout(launch, 4000);
+    });
+  }
+
+  launch();
+
+  return function stopTunnel() {
+    stopped = true;
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+    if (child) {
+      try { child.kill(); } catch (_) {}
+      child = null;
+    }
+  };
+}
+
 if (require.main === module) {
   const port = Number(process.env.PORT) || 4175;
   const host = process.env.HOST || '0.0.0.0';
   const server = createAppServer({ rootDir: __dirname });
+  let stopTunnelFn = null;
+
   server.listen(port, host, function () {
-    console.log('SWE ENGLISH EXTRA Real-Time Server running (all IPs enabled):');
+    console.log('SWE ENGLISH EXTRA v5 Real-Time Server running:');
     console.log('  Local:   http://127.0.0.1:' + port);
     if (host === '0.0.0.0' || host === '::') {
       const urls = listReachableLanUrls(port);
       urls.forEach(function (item) {
-        console.log('  ' + (item.isVirtual ? 'Virtual: ' : 'Phone/Wi-Fi (' + item.name + '): ') + item.url);
+        if (!item.isVirtual) {
+          console.log('  Wi-Fi (' + item.name + '): ' + item.url);
+        }
       });
-    } else {
-      console.log('  Bound:   http://' + host + ':' + port);
     }
-    console.log('Data file: ' + path.join(__dirname, 'data', 'db.json'));
+    if (process.env.PUBLIC_URL) {
+      console.log('  Cloud Public URL: ' + process.env.PUBLIC_URL);
+    } else if (shouldAutoStartTunnel()) {
+      console.log('  4G/5G Global HTTPS tunnel ulanmoqda...');
+      stopTunnelFn = startPublicSshTunnel(port, server);
+    }
+    console.log('Data file: ' + (process.env.DATA_DIR ? path.join(path.resolve(process.env.DATA_DIR), 'db.json') : path.join(__dirname, 'data', 'db.json')));
+  });
+
+  function shutdownCleanly() {
+    if (stopTunnelFn) stopTunnelFn();
+    server.closeAllSse();
+    server.close(function () {
+      process.exit(0);
+    });
+    setTimeout(function () { process.exit(0); }, 1000).unref();
+  }
+
+  process.on('SIGINT', shutdownCleanly);
+  process.on('SIGTERM', shutdownCleanly);
+  process.on('exit', function () {
+    if (stopTunnelFn) stopTunnelFn();
   });
 }
 

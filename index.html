@@ -74,10 +74,10 @@
 
         <div id="studentAuthModeTabs" class="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-slate-100/90 dark:bg-slate-900/80 border border-slate-200/70 dark:border-slate-800">
           <button type="button" id="stuAuthLoginModeBtn" class="py-1.5 px-2 rounded-lg text-xs font-extrabold bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 shadow-sm transition-all">
-            Kirish
+            Tezkor kirish
           </button>
           <button type="button" id="stuAuthSignupModeBtn" class="py-1.5 px-2 rounded-lg text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-indigo-600 transition-all">
-            Ro‘yxatdan o‘tish
+            To‘liq profil ochish
           </button>
         </div>
 
@@ -93,24 +93,24 @@
         </div>
 
         <div id="loginUsernameWrap">
-          <label for="loginUsernameInput" class="block text-xs font-bold mb-1">O‘quvchi logini *</label>
-          <input id="loginUsernameInput" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="masalan: student1, ali, madina" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
+          <label id="loginUsernameLabel" for="loginUsernameInput" class="block text-xs font-bold mb-1">Ism-familiya yoki Login *</label>
+          <input id="loginUsernameInput" type="text" autocomplete="username" autocapitalize="words" autocorrect="off" spellcheck="false" placeholder="masalan: Azizbek Aliyev yoki student1" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm font-semibold" />
         </div>
 
         <div>
-          <label id="loginPasswordLabel" for="loginPasswordInput" class="block text-xs font-bold mb-1">Parol *</label>
+          <label id="loginPasswordLabel" for="loginPasswordInput" class="block text-xs font-bold mb-1">Shaxsiy kod / Parol (ixtiyoriy)</label>
           <div class="flex items-center gap-2">
-            <input id="loginPasswordInput" required type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Parolni kiriting..." class="flex-1 px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+            <input id="loginPasswordInput" type="password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Bo‘sh qoldirsa ham kiradi (yoki min 4 belgi)..." class="flex-1 px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
             <button type="button" id="toggleLoginPwBtn" class="px-3 py-2.5 rounded-xl glass-panel text-xs font-bold" aria-label="Parolni ko‘rsatish">
               <i data-lucide="eye" class="w-4 h-4"></i>
             </button>
           </div>
-          <p id="signupPwHint" class="hidden text-[11px] text-slate-500 dark:text-slate-400 mt-1">Kamida 8 belgi + raqam yoki belgi (masalan: <span class="font-mono-ipa">Aziz#2026</span>)</p>
+          <p id="signupPwHint" class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Ismingizni yozib darhol kiring! Xohlasangiz o‘zingiz uchun 4+ belgili kod qo‘ying (masalan: <span class="font-mono-ipa">2026</span>).</p>
           <p id="loginErrorBox" class="hidden text-xs font-bold text-rose-600 dark:text-rose-400 mt-2"></p>
         </div>
 
         <button type="submit" id="loginSubmitBtn" class="btn-tactile w-full py-3 rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-emerald-600 hover:opacity-95 text-white text-sm font-extrabold shadow-lg shadow-indigo-500/25">
-          Tizimga kirish
+          Darsga kirish
         </button>
       </form>
 
@@ -118,11 +118,11 @@
         <div class="flex items-center justify-between gap-2">
           <span class="inline-flex items-center gap-1.5 font-extrabold text-slate-700 dark:text-slate-200">
             <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-500"></i>
-            Kiberhimoya Faol
+            4G / 5G Mobil va Bulutli Kirish Faol
           </span>
-          <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">HMAC · CSP · 5x Lockout</span>
+          <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">HTTPS · SSE+Poll</span>
         </div>
-        <p class="leading-relaxed">O‘quvchilar «Ro‘yxatdan o‘tish» orqali mustaqil kirishi yoki Teacher bergan login/parol bilan kirishi mumkin.</p>
+        <p class="leading-relaxed">O‘quvchilar istalgan telefon (4G/5G/Wi-Fi) orqali ism-familiyasini yozib bir bosishda kirishi mumkin.</p>
       </div>
     </div>
   </section>
@@ -1113,6 +1113,10 @@
         </div>
 
         <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" id="copyPhoneJoinLinkBtn" class="btn-tactile px-3.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-sm">
+            <i data-lucide="smartphone" class="w-3.5 h-3.5"></i>
+            <span id="copyPhoneJoinLinkLabel">Telefon havolasi</span>
+          </button>
           <button type="button" id="monitorRefreshBtn" class="btn-tactile px-3.5 py-2 rounded-xl glass-panel text-xs font-bold flex items-center gap-1.5">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
             Yangilash
@@ -1518,7 +1522,7 @@
           <div>
             <h1 class="text-xl sm:text-2xl font-extrabold">O‘quvchilar va Kirish Parollari</h1>
             <p class="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-              Har bir o‘quvchi uchun login va kuchli parol (kamida 8 belgi, harf + raqam/belgi) yarating yoki parolni yangilang.
+              O‘quvchilar telefonlaridan ism-familiyasi bilan bevosita kirishi yoki siz bu yerda ular uchun alohida login va kod (min 4 belgi) yaratishingiz mumkin.
             </p>
           </div>
           <button type="button" id="toggleOpenSignupBtn" class="btn-tactile shrink-0 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold">
@@ -1540,11 +1544,11 @@
             <input id="stuGroupInput" type="text" placeholder="IELTS B2" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
           </div>
           <div class="space-y-1.5">
-            <label for="stuPasswordInput" class="block text-xs font-bold">Parol (min 8 belgi + raqam) *</label>
-            <input id="stuPasswordInput" required minlength="8" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Masalan: Aziza#2026" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+            <label for="stuPasswordInput" class="block text-xs font-bold">Kod / Parol (min 4 belgi) *</label>
+            <input id="stuPasswordInput" required minlength="4" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Masalan: 2026 yoki Aziza#2026" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
             <div class="flex items-center gap-2">
               <div class="pw-meter-track flex-1"><div id="stuPwMeterBar" class="pw-meter-fill bg-slate-300" style="width: 0%"></div></div>
-              <span id="stuPwMeterLabel" class="text-[10px] font-bold text-slate-400 whitespace-nowrap">Kamida 8 belgi</span>
+              <span id="stuPwMeterLabel" class="text-[10px] font-bold text-slate-400 whitespace-nowrap">Kamida 4 belgi</span>
             </div>
           </div>
           <div class="sm:pt-5">
@@ -1811,11 +1815,11 @@
       <form id="studentResetPwForm" class="space-y-3">
         <input type="hidden" id="stuResetIdInput" />
         <div>
-          <label for="stuResetNewPwInput" class="block text-xs font-bold mb-1">Yangi parol (min 8 belgi + raqam/belgi) *</label>
-          <input id="stuResetNewPwInput" required minlength="8" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
+          <label for="stuResetNewPwInput" class="block text-xs font-bold mb-1">Yangi kod / parol (kamida 4 belgi) *</label>
+          <input id="stuResetNewPwInput" required minlength="4" type="password" autocapitalize="none" autocorrect="off" spellcheck="false" class="w-full px-3.5 py-2.5 rounded-xl bg-white/85 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-sm" />
           <div class="flex items-center gap-2 mt-1.5">
             <div class="pw-meter-track flex-1"><div id="stuResetPwMeterBar" class="pw-meter-fill bg-slate-300" style="width: 0%"></div></div>
-            <span id="stuResetPwMeterLabel" class="text-[10px] font-bold text-slate-400">Min 8 belgi</span>
+            <span id="stuResetPwMeterLabel" class="text-[10px] font-bold text-slate-400">Min 4 belgi</span>
           </div>
         </div>
         <div class="flex justify-end gap-2 pt-1">

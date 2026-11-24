@@ -242,3 +242,20 @@
 - `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
 - `node tests/verify.js`: **20/20** test to‘plami muvaffaqiyatli o‘tdi (jumladan 19-suite: typing/exam baholash, dublikatsiz distraktorlar, `Speech.stop` cleanup, CSS/HTML; hamda 20-suite: `vm` SPA DOM da barcha 5 mashq rejimi — Flashcards `Space`, Quiz saqlanish va telemetry himoyasi, Writing/Listening `Enter` keyingisi, Exam muddatidan oldin yakunlash tasdig‘i).
 - `SECRET_HITS=0`. *(Eslatma: jonli `chrome_devtools` MCP brauzer tekshiruvida Chrome masofaviy debugging porti ochiq emasligi sababli avtomatik brauzer ulana olmadi; barcha UI hodisalari 20-suite SPA DOM testida to‘liq tekshirildi.)*
+
+---
+
+## 14. 13-bosqich arxitektura yangilanishi (`v5` — O‘quvchilarning shaxsiy telefonlaridan 4G/5G/Wi-Fi orqali to‘siqsiz kirish arxitekturasi)
+
+### Muammo sabablari va yangi arxitektura yechimlari
+1. **Tarmoq darajasidagi qayta qurish (4G/5G Global HTTPS Tunnel + Cloud Deploy):**
+   - Ilgari `server.js` faqat lokal `192.168.x.x:4175` manzilda ishlagani sababli mobil internetdagi (`4G/5G`) yoki Wi-Fi Client Isolation yoqilgan tarmoqdagi o‘quvchilar telefonlaridan ulana olmas edi.
+   - `server.js` ichiga `startPublicSshTunnel` (`localhost.run` TLS HTTPS tunnel, uzilganda avtomatik qayta ulanish va SSE `'tunnel'` xabarnomasi bilan) hamda bulutli serverlar uchun `package.json`, `Dockerfile`, `render.yaml`, `DATA_DIR`, `PUBLIC_URL` va `X-Accel-Buffering: no` qo‘shildi. Teacher `Jonli Kuzatuv` panelidagi `#copyPhoneJoinLinkBtn` orqali xom IP manzillarsiz tayyor `https://...` kirish havolasini bir bosishda nusxalay oladi.
+2. **Autentifikatsiya va Mobil UX darajasidagi qayta qurish (`POST /api/student-join` + `Auth.joinOrAuthenticateStudent`):**
+   - O‘quvchilar endi «Kirish» va «Ro‘yxatdan o‘tish» orasida adashmasdan, kirill (`Шоҳруҳ Каримов` -> `shohruh_karimov`), o‘zbek (`O‘ktam`) yoki lotin yozuvida ism-familiyasini yozib **bir bosishda** (`Darsga kirish`) kodsiz yoki 4+ belgili shaxsiy PIN/kod bilan kira oladi; parolli akkauntlarga esa kodsiz kirish `401 (needsPassword: true)` bilan himoyalangan.
+3. **Mobil Brauzer va Telegram WebView Barqarorligi (`js/auth.js`, `js/sync.js`):**
+   - Sessiya va tokenlar `sessionStorage` + `localStorage` + xotira (`memory`) zaxirasida saqlanadi; `EventSource` mobil operator proksisida uzilsa avtomatik `10s` polling hamda ekran yoqilganda (`visibilitychange` / `online`) sinxronizatsiya ishga tushadi.
+
+### 13-bosqich tekshiruv natijalari
+- `node --check`: `server.js` va barcha `js/*.js` fayllar xatosiz o‘tdi.
+- `node tests/verify.js`: **21/21** test to‘plami muvaffaqiyatli o‘tdi (`v5 Mobile Classroom Architecture` to‘plami bilan birga), `SECRET_HITS=0`.
