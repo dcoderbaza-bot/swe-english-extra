@@ -12,6 +12,7 @@
   const SERVER_URL_KEY = 'swe_english_extra_server_url_v1';
 
   let serverMode = false;
+  let serverIsServerless = false;
   let serverAllowOpenSignup = true;
   let serverPublicUrl = '';
   let activeServerBaseUrl = '';
@@ -185,16 +186,17 @@
     }
   }
 
-  function startFallbackPolling() {
+  function startFallbackPolling(intervalMs) {
     if (fallbackPollTimerId || !serverMode || !getSessionToken()) return;
+    const pollMs = Number(intervalMs) > 0 ? Number(intervalMs) : (serverIsServerless ? 5000 : 10000);
     fallbackPollTimerId = setInterval(function () {
-      if (!serverMode || !getSessionToken() || sseConnected) {
-        if (sseConnected) stopFallbackPolling();
+      if (!serverMode || !getSessionToken() || (!serverIsServerless && sseConnected)) {
+        if (!serverIsServerless && sseConnected) stopFallbackPolling();
         return;
       }
       if (typeof document !== 'undefined' && document.hidden) return;
       emitUpdate({ source: 'poll', reason: 'mobile-poll', timestamp: Date.now() });
-    }, 10000);
+    }, pollMs);
   }
 
   function bindMobileLifecycleListeners() {
@@ -229,8 +231,9 @@
     const token = getSessionToken();
     if (!serverMode || !token) return;
     bindMobileLifecycleListeners();
-    if (typeof EventSource === 'undefined') {
-      startFallbackPolling();
+    if (serverIsServerless || typeof EventSource === 'undefined') {
+      stopServerStream();
+      startFallbackPolling(serverIsServerless ? 5000 : 10000);
       return;
     }
     stopServerStream();
@@ -272,6 +275,7 @@
       if (!res.ok) return false;
       const data = await res.json().catch(function () { return null; });
       if (data && data.ok && data.mode === 'server') {
+        serverIsServerless = Boolean(data.serverless);
         serverAllowOpenSignup = data.allowOpenSignup !== false;
         serverPublicUrl = String(data.publicUrl || '').trim();
         return true;

@@ -286,20 +286,70 @@ function sendJson(res, statusCode, payload, extraHeaders) {
   res.end(body);
 }
 
+function resolveCloudKvConfig(opts) {
+  if (opts && opts.cloudKv && opts.cloudKv.url && opts.cloudKv.token) {
+    return {
+      url: String(opts.cloudKv.url).trim().replace(/\/+$/, ''),
+      token: String(opts.cloudKv.token).trim(),
+      key: String(opts.cloudKv.key || 'swe_english_extra_db_v5')
+    };
+  }
+  const url = String(
+    process.env.KV_REST_API_URL ||
+    process.env.UPSTASH_REDIS_REST_URL ||
+    process.env.REDIS_REST_URL ||
+    ''
+  ).trim().replace(/\/+$/, '');
+  const token = String(
+    process.env.KV_REST_API_TOKEN ||
+    process.env.UPSTASH_REDIS_REST_TOKEN ||
+    process.env.REDIS_REST_TOKEN ||
+    ''
+  ).trim();
+  if (url && token) {
+    return {
+      url: url,
+      token: token,
+      key: String(process.env.SWE_KV_KEY || 'swe_english_extra_db_v5')
+    };
+  }
+  return null;
+}
+
 function createAppServer(options) {
   const opts = options || {};
   const rootDir = path.resolve(opts.rootDir || __dirname);
-  const defaultDataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(rootDir, 'data');
+  const isServerless = Boolean(
+    opts.serverless ||
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.NETLIFY
+  );
+  const defaultDataDir = process.env.DATA_DIR
+    ? path.resolve(process.env.DATA_DIR)
+    : (isServerless ? path.join(os.tmpdir(), 'swe-english-extra-data') : path.join(rootDir, 'data'));
   const dataFilePath = path.resolve(opts.dataFilePath || path.join(defaultDataDir, 'db.json'));
   const secretFilePath = path.resolve(opts.secretFilePath || path.join(path.dirname(dataFilePath), '.session-secret'));
   const tokenTtlMs = typeof opts.tokenTtlMs === 'number' && opts.tokenTtlMs > 0 ? opts.tokenTtlMs : DEFAULT_TOKEN_TTL_MS;
   const maxAttempts = typeof opts.maxLoginAttempts === 'number' && opts.maxLoginAttempts > 0 ? opts.maxLoginAttempts : SERVER_MAX_LOGIN_ATTEMPTS;
   const lockoutMs = typeof opts.lockoutMs === 'number' && opts.lockoutMs > 0 ? opts.lockoutMs : SERVER_LOCKOUT_MS;
   const fetcher = opts.fetchImpl || (typeof fetch === 'function' ? fetch : null);
+  const cloudKv = resolveCloudKvConfig(opts);
   let publicUrl = String(opts.publicUrl || process.env.PUBLIC_URL || '').trim().replace(/\/+$/, '');
-  let tunnelStatus = publicUrl ? 'ready' : 'idle';
+  let tunnelStatus = publicUrl ? 'ready' : (isServerless ? 'cloud' : 'idle');
 
-  const sessionSecret = readOrCreateSecret(secretFilePath);
+  const sessionSecret = (function () {
+    const explicit = String(opts.sessionSecret || process.env.SESSION_SECRET || '').trim();
+    if (explicit.length >= 16) return explicit;
+    if (cloudKv && cloudKv.token) {
+      return crypto.createHmac('sha256', cloudKv.token).update('swe-english-session-secret-v5').digest('hex');
+    }
+    if (isServerless && (process.env.VERCEL_PROJECT_ID || process.env.VERCEL_GIT_REPO_SLUG)) {
+      const seed = String(process.env.VERCEL_PROJECT_ID || '') + ':' + String(process.env.VERCEL_GIT_REPO_SLUG || '');
+      return crypto.createHmac('sha256', seed).update('swe-english-vercel-fallback-v5').digest('hex');
+    }
+    return readOrCreateSecret(secretFilePath);
+  })();
   const sseClients = new Set();
   const revokedTokens = new Map();
   const rateLimitMap = new Map();
@@ -380,7 +430,7 @@ function createAppServer(options) {
               now
             );
           }
-          saveDb();
+          await saveDb();
           broadcastSse('curriculum');
         }
 
@@ -581,7 +631,9 @@ function createAppServer(options) {
     const host = String(req.headers.host || '').toLowerCase();
     return Boolean(
       opts.trustProxy ||
+      isServerless ||
       process.env.TRUST_PROXY === '1' ||
+      host.endsWith('.vercel.app') ||
       host.endsWith('.lhr.life') ||
       host.endsWith('.localhost.run') ||
       host.endsWith('.onrender.com') ||
@@ -660,33 +712,77 @@ function createAppServer(options) {
   }
 
   function loadDb() {
-    const dir = path.dirname(dataFilePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    if (!fs.existsSync(dataFilePath)) {
-      const initial = Storage.createDefaultState(Date.now());
-      fs.writeFileSync(dataFilePath, JSON.stringify(initial, null, 2), 'utf8');
-      return initial;
-    }
     try {
+      const dir = path.dirname(dataFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      if (!fs.existsSync(dataFilePath)) {
+        const initial = Storage.createDefaultState(Date.now());
+        fs.writeFileSync(dataFilePath, JSON.stringify(initial, null, 2), 'utf8');
+        return initial;
+      }
       const parsed = JSON.parse(fs.readFileSync(dataFilePath, 'utf8'));
       return Storage.normalizeState(parsed, Date.now());
     } catch (e) {
       const fallback = Storage.createDefaultState(Date.now());
-      fs.writeFileSync(dataFilePath, JSON.stringify(fallback, null, 2), 'utf8');
+      try {
+        fs.writeFileSync(dataFilePath, JSON.stringify(fallback, null, 2), 'utf8');
+      } catch (_) {}
       return fallback;
     }
   }
 
   let db = loadDb();
 
-  function saveDb() {
-    const dir = path.dirname(dataFilePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+  async function cloudKvCommand(cmdArray) {
+    if (!cloudKv || !fetcher) return null;
+    const res = await fetcher(cloudKv.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + cloudKv.token
+      },
+      body: JSON.stringify(cmdArray)
+    });
+    if (!res.ok) {
+      throw new Error('Cloud KV HTTP ' + res.status);
     }
-    fs.writeFileSync(dataFilePath, JSON.stringify(db, null, 2), 'utf8');
+    return res.json();
+  }
+
+  async function syncDbFromCloudIfNeeded() {
+    if (!cloudKv || !fetcher) return;
+    try {
+      const data = await cloudKvCommand(['GET', cloudKv.key]);
+      if (data && typeof data.result === 'string' && data.result.trim()) {
+        db = Storage.normalizeState(JSON.parse(data.result), Date.now());
+      } else if (data && data.result === null) {
+        await cloudKvCommand(['SET', cloudKv.key, JSON.stringify(db)]);
+      }
+    } catch (_) {
+      // Fall back to in-memory / local state if transient KV network hiccup occurs
+    }
+  }
+
+  async function saveDb() {
+    const serialized = JSON.stringify(db, null, 2);
+    try {
+      const dir = path.dirname(dataFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(dataFilePath, serialized, 'utf8');
+    } catch (_) {
+      // Ignore read-only filesystem errors on serverless platforms
+    }
+    if (cloudKv && fetcher) {
+      try {
+        await cloudKvCommand(['SET', cloudKv.key, JSON.stringify(db)]);
+      } catch (_) {
+        // Keep local / tmp copy if cloud write transiently fails
+      }
+    }
   }
 
   function broadcastSse(reason) {
@@ -724,9 +820,12 @@ function createAppServer(options) {
       relFromRoot === 'server.js' ||
       relFromRoot === '.gitignore' ||
       relFromRoot === 'package.json' ||
+      relFromRoot === 'vercel.json' ||
       relFromRoot === 'Dockerfile' ||
       relFromRoot === 'render.yaml' ||
       relFromRoot === 'start-server.bat' ||
+      relFromRoot === 'api' ||
+      relFromRoot.startsWith('api/') ||
       relFromRoot === 'data' ||
       relFromRoot.startsWith('data/') ||
       relFromRoot === 'tests' ||
@@ -753,6 +852,22 @@ function createAppServer(options) {
     });
   }
 
+  function resolveEffectivePublicUrl(req) {
+    if (publicUrl) return publicUrl;
+    if (isServerless) {
+      const rawHost = String(
+        (req && req.headers && (req.headers['x-forwarded-host'] || req.headers.host)) ||
+        process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+        process.env.VERCEL_URL ||
+        ''
+      ).split(',')[0].trim();
+      if (rawHost && !/^(localhost|127\.0\.0\.1)\b/i.test(rawHost)) {
+        return /^https?:\/\//i.test(rawHost) ? rawHost.replace(/\/+$/, '') : ('https://' + rawHost);
+      }
+    }
+    return '';
+  }
+
   const server = http.createServer(async function (req, res) {
     const parsedUrl = new URL(req.url || '/', 'http://' + ((req && req.headers && req.headers.host) || '127.0.0.1'));
     const pathname = parsedUrl.pathname;
@@ -764,15 +879,21 @@ function createAppServer(options) {
         return;
       }
 
+      if (pathname.startsWith('/api/')) {
+        await syncDbFromCloudIfNeeded();
+      }
+
       if (pathname === '/api/health' && req.method === 'GET') {
         const openSignup = !(db.settings && db.settings.allowOpenSignup === false);
         sendJson(res, 200, {
           ok: true,
           mode: 'server',
           version: 5,
+          serverless: isServerless,
+          storageMode: cloudKv ? 'cloud-kv' : (isServerless ? 'serverless-tmp' : 'disk'),
           allowOpenSignup: openSignup,
-          publicUrl: publicUrl || '',
-          tunnelStatus: tunnelStatus,
+          publicUrl: resolveEffectivePublicUrl(req),
+          tunnelStatus: cloudKv ? 'ready' : tunnelStatus,
           timestamp: Date.now()
         });
         return;
@@ -787,8 +908,9 @@ function createAppServer(options) {
         const allowOpenSignup = !(db.settings && db.settings.allowOpenSignup === false);
         sendJson(res, 200, {
           ok: true,
-          publicUrl: publicUrl || '',
-          tunnelStatus: tunnelStatus,
+          publicUrl: resolveEffectivePublicUrl(req),
+          storageMode: cloudKv ? 'cloud-kv' : (isServerless ? 'serverless-tmp' : 'disk'),
+          tunnelStatus: cloudKv ? 'ready' : tunnelStatus,
           allowOpenSignup: allowOpenSignup
         });
         return;
@@ -838,7 +960,7 @@ function createAppServer(options) {
                 'Brute-force himoya: ' + rlBucket + ' vaqtincha bloklandi (' + maxAttempts + ' xato urinish)',
                 now
               );
-              saveDb();
+              await saveDb();
               sendJson(
                 res,
                 429,
@@ -871,7 +993,7 @@ function createAppServer(options) {
             ? 'Telefondan tezkor qo‘shilib kirdi'
             : 'Telefondan tizimga kirdi'
         }, now);
-        saveDb();
+        await saveDb();
         broadcastSse(joinRes.mode === 'created' ? 'students' : 'login');
 
         const token = signSessionToken(joinRes.session, sessionSecret, tokenTtlMs, now);
@@ -939,7 +1061,7 @@ function createAppServer(options) {
           view: 'dashboard',
           detail: 'Telefondan / mustaqil ro‘yxatdan o‘tib kirdi'
         }, now);
-        saveDb();
+        await saveDb();
         broadcastSse('students');
 
         const token = signSessionToken(regRes.session, sessionSecret, tokenTtlMs, now);
@@ -966,6 +1088,14 @@ function createAppServer(options) {
             sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti faol emas.' });
             return;
           }
+        }
+        if (isServerless) {
+          res.writeHead(200, Object.assign({
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-store, no-transform'
+          }, getCorsHeaders(), getSecurityHeaders(false)));
+          res.end('retry: 6000\nevent: connected\ndata: {"ok":true,"serverless":true}\n\n');
+          return;
         }
         res.writeHead(200, Object.assign({
           'Content-Type': 'text/event-stream; charset=utf-8',
@@ -1064,7 +1194,7 @@ function createAppServer(options) {
             now
           );
         }
-        saveDb();
+        await saveDb();
         broadcastSse('login');
 
         const token = signSessionToken(session, sessionSecret, tokenTtlMs, now);
@@ -1098,7 +1228,7 @@ function createAppServer(options) {
               now
             );
           }
-          saveDb();
+          await saveDb();
           broadcastSse('logout');
         }
         sendJson(res, 200, { ok: true });
@@ -1137,7 +1267,7 @@ function createAppServer(options) {
         const body = await readJsonBody(req);
         const result = Storage.applyWordReviewForSession(db, session, body.wordId, body.ratingKey, SRS, Date.now());
         db = result.state;
-        saveDb();
+        await saveDb();
         broadcastSse('telemetry');
         sendJson(res, 200, { ok: true, state: sanitizeDbForSession(db, session) });
         return;
@@ -1156,7 +1286,7 @@ function createAppServer(options) {
         const body = await readJsonBody(req);
         if (session.role === 'student') {
           db = Storage.recordStudentEvent(db, session, body, Date.now());
-          saveDb();
+          await saveDb();
           broadcastSse(body.type === 'HEARTBEAT' ? 'heartbeat' : 'telemetry');
         }
         sendJson(res, 200, { ok: true, state: sanitizeDbForSession(db, session) });
@@ -1177,7 +1307,7 @@ function createAppServer(options) {
         try {
           const examRes = Exam.applyExamAction(db, session, body, Date.now());
           db = examRes.state;
-          saveDb();
+          await saveDb();
           broadcastSse('exam');
           sendJson(res, 200, { ok: true, finalExam: examRes.finalExam, state: sanitizeDbForSession(db, session) });
         } catch (examErr) {
@@ -1223,7 +1353,7 @@ function createAppServer(options) {
           db.auditLog = Auth.appendAuditLog(db.auditLog, session.role, body.auditAction, body.auditDetail || '', now);
         }
 
-        saveDb();
+        await saveDb();
         broadcastSse('curriculum');
         sendJson(res, 200, { ok: true, state: sanitizeDbForSession(db, session) });
         return;
@@ -1299,7 +1429,7 @@ function createAppServer(options) {
           return;
         }
 
-        saveDb();
+        await saveDb();
         broadcastSse(body.action === 'approveExamRetake' ? 'exam' : 'students');
         sendJson(res, 200, { ok: true, state: sanitizeDbForSession(db, session) });
         return;
@@ -1370,7 +1500,7 @@ function createAppServer(options) {
           db.aiConfig.provider + ' (' + db.aiConfig.model + ') · TTS: ' + db.aiConfig.ttsProvider + ' sozlandi',
           Date.now()
         );
-        saveDb();
+        await saveDb();
         broadcastSse('ai-config');
         sendJson(res, 200, { ok: true, state: sanitizeDbForSession(db, session) });
         return;
@@ -1682,7 +1812,7 @@ function createAppServer(options) {
           return;
         }
 
-        saveDb();
+        await saveDb();
         broadcastSse('security');
         sendJson(res, 200, { ok: true, state: sanitizeDbForSession(db, session) });
         return;

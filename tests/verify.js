@@ -2583,6 +2583,108 @@ async function runAsyncTests() {
     }
   });
 
+  await testAsync('Vercel Serverless API + Upstash Cloud KV: persists students, curriculum & session tokens across cold starts', async () => {
+    // Verify api/index.js loads cleanly as a Vercel Serverless handler
+    const vercelHandler = require('../api/index.js');
+    assert.equal(typeof vercelHandler, 'function');
+
+    // Mock Upstash Redis / Vercel KV REST API in memory
+    const kvMemory = new Map();
+    const mockKvFetch = async (url, init) => {
+      assert.equal(url, 'https://mock-upstash.upstash.io');
+      assert.equal(init.headers.Authorization, 'Bearer mock_upstash_secret_token_2026');
+      const cmd = JSON.parse(init.body);
+      if (cmd[0] === 'GET') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ result: kvMemory.has(cmd[1]) ? kvMemory.get(cmd[1]) : null })
+        };
+      }
+      if (cmd[0] === 'SET') {
+        kvMemory.set(cmd[1], String(cmd[2]));
+        return { ok: true, status: 200, json: async () => ({ result: 'OK' }) };
+      }
+      throw new Error('Unexpected KV cmd: ' + cmd[0]);
+    };
+
+    const tmp1 = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-vercel-inst1-'));
+    const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-vercel-inst2-'));
+
+    // Instance 1: Cold-start Lambda #1
+    const inst1 = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath: path.join(tmp1, 'db.json'),
+      serverless: true,
+      fetchImpl: mockKvFetch,
+      cloudKv: {
+        url: 'https://mock-upstash.upstash.io',
+        token: 'mock_upstash_secret_token_2026',
+        key: 'swe_vercel_test_db'
+      }
+    });
+    await new Promise((r) => inst1.listen(0, '127.0.0.1', r));
+    const url1 = `http://127.0.0.1:${inst1.address().port}`;
+
+    // Instance 2: Separate cold-start Lambda #2 (completely separate filesystem, shares only Cloud KV)
+    const inst2 = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath: path.join(tmp2, 'db.json'),
+      serverless: true,
+      fetchImpl: mockKvFetch,
+      cloudKv: {
+        url: 'https://mock-upstash.upstash.io',
+        token: 'mock_upstash_secret_token_2026',
+        key: 'swe_vercel_test_db'
+      }
+    });
+    await new Promise((r) => inst2.listen(0, '127.0.0.1', r));
+    const url2 = `http://127.0.0.1:${inst2.address().port}`;
+
+    try {
+      const h1 = await (await fetch(`${url1}/api/health`, {
+        headers: { 'X-Forwarded-Host': 'swe-english-extra.vercel.app' }
+      })).json();
+      assert.equal(h1.ok, true);
+      assert.equal(h1.serverless, true);
+      assert.equal(h1.storageMode, 'cloud-kv');
+      assert.equal(h1.publicUrl, 'https://swe-english-extra.vercel.app');
+
+      // Student joins on Lambda #1
+      const joinOn1 = await (await fetch(`${url1}/api/student-join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'Vercel Talaba', password: '' })
+      })).json();
+      assert.equal(joinOn1.ok, true);
+      assert.equal(joinOn1.session.username, 'vercel_talaba');
+
+      // Student's next request lands on cold-start Lambda #2 with token minted by Lambda #1!
+      const stateOn2 = await (await fetch(`${url2}/api/state`, {
+        headers: { 'Authorization': `Bearer ${joinOn1.token}` }
+      })).json();
+      assert.equal(stateOn2.ok, true);
+      assert.equal(stateOn2.session.username, 'vercel_talaba');
+
+      // Serverless /api/stream closes cleanly without hanging Lambda
+      const streamRes = await fetch(`${url2}/api/stream?token=${encodeURIComponent(joinOn1.token)}`);
+      assert.equal(streamRes.status, 200);
+      const streamBody = await streamRes.text();
+      assert.match(streamBody, /"serverless":true/);
+
+      // Sensitive files blocked (403)
+      assert.equal((await fetch(`${url1}/vercel.json`)).status, 403);
+      assert.equal((await fetch(`${url1}/api/index.js`)).status, 403);
+    } finally {
+      inst1.closeAllSse();
+      inst2.closeAllSse();
+      await new Promise((r) => inst1.close(r));
+      await new Promise((r) => inst2.close(r));
+      fs.rmSync(tmp1, { recursive: true, force: true });
+      fs.rmSync(tmp2, { recursive: true, force: true });
+    }
+  });
+
   console.log(`\nAll ${passed} test suites passed!`);
 }
 

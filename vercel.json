@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
+    { "source": "/server.js", "destination": "/api/index.js" },
+    { "source": "/package.json", "destination": "/api/index.js" },
+    { "source": "/vercel.json", "destination": "/api/index.js" },
+    { "source": "/Dockerfile", "destination": "/api/index.js" },
+    { "source": "/render.yaml", "destination": "/api/index.js" },
+    { "source": "/start-server.bat", "destination": "/api/index.js" },
+    { "source": "/tests/(.*)", "destination": "/api/index.js" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" }
+      ]
+    }
+  ]
+}
