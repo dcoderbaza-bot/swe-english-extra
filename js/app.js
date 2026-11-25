@@ -452,6 +452,7 @@
       accent: accent,
       rate: opts.rate || 0.96,
       useApiTts: opts.testConfig ? true : canUseServerTts,
+      preferServerAudio: Boolean(Sync && Sync.isServerMode()),
       bypassCache: Boolean(opts.bypassCache),
       strictApiError: Boolean(opts.strictApiError),
       testConfig: opts.testConfig || null,
@@ -6591,6 +6592,8 @@
     document.addEventListener('keydown', handleGlobalKeydown);
   }
 
+  let consecutiveAuthErrors = 0;
+
   function handleIncomingSyncUpdate(info) {
     if (!currentSession) return;
     if (syncRefreshTimerId) clearTimeout(syncRefreshTimerId);
@@ -6599,11 +6602,16 @@
       if (Sync && Sync.isServerMode()) {
         try {
           const res = await Sync.fetchRemoteState();
+          consecutiveAuthErrors = 0;
           if (res && res.state) mergeRemoteState(res.state);
         } catch (err) {
           if (err && err.status === 401) {
-            currentSession = Auth.setSession(null);
-            applyAuthGateUI();
+            consecutiveAuthErrors++;
+            if (consecutiveAuthErrors >= 3) {
+              consecutiveAuthErrors = 0;
+              currentSession = Auth.setSession(null);
+              applyAuthGateUI();
+            }
             return;
           }
           return;

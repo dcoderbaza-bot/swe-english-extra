@@ -2683,6 +2683,65 @@ async function runAsyncTests() {
       fs.rmSync(tmp1, { recursive: true, force: true });
       fs.rmSync(tmp2, { recursive: true, force: true });
     }
+
+    // Also verify ephemeral Vercel mode (WITHOUT KV yet) NEVER kicks out students across cold starts AND serves cloudFallback MP3
+    const eph1 = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-eph-1-'));
+    const eph2 = fs.mkdtempSync(path.join(os.tmpdir(), 'swe-eph-2-'));
+    const mockFreeAudioFetch = async () => {
+      const mp3 = Buffer.from('ID3_CLOUD_FREE_MP3_STREAM_0123456789_0123456789_0123456789_0123456789');
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => mp3.buffer.slice(mp3.byteOffset, mp3.byteOffset + mp3.byteLength)
+      };
+    };
+    const ephSrv1 = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath: path.join(eph1, 'db.json'),
+      serverless: true,
+      fetchImpl: mockFreeAudioFetch
+    });
+    const ephSrv2 = createAppServer({
+      rootDir: path.resolve(__dirname, '..'),
+      dataFilePath: path.join(eph2, 'db.json'),
+      serverless: true,
+      fetchImpl: mockFreeAudioFetch
+    });
+    await new Promise((r) => ephSrv1.listen(0, '127.0.0.1', r));
+    await new Promise((r) => ephSrv2.listen(0, '127.0.0.1', r));
+    const eUrl1 = `http://127.0.0.1:${ephSrv1.address().port}`;
+    const eUrl2 = `http://127.0.0.1:${ephSrv2.address().port}`;
+    try {
+      const joined = await (await fetch(`${eUrl1}/api/student-join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: 'Otabek Mobil', password: '' })
+      })).json();
+      assert.equal(joined.ok, true);
+
+      // Next poll hits cold-start ephSrv2 (empty /tmp) -> must rehydrate & return 200 (NEVER 401 kickout!)
+      const poll2 = await fetch(`${eUrl2}/api/state`, {
+        headers: { 'Authorization': `Bearer ${joined.token}` }
+      });
+      assert.equal(poll2.status, 200);
+
+      // Clicking Audio on cold-start ephSrv2 with cloudFallback:true -> returns 200 audio/mpeg with ZERO API key!
+      const ttsFree = await fetch(`${eUrl2}/api/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${joined.token}` },
+        body: JSON.stringify({ text: 'spin, spun, spun', accent: 'en-US', cloudFallback: true })
+      });
+      assert.equal(ttsFree.status, 200);
+      assert.equal(ttsFree.headers.get('content-type'), 'audio/mpeg');
+      assert.equal(ttsFree.headers.get('x-tts-provider'), 'cloud-free');
+    } finally {
+      ephSrv1.closeAllSse();
+      ephSrv2.closeAllSse();
+      await new Promise((r) => ephSrv1.close(r));
+      await new Promise((r) => ephSrv2.close(r));
+      fs.rmSync(eph1, { recursive: true, force: true });
+      fs.rmSync(eph2, { recursive: true, force: true });
+    }
   });
 
   console.log(`\nAll ${passed} test suites passed!`);

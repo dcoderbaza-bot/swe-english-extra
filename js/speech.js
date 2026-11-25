@@ -148,13 +148,60 @@
   }
 
   let cachedVoices = [];
+  let sharedAudioEl = null;
   let activeAudioEl = null;
   let activePlayToken = 0;
   let activeOnEnd = null;
+  let speechWatchdogId = null;
   let remoteTtsHandler = null;
   let lastEngineUsed = 'browser';
   const MAX_CLIENT_AUDIO_CACHE = 240;
   const audioBlobCache = new Map();
+
+  function getOrCreateSharedAudio() {
+    if (sharedAudioEl) return sharedAudioEl;
+    if (typeof Audio === 'undefined') return null;
+    try {
+      sharedAudioEl = new Audio();
+      sharedAudioEl.preload = 'auto';
+      sharedAudioEl.playsInline = true;
+      if (typeof sharedAudioEl.setAttribute === 'function') {
+        sharedAudioEl.setAttribute('playsinline', '');
+        sharedAudioEl.setAttribute('webkit-playsinline', '');
+      }
+      return sharedAudioEl;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function unlockSharedAudioOnGesture() {
+    const el = getOrCreateSharedAudio();
+    if (!el) return;
+    try {
+      if (!el.src) {
+        // Silent 1-frame WAV data URI unlocks iOS Safari / Android WebView Audio element inside tap gesture
+        el.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        el.volume = 0.01;
+        const p = el.play();
+        if (p && typeof p.then === 'function') {
+          p.then(function () {
+            if (activeAudioEl !== el) {
+              try { el.pause(); } catch (_) {}
+            }
+            el.volume = 1.0;
+          }).catch(function () {
+            el.volume = 1.0;
+          });
+        } else {
+          el.pause();
+          el.volume = 1.0;
+        }
+      }
+    } catch (_) {
+      try { el.volume = 1.0; } catch (e2) {}
+    }
+  }
 
   function isSupported() {
     return typeof window !== 'undefined' &&
@@ -208,8 +255,15 @@
   }
 
   function stopAudioEl() {
+    if (speechWatchdogId) {
+      clearTimeout(speechWatchdogId);
+      speechWatchdogId = null;
+    }
     if (activeAudioEl) {
       try {
+        activeAudioEl.onplaying = null;
+        activeAudioEl.onended = null;
+        activeAudioEl.onerror = null;
         activeAudioEl.pause();
         activeAudioEl.currentTime = 0;
       } catch (e) {
@@ -226,7 +280,9 @@
     stopAudioEl();
     if (isSupported()) {
       try {
-        window.speechSynthesis.cancel();
+        if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+          window.speechSynthesis.cancel();
+        }
       } catch (err) {
         // Ignore browser cancel quirk
       }
@@ -271,10 +327,12 @@
   function playObjectUrl(url, rate, providerLabel, token, opts) {
     if (typeof Audio === 'undefined' || !url) return false;
     stopAudioEl();
-    const audio = new Audio(url);
+    const audio = getOrCreateSharedAudio() || new Audio();
+    audio.volume = 1.0;
+    audio.src = url;
     activeAudioEl = audio;
     const clampedRate = Math.max(0.55, Math.min(1.5, Number(rate) || 1.0));
-    audio.playbackRate = clampedRate;
+    try { audio.playbackRate = clampedRate; } catch (_) {}
     if ('preservesPitch' in audio) audio.preservesPitch = true;
 
     let finished = false;
@@ -290,21 +348,33 @@
 
     audio.onplaying = function () {
       if (token !== activePlayToken) return;
+      try { audio.playbackRate = clampedRate; } catch (_) {}
       lastEngineUsed = 'api:' + (providerLabel || 'tts');
       if (typeof opts.onStart === 'function') opts.onStart(lastEngineUsed);
     };
     audio.onended = finish;
     audio.onerror = function () {
-      finish();
+      if (finished) return;
+      finished = true;
+      if (activeAudioEl === audio) activeAudioEl = null;
+      if (token === activePlayToken && isSupported()) {
+        speakViaBrowser(opts._content, opts);
+        return;
+      }
+      if (typeof opts.onEnd === 'function') opts.onEnd();
     };
 
     try {
       const p = audio.play();
       if (p && typeof p.catch === 'function') {
         p.catch(function () {
-          finish();
+          if (finished) return;
+          finished = true;
+          if (activeAudioEl === audio) activeAudioEl = null;
           if (token === activePlayToken) {
             speakViaBrowser(opts._content, opts);
+          } else if (typeof opts.onEnd === 'function') {
+            opts.onEnd();
           }
         });
       }
@@ -325,7 +395,14 @@
     const accent = opts.accent === 'en-GB' ? 'en-GB' : 'en-US';
     const rate = typeof opts.rate === 'number' ? opts.rate : 0.96;
 
-    try { window.speechSynthesis.cancel(); } catch (e) {}
+    try {
+      if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+        window.speechSynthesis.cancel();
+      }
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+    } catch (e) {}
 
     const utterance = new window.SpeechSynthesisUtterance(content);
     utterance.lang = accent;
@@ -338,13 +415,25 @@
     }
 
     utterance.onstart = function () {
+      if (speechWatchdogId) {
+        clearTimeout(speechWatchdogId);
+        speechWatchdogId = null;
+      }
       lastEngineUsed = 'browser';
       if (typeof opts.onStart === 'function') opts.onStart('browser');
     };
     utterance.onend = function () {
+      if (speechWatchdogId) {
+        clearTimeout(speechWatchdogId);
+        speechWatchdogId = null;
+      }
       if (typeof opts.onEnd === 'function') opts.onEnd();
     };
     utterance.onerror = function (event) {
+      if (speechWatchdogId) {
+        clearTimeout(speechWatchdogId);
+        speechWatchdogId = null;
+      }
       if (typeof opts.onEnd === 'function') opts.onEnd();
       if (event && event.error !== 'interrupted' && event.error !== 'canceled') {
         if (typeof opts.onError === 'function') opts.onError(event);
@@ -369,6 +458,7 @@
     const accent = opts.accent === 'en-GB' ? 'en-GB' : 'en-US';
     const rate = typeof opts.rate === 'number' ? opts.rate : 0.96;
 
+    unlockSharedAudioOnGesture();
     stop();
     const myToken = activePlayToken;
     const origOnEnd = opts.onEnd;
@@ -382,8 +472,12 @@
     activeOnEnd = notifyEnded;
     opts.onEnd = notifyEnded;
 
-    const canTryApi = Boolean(opts.useApiTts !== false && remoteTtsHandler && typeof Audio !== 'undefined');
-    if (canTryApi) {
+    const shouldUseServerAudio = Boolean(
+      remoteTtsHandler &&
+      typeof Audio !== 'undefined' &&
+      (opts.useApiTts === true || opts.preferServerAudio === true)
+    );
+    if (shouldUseServerAudio) {
       const cacheKey = accent + '|' + content.toLowerCase();
       const cached = audioBlobCache.get(cacheKey);
       if (cached && cached.url && !opts.bypassCache) {
@@ -393,7 +487,12 @@
       }
 
       if (typeof opts.onStart === 'function') opts.onStart('loading');
-      Promise.resolve(remoteTtsHandler({ text: content, accent: accent, testConfig: opts.testConfig || null }))
+      Promise.resolve(remoteTtsHandler({
+        text: content,
+        accent: accent,
+        cloudFallback: opts.useApiTts !== true,
+        testConfig: opts.testConfig || null
+      }))
         .then(function (res) {
           if (myToken !== activePlayToken) return;
           if (res && res.mode === 'audio' && res.blob) {

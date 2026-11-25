@@ -344,8 +344,15 @@ function createAppServer(options) {
     if (cloudKv && cloudKv.token) {
       return crypto.createHmac('sha256', cloudKv.token).update('swe-english-session-secret-v5').digest('hex');
     }
-    if (isServerless && (process.env.VERCEL_PROJECT_ID || process.env.VERCEL_GIT_REPO_SLUG)) {
-      const seed = String(process.env.VERCEL_PROJECT_ID || '') + ':' + String(process.env.VERCEL_GIT_REPO_SLUG || '');
+    if (isServerless) {
+      const seed = String(
+        process.env.VERCEL_PROJECT_ID ||
+        process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+        process.env.VERCEL_BRANCH_URL ||
+        process.env.VERCEL_URL ||
+        rootDir ||
+        'swe-english-extra-v5'
+      );
       return crypto.createHmac('sha256', seed).update('swe-english-vercel-fallback-v5').digest('hex');
     }
     return readOrCreateSecret(secretFilePath);
@@ -612,6 +619,38 @@ function createAppServer(options) {
     throw new Error('Qo‘llab-quvvatlanmagan TTS provayder.');
   }
 
+  async function synthesizeViaFreeCloudTts(text, accent) {
+    if (!fetcher) {
+      throw new Error('Server fetch mavjud emas.');
+    }
+    const langCode = accent === 'en-GB' ? 'en-GB' : 'en-US';
+    const encoded = encodeURIComponent(text);
+    const upstreams = [
+      'https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=' + langCode + '&q=' + encoded,
+      'https://dict.youdao.com/dictvoice?audio=' + encoded + '&type=' + (accent === 'en-GB' ? '1' : '2')
+    ];
+
+    let lastErr = null;
+    for (let i = 0; i < upstreams.length; i++) {
+      try {
+        const res = await fetcher(upstreams[i], {
+          method: 'GET',
+          headers: { 'User-Agent': 'Mozilla/5.0' }
+        });
+        if (res && res.ok) {
+          const arrBuf = await res.arrayBuffer();
+          const buf = Buffer.from(arrBuf);
+          if (buf.length > 64) {
+            return { buffer: buf, mime: 'audio/mpeg' };
+          }
+        }
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr || new Error('Bepul bulutli TTS ovoz olish imkonsiz bo‘ldi.');
+  }
+
   function pruneSecurityMaps(nowMs) {
     const ts = typeof nowMs === 'number' ? nowMs : Date.now();
     revokedTokens.forEach(function (exp, jti) {
@@ -802,6 +841,44 @@ function createAppServer(options) {
     const token = bearer || (parsedUrl && parsedUrl.searchParams.get('token')) || '';
     pruneSecurityMaps(Date.now());
     return verifySessionToken(token, sessionSecret, revokedTokens, Date.now());
+  }
+
+  function ensureActiveStudentSession(session) {
+    if (!session || session.role !== 'student') return true;
+    const list = Array.isArray(db.students) ? db.students : [];
+    const byId = list.find(function (s) { return s.id === session.userId; });
+    if (byId) {
+      return byId.active !== false;
+    }
+    const normUser = Auth.normalizeUsername(session.username || '');
+    const byUsername = normUser
+      ? list.find(function (s) { return Auth.normalizeUsername(s.username || '') === normUser; })
+      : null;
+    if (byUsername) {
+      if (byUsername.active === false) return false;
+      session.userId = byUsername.id;
+      return true;
+    }
+    // On ephemeral serverless without Cloud KV yet, rehydrate cryptographically valid signed student sessions
+    // so parallel Lambda cold starts never kick out logged-in students with 401
+    if (isServerless && !cloudKv && session.userId && normUser) {
+      const nowTs = Date.now();
+      const restored = {
+        id: String(session.userId),
+        username: normUser,
+        fullName: String(session.fullName || session.username || 'O‘quvchi'),
+        group: String(session.group || 'General'),
+        passwordHash: '',
+        passwordless: true,
+        active: true,
+        createdAt: nowTs,
+        updatedAt: nowTs
+      };
+      db.students = list.concat([restored]);
+      db.studentProgress = Storage.ensureStudentProgress(db, restored.id, nowTs);
+      return true;
+    }
+    return false;
   }
 
   function serveStaticFile(reqPath, req, res) {
@@ -1080,14 +1157,9 @@ function createAppServer(options) {
           sendJson(res, 401, { ok: false, error: 'Jonli oqim (SSE) uchun avtorizatsiya talab qilinadi.' });
           return;
         }
-        if (session.role === 'student') {
-          const existsActive = (db.students || []).some(function (s) {
-            return s.id === session.userId && s.active !== false;
-          });
-          if (!existsActive) {
-            sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti faol emas.' });
-            return;
-          }
+        if (session.role === 'student' && !ensureActiveStudentSession(session)) {
+          sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti faol emas.' });
+          return;
         }
         if (isServerless) {
           res.writeHead(200, Object.assign({
@@ -1241,14 +1313,9 @@ function createAppServer(options) {
           sendJson(res, 401, { ok: false, error: 'Sessiya topilmadi yoki muddati tugagan.' });
           return;
         }
-        if (session.role === 'student') {
-          const existsActive = (db.students || []).some(function (s) {
-            return s.id === session.userId && s.active !== false;
-          });
-          if (!existsActive) {
-            sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti faol emas.' });
-            return;
-          }
+        if (session.role === 'student' && !ensureActiveStudentSession(session)) {
+          sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti faol emas.' });
+          return;
         }
         sendJson(res, 200, { ok: true, session: session, state: sanitizeDbForSession(db, session) });
         return;
@@ -1260,7 +1327,7 @@ function createAppServer(options) {
           sendJson(res, 401, { ok: false, error: 'Avtorizatsiya talab qilinadi.' });
           return;
         }
-        if (session.role === 'student' && !(db.students || []).some(function (s) { return s.id === session.userId && s.active !== false; })) {
+        if (session.role === 'student' && !ensureActiveStudentSession(session)) {
           sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti topilmadi yoki bloklangan.' });
           return;
         }
@@ -1279,7 +1346,7 @@ function createAppServer(options) {
           sendJson(res, 401, { ok: false, error: 'Avtorizatsiya talab qilinadi.' });
           return;
         }
-        if (session.role === 'student' && !(db.students || []).some(function (s) { return s.id === session.userId && s.active !== false; })) {
+        if (session.role === 'student' && !ensureActiveStudentSession(session)) {
           sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti topilmadi yoki bloklangan.' });
           return;
         }
@@ -1299,7 +1366,7 @@ function createAppServer(options) {
           sendJson(res, 401, { ok: false, error: 'Avtorizatsiya talab qilinadi.' });
           return;
         }
-        if (session.role === 'student' && !(db.students || []).some(function (s) { return s.id === session.userId && s.active !== false; })) {
+        if (session.role === 'student' && !ensureActiveStudentSession(session)) {
           sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti topilmadi yoki bloklangan.' });
           return;
         }
@@ -1512,14 +1579,9 @@ function createAppServer(options) {
           sendJson(res, 401, { ok: false, error: 'Avval tizimga kiring.' });
           return;
         }
-        if (session.role === 'student') {
-          const existsActive = (db.students || []).some(function (s) {
-            return s.id === session.userId && s.active !== false;
-          });
-          if (!existsActive) {
-            sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti faol emas.' });
-            return;
-          }
+        if (session.role === 'student' && !ensureActiveStudentSession(session)) {
+          sendJson(res, 401, { ok: false, error: 'O‘quvchi akkaunti faol emas.' });
+          return;
         }
         if (!fetcher) {
           sendJson(res, 500, { ok: false, error: 'Serverda fetch API mavjud emas.' });
@@ -1607,6 +1669,48 @@ function createAppServer(options) {
 
         const effectiveTts = Speech.resolveEffectiveTtsConfig(rawCfg, accent);
         if (effectiveTts.provider === 'browser' || !effectiveTts.apiKey) {
+          if (body.cloudFallback === true) {
+            const freeHash = crypto.createHash('sha256')
+              .update(['cloud-free', accent, text.toLowerCase()].join('|'))
+              .digest('hex');
+            const cachedFree = readTtsDiskCache(freeHash);
+            if (cachedFree && cachedFree.buffer) {
+              res.writeHead(200, Object.assign({
+                'Content-Type': cachedFree.mime,
+                'Cache-Control': 'public, max-age=86400',
+                'X-TTS-Source': 'cache',
+                'X-TTS-Provider': 'cloud-free'
+              }, getCorsHeaders(), getSecurityHeaders(false, isTrustworthyRequest(req))));
+              res.end(cachedFree.buffer);
+              return;
+            }
+            try {
+              let pendingFree = ttsInFlight.get(freeHash);
+              if (!pendingFree) {
+                pendingFree = synthesizeViaFreeCloudTts(text, accent).then(function (r) {
+                  if (r && r.buffer) {
+                    try { writeTtsDiskCache(freeHash, r.mime, r.buffer); } catch (_) {}
+                  }
+                  return r;
+                }).finally(function () {
+                  ttsInFlight.delete(freeHash);
+                });
+                ttsInFlight.set(freeHash, pendingFree);
+              }
+              const freeAudio = await pendingFree;
+              res.writeHead(200, Object.assign({
+                'Content-Type': freeAudio.mime,
+                'Cache-Control': 'public, max-age=86400',
+                'X-TTS-Source': 'cloud-free',
+                'X-TTS-Provider': 'cloud-free'
+              }, getCorsHeaders(), getSecurityHeaders(false, isTrustworthyRequest(req))));
+              res.end(freeAudio.buffer);
+              return;
+            } catch (_) {
+              sendJson(res, 200, { ok: true, mode: 'browser-fallback' });
+              return;
+            }
+          }
           sendJson(res, 200, { ok: true, mode: 'browser-fallback' });
           return;
         }
