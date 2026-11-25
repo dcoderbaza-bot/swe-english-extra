@@ -90,8 +90,11 @@ swe-english-extra/
 │   ├── storage.js        # v3 sxema, per-student SRS/telemetriya/finalExam, API kalit maskalash va CWE-1236 CSV himoyasi
 │   ├── ai-txt.js         # .TXT parser/exporter, HTTPS/SSRF validator va DeepSeek/Gemini/OpenAI/Custom AI boyitish
 │   ├── sync.js           # Gibrid sinxronizatsiya (tokenli SSE /api/stream + REST va BroadcastChannel)
-│   ├── speech.js         # API-Key Neural TTS (OpenAI/Gemini/ElevenLabs/Custom) + PCM->WAV + Web Speech zaxira tizimi
+│   ├── speech.js         # API-Key Neural TTS + 0-Key Cloud MP3 + Mobil Audio Unlock + Web Speech zaxira tizimi
 │   └── app.js            # UI kontroller, 1-bosqichli mobil kirish, anti-cheat proctoring va jonli monitoring
+├── api/
+│   └── index.js          # Vercel Serverless API kirish nuqtasi (/api/* -> Cloud KV + server.js)
+├── vercel.json           # Vercel Serverless yo‘naltirish va xavfsizlik sarlavhalari
 ├── start-server.bat      # Windows uchun bir klikda Wi-Fi + Global 4G/5G HTTPS tunnelni ishga tushirish skripti
 ├── package.json          # Node >= 18 start/test skriptlari (Render / Railway / Cloud deploy uchun)
 ├── Dockerfile            # Konteyner orqali bulutga joylash konfiguratsiyasi

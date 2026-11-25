@@ -272,3 +272,13 @@
   - Teacher va IT Manager uchun mavzu yaratish, bittalab `V1 · V2 · V3 · O‘zbekcha` qo‘shish/tahrirlash, ko‘plab `.TXT`/jadval kiritish va tasdiqlash orqali fe’l yoki butun mavzuni o‘chirish hamda real-time `/api/curriculum` sinxronizatsiyasi ulandi.
   - O‘quvchilar uchun rasm uslubidagi `NO. | V1 | V2 | V3 | O‘ZBEKCHA` jadvali (`V2·V3` va `O‘zbekcha` ustunlarini yashirib yodlash + audio talaffuz) hamda `V2 va V3 ni yozish` va `4-variantli Test` interaktiv mashqlari qo‘shildi.
 - `node tests/verify.js`: **22/22** test to‘plami muvaffaqiyatli o‘tdi.
+
+---
+
+## 16. Vercel 24/7 Cloud KV Deploy, Sessiya Barqarorligi va Kalitsiz Mobil MP3 Ovoz
+- **Vercel Serverless + Upstash Redis (`api/index.js`, `vercel.json`, `server.js`, `js/sync.js`):**
+  - Vercel loyihasiga (`https://swe-english-extra.vercel.app`) bepul **Upstash for Redis (`KV_REST_API_URL` / `KV_REST_API_TOKEN`)** doimiy bazasi ulandi (`storageMode: "cloud-kv"`).
+  - Serverless cold-start vaqtida parallel konteynerlarda o‘quvchini `401` bilan tizimdan chiqarib yuborish (`otvoryapti`) muammosi to‘liq bartaraf etildi (deterministik HMAC sessiya kaliti + Cloud KV sinxronizatsiyasi + `ensureActiveStudentSession` himoyasi).
+- **Mobil va WebView uchun 100% kafolatlangan MP3 Ovoz (`js/speech.js`, `server.js`):**
+  - Pullik TTS API kaliti bo‘lmaganda ham `/api/tts` (`cloudFallback: true`) server orqali toza `en-US` va `en-GB` `audio/mpeg` MP3 talaffuzni keshlab qaytaradi; iOS Safari / Android Chrome / Telegram WebView uchun `sharedAudioEl` tap vaqtida sinxron unlock qilinadi va Chromium `speechSynthesis.cancel()` poygasi tuzatildi.
+- `node tests/verify.js`: **23/23** test to‘plami muvaffaqiyatli o‘tdi.
