@@ -3041,26 +3041,29 @@
           : 'bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200');
 
       chip.innerHTML =
-        '<button type="button" data-select-irreg-topic class="inline-flex items-center gap-1.5 hover:opacity-90 text-left">' +
+        '<button type="button" data-action="irreg-select-topic" class="inline-flex items-center gap-1.5 hover:opacity-90 text-left">' +
           '<span>' + escapeHtml(topic.name) + '</span>' +
           '<span class="px-1.5 py-0.5 rounded-full text-[10px] tabular-nums ' + (isSelected ? 'bg-white/20 text-white' : 'bg-slate-200/80 dark:bg-slate-800 text-slate-600 dark:text-slate-300') + '">' + count + '</span>' +
         '</button>' +
         (staffCanEdit
-          ? '<button type="button" data-delete-irreg-topic class="p-1 rounded-full hover:bg-rose-500/20 ' + (isSelected ? 'text-rose-200 hover:text-white' : 'text-rose-500') + '" title="' + escapeHtml(topic.name) + ' mavzusini o‘chirish">' +
+          ? '<button type="button" data-action="irreg-delete-topic" class="p-1 rounded-full hover:bg-rose-500/20 ' + (isSelected ? 'text-rose-200 hover:text-white' : 'text-rose-500') + '" title="' + escapeHtml(topic.name) + ' mavzusini o‘chirish">' +
               '<i data-lucide="trash-2" class="w-3.5 h-3.5"></i>' +
             '</button>'
           : '');
 
-      chip.querySelector('[data-select-irreg-topic]').addEventListener('click', function () {
-        irregState.activeTopic = isSelected ? 'ALL' : topic.name;
-        if ($('irregTargetTopicSelect') && irregState.activeTopic !== 'ALL') {
-          $('irregTargetTopicSelect').value = topic.name;
-          if ($('irregNewTopicWrap')) $('irregNewTopicWrap').classList.add('hidden');
-        }
-        renderIrregularView({ restartPractice: true });
-      });
+      const selTopicBtn = chip.querySelector('[data-action="irreg-select-topic"]');
+      if (selTopicBtn) {
+        selTopicBtn.addEventListener('click', function () {
+          irregState.activeTopic = isSelected ? 'ALL' : topic.name;
+          if ($('irregTargetTopicSelect') && irregState.activeTopic !== 'ALL') {
+            $('irregTargetTopicSelect').value = topic.name;
+            if ($('irregNewTopicWrap')) $('irregNewTopicWrap').classList.add('hidden');
+          }
+          renderIrregularView({ restartPractice: true });
+        });
+      }
 
-      const delBtn = chip.querySelector('[data-delete-irreg-topic]');
+      const delBtn = chip.querySelector('[data-action="irreg-delete-topic"]');
       if (delBtn) {
         delBtn.addEventListener('click', function (e) {
           e.stopPropagation();
@@ -3134,20 +3137,20 @@
             ? '<div class="text-[10px] font-bold text-slate-400 dark:text-slate-500 truncate max-w-[180px]">' + escapeHtml(v.topic) + '</div>'
             : '') +
         '</td>' +
-        '<td data-maskable-cell class="py-3.5 px-4 font-semibold text-sky-800 dark:text-sky-300 text-sm sm:text-base notranslate ' + formMaskCls + '" translate="no">' + escapeHtml(v.v2) + '</td>' +
-        '<td data-maskable-cell class="py-3.5 px-4 font-semibold text-sky-800 dark:text-sky-300 text-sm sm:text-base notranslate ' + formMaskCls + '" translate="no">' + escapeHtml(v.v3) + '</td>' +
-        '<td data-maskable-cell class="py-3.5 px-4 font-semibold text-teal-700 dark:text-emerald-300 text-sm sm:text-base ' + uzMaskCls + '">' + escapeHtml(v.translation) + '</td>' +
+        '<td data-maskable-cell="1" class="py-3.5 px-4 font-semibold text-sky-800 dark:text-sky-300 text-sm sm:text-base notranslate ' + formMaskCls + '" translate="no">' + escapeHtml(v.v2) + '</td>' +
+        '<td data-maskable-cell="1" class="py-3.5 px-4 font-semibold text-sky-800 dark:text-sky-300 text-sm sm:text-base notranslate ' + formMaskCls + '" translate="no">' + escapeHtml(v.v3) + '</td>' +
+        '<td data-maskable-cell="1" class="py-3.5 px-4 font-semibold text-teal-700 dark:text-emerald-300 text-sm sm:text-base ' + uzMaskCls + '">' + escapeHtml(v.translation) + '</td>' +
         '<td class="py-3.5 px-4 text-right whitespace-nowrap">' +
           '<div class="inline-flex items-center gap-1">' +
-            '<button type="button" data-irreg-speak class="p-2 rounded-xl hover:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300" title="V1, V2, V3 talaffuzini eshitish"><i data-lucide="volume-2" class="w-4 h-4"></i></button>' +
+            '<button type="button" data-action="irreg-speak" class="p-2 rounded-xl hover:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300" title="V1, V2, V3 talaffuzini eshitish"><i data-lucide="volume-2" class="w-4 h-4"></i></button>' +
             (staffCanEdit
-              ? '<button type="button" data-irreg-edit class="p-2 rounded-xl hover:bg-amber-500/15 text-amber-600 dark:text-amber-300" title="Tahrirlash"><i data-lucide="pencil" class="w-4 h-4"></i></button>' +
-                '<button type="button" data-irreg-delete class="p-2 rounded-xl hover:bg-rose-500/15 text-rose-600 dark:text-rose-400" title="O‘chirish"><i data-lucide="trash-2" class="w-4 h-4"></i></button>'
+              ? '<button type="button" data-action="irreg-edit" class="p-2 rounded-xl hover:bg-amber-500/15 text-amber-600 dark:text-amber-300" title="Tahrirlash"><i data-lucide="pencil" class="w-4 h-4"></i></button>' +
+                '<button type="button" data-action="irreg-delete" class="p-2 rounded-xl hover:bg-rose-500/15 text-rose-600 dark:text-rose-400" title="O‘chirish"><i data-lucide="trash-2" class="w-4 h-4"></i></button>'
               : '') +
           '</div>' +
         '</td>';
 
-      tr.querySelectorAll('[data-maskable-cell]').forEach(function (td) {
+      tr.querySelectorAll('[data-maskable-cell="1"]').forEach(function (td) {
         td.addEventListener('click', function () {
           if (td.classList.contains('irreg-masked-cell')) {
             td.classList.toggle('is-revealed');
@@ -3155,17 +3158,20 @@
         });
       });
 
-      tr.querySelector('[data-irreg-speak]').addEventListener('click', function (e) {
-        speakIrregularVerbRow(v, e.currentTarget);
-      });
+      const speakBtn = tr.querySelector('[data-action="irreg-speak"]');
+      if (speakBtn) {
+        speakBtn.addEventListener('click', function (e) {
+          speakIrregularVerbRow(v, e.currentTarget);
+        });
+      }
 
-      const editBtn = tr.querySelector('[data-irreg-edit]');
+      const editBtn = tr.querySelector('[data-action="irreg-edit"]');
       if (editBtn) {
         editBtn.addEventListener('click', function () {
           startEditIrregularVerb(v);
         });
       }
-      const delBtn = tr.querySelector('[data-irreg-delete]');
+      const delBtn = tr.querySelector('[data-action="irreg-delete"]');
       if (delBtn) {
         delBtn.addEventListener('click', function () {
           deleteIrregularVerb(v);
@@ -3445,13 +3451,24 @@
     });
   }
 
+  function shuffleIrregList(arr) {
+    const copy = Array.isArray(arr) ? arr.slice() : [];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = copy[i];
+      copy[i] = copy[j];
+      copy[j] = tmp;
+    }
+    return copy;
+  }
+
   function buildIrregularQuizOptions(targetVerb) {
     const all = getIrregularVerbs();
     const targetLabel = targetVerb.v2 + '  →  ' + targetVerb.v3;
     const usedLabels = new Set([targetLabel.toLowerCase()]);
     const distractors = [];
 
-    const candidates = SRS.shuffle(all.filter(function (v) { return v.id !== targetVerb.id; }));
+    const candidates = shuffleIrregList(all.filter(function (v) { return v.id !== targetVerb.id; }));
     for (let i = 0; i < candidates.length && distractors.length < 3; i++) {
       const lbl = candidates[i].v2 + '  →  ' + candidates[i].v3;
       if (!usedLabels.has(lbl.toLowerCase())) {
@@ -3472,14 +3489,14 @@
       }
     }
 
-    return SRS.shuffle([{ label: targetLabel, isCorrect: true }].concat(distractors));
+    return shuffleIrregList([{ label: targetLabel, isCorrect: true }].concat(distractors));
   }
 
   function initIrregularPractice() {
     const pool = getIrregularPracticePool();
     const scopeKey = irregState.activeTopic.toLowerCase() + '|' + irregState.practiceMode;
     irregState.practiceScopeKey = scopeKey;
-    irregState.practiceItems = SRS.shuffle(pool).slice(0, Math.min(20, pool.length));
+    irregState.practiceItems = shuffleIrregList(pool).slice(0, Math.min(20, pool.length));
     irregState.practiceIndex = 0;
     irregState.practiceScore = 0;
     irregState.practiceAnswered = false;

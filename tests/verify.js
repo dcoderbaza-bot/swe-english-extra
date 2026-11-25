@@ -2111,7 +2111,7 @@ async function runAsyncTests() {
           _innerHTML = String(val || '');
           children.length = 0;
           if (_innerHTML) {
-            const subRe = /<(option|button|div|span|p|li|tr)\b([^>]*)>/gi;
+            const subRe = /<(option|button|div|span|p|li|tr|td)\b([^>]*)>/gi;
             let sm;
             while ((sm = subRe.exec(_innerHTML)) !== null) {
               const child = makeEl(sm[1], sm[2]);
